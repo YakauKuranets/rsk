@@ -1767,6 +1767,72 @@ fn extract_xml_tag_value(text: &str, tag: &str) -> Option<String> {
         .map(|m| m.as_str().trim().to_string())
 }
 
+fn extract_xml_tag_values(text: &str, tag: &str) -> Vec<String> {
+    let pattern = format!(
+        r"<(?:\w+:)?{}>([^<]+)</(?:\w+:)?{}>",
+        regex::escape(tag),
+        regex::escape(tag)
+    );
+    let re = match Regex::new(&pattern) {
+        Ok(v) => v,
+        Err(_) => return vec![],
+    };
+    re.captures_iter(text)
+        .filter_map(|c| c.get(1).map(|m| m.as_str().trim().to_string()))
+        .collect()
+}
+
+async fn detect_isapi_track_ids(
+    client: &reqwest::Client,
+    clean_host: &str,
+    log_state: &State<'_, LogState>,
+) -> Vec<String> {
+    let channels_url = format!("http://{}:2019/ISAPI/System/Video/inputs/channels", clean_host);
+    match client
+        .get(&channels_url)
+        .header("Accept", "application/xml, text/xml, */*")
+        .send()
+        .await
+    {
+        Ok(resp) if resp.status().is_success() => {
+            let body = resp.text().await.unwrap_or_default();
+            let channel_ids = extract_xml_tag_values(&body, "id");
+            let channels_count = channel_ids.len();
+            let mut out: Vec<String> = Vec::new();
+            for raw in channel_ids {
+                if let Ok(ch) = raw.parse::<u32>() {
+                    out.push(format!("{}01", ch));
+                    out.push(ch.to_string());
+                }
+            }
+            out.extend(["101", "1", "100", "0"].iter().map(|v| (*v).to_string()));
+            out.sort();
+            out.dedup();
+            if !out.is_empty() {
+                push_runtime_log(
+                    log_state,
+                    format!("📺 Обнаружено каналов: {}, TrackID-кандидаты: {:?}", channels_count, out),
+                );
+            }
+            out
+        }
+        Ok(resp) => {
+            push_runtime_log(
+                log_state,
+                format!("⚠️ Не удалось получить channels (HTTP {})", resp.status().as_u16()),
+            );
+            vec!["101".into(), "1".into(), "100".into(), "0".into()]
+        }
+        Err(err) => {
+            push_runtime_log(
+                log_state,
+                format!("⚠️ Ошибка channels запроса: {}", err),
+            );
+            vec!["101".into(), "1".into(), "100".into(), "0".into()]
+        }
+    }
+}
+
 async fn isapi_v2_session_login(
     client: &reqwest::Client,
     clean_host: &str,
@@ -1849,7 +1915,7 @@ async fn isapi_v2_session_login(
     let secret_hash = calculate_isapi_v2_hash(login, pass, &salt, &challenge, iterations);
     let login_xml = format!(
         r#"<?xml version="1.0" encoding="UTF-8"?>
-<SessionLogin>
+<SessionLogin version="2.0" xmlns="http://www.hikvision.com/ver20/XMLSchema">
   <userName>{}</userName>
   <password>{}</password>
   <sessionID>{}</sessionID>
@@ -2043,8 +2109,9 @@ async fn search_isapi_recordings_impl(
 
     let endpoint = format!("http://{}:2019/ISAPI/ContentMgmt/search", clean_host);
 
-    for tid in ["101", "1", "100", "0"] {
-        let tid_str = tid.to_string();
+    let track_ids = detect_isapi_track_ids(&client, &clean_host, &log_state).await;
+
+    for tid_str in track_ids {
         let body = generate_isapi_xml(&tid_str, &from, &to);
 
         push_runtime_log(&log_state, format!("🕵️ [STRIKE] Проверка TrackID: {}...", tid_str));
