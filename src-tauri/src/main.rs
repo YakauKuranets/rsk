@@ -4,7 +4,7 @@ use aes_gcm::{
     aead::{Aead, KeyInit},
     Aes256Gcm, Nonce,
 };
-use chrono::Utc;
+use chrono::{DateTime, Datelike, TimeZone, Utc};
 use dotenv::dotenv;
 use futures_util::StreamExt;
 use regex::Regex;
@@ -24,7 +24,6 @@ use suppaftp::FtpStream;
 use tauri::State;
 use tokio::sync::Mutex;
 use digest_auth::AuthContext;
-use digest_auth::WwwAuthenticateHeader; // Важно для парсинга
 use tokio::{
     net::TcpStream,
     time::{timeout, Duration},
@@ -1698,16 +1697,14 @@ async fn fetch_onvif_device_info(
 
 // --- ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ ДЛЯ ISAPI (ИЗВЛЕЧЕНО ИЗ АНАЛИЗА ПЛАГИНА) ---
 
-fn generate_isapi_xml(from_time: Option<&str>, to_time: Option<&str>) -> String {
-    let from = from_time.unwrap_or("2026-01-01T00:00:00Z");
-    let to = to_time.unwrap_or("2026-12-31T23:59:59Z");
+fn generate_isapi_xml(track_id: &str, from_time: &str, to_time: &str) -> String {
 
     format!(
         r#"<?xml version="1.0" encoding="UTF-8"?>
 <SearchDescription>
     <searchID>1</searchID>
     <trackList>
-        <trackID>101</trackID>
+        <trackID>{}</trackID>
     </trackList>
     <timeSpanList>
         <timeSpan>
@@ -1721,8 +1718,77 @@ fn generate_isapi_xml(from_time: Option<&str>, to_time: Option<&str>) -> String 
         <metadataDescriptor>//recordType.meta.std-cgi.com</metadataDescriptor>
     </metadataList>
 </SearchDescription>"#,
-        from, to
+        track_id, from_time, to_time
     )
+}
+
+fn parse_isapi_time(text: &str) -> Option<DateTime<Utc>> {
+    let local_time_re = Regex::new(r"<(?:localTime|time)>([^<]+)</(?:localTime|time)>").ok()?;
+    let value = local_time_re
+        .captures(text)
+        .and_then(|c| c.get(1).map(|m| m.as_str().trim().to_string()))?;
+
+    DateTime::parse_from_rfc3339(&value)
+        .map(|dt| dt.with_timezone(&Utc))
+        .ok()
+        .or_else(|| Utc.datetime_from_str(&value, "%Y-%m-%dT%H:%M:%S").ok())
+}
+
+async fn send_isapi_digest_request(
+    client: &reqwest::Client,
+    method: reqwest::Method,
+    endpoint: &str,
+    path: &str,
+    login: &str,
+    pass: &str,
+    body: Option<String>,
+) -> Result<reqwest::Response, String> {
+    let bootstrap = client
+        .request(method.clone(), endpoint)
+        .header("X-Requested-With", "XMLHttpRequest")
+        .header("User-Agent", "Mozilla/4.0 (compatible; MSIE 8.0; Windows NT 6.1)")
+        .header("Accept", "application/xml, text/xml, */*")
+        .header("Connection", "keep-alive")
+        .send()
+        .await
+        .map_err(|e| format!("Digest bootstrap failed: {}", e))?;
+
+    let auth_header = bootstrap
+        .headers()
+        .get(reqwest::header::WWW_AUTHENTICATE)
+        .and_then(|h| h.to_str().ok())
+        .ok_or_else(|| {
+            format!(
+                "Digest challenge missing WWW-Authenticate (HTTP {})",
+                bootstrap.status().as_u16()
+            )
+        })?;
+
+    let mut prompt = digest_auth::parse(auth_header).map_err(|e| format!("Digest parse error: {:?}", e))?;
+    let context = AuthContext::new(login.to_string(), pass.to_string(), path);
+    let answer = prompt
+        .respond(&context)
+        .map_err(|e| format!("Digest response build failed: {:?}", e))?;
+
+    let mut request = client
+        .request(method, endpoint)
+        .header("Authorization", answer.to_string())
+        .header("X-Requested-With", "XMLHttpRequest")
+        .header("Accept", "application/xml, text/xml, */*")
+        .header("User-Agent", "Mozilla/4.0 (compatible; MSIE 8.0; Windows NT 6.1)")
+        .header("Cookie", "WebSession=Guest")
+        .header("Connection", "keep-alive");
+
+    if let Some(payload) = body {
+        request = request
+            .header("Content-Type", "application/xml; charset=UTF-8")
+            .body(payload);
+    }
+
+    request
+        .send()
+        .await
+        .map_err(|e| format!("Digest authenticated request failed: {}", e))
 }
 
 fn parse_isapi_xml(text: &str, endpoint: &str) -> Vec<IsapiRecordingItem> {
@@ -1751,6 +1817,124 @@ fn parse_isapi_xml(text: &str, endpoint: &str) -> Vec<IsapiRecordingItem> {
     items
 }
 
+async fn search_isapi_recordings_impl(
+    host: String,
+    login: String,
+    pass: String,
+    from_time: Option<String>,
+    to_time: Option<String>,
+    log_state: State<'_, LogState>,
+) -> Result<Vec<IsapiRecordingItem>, String> {
+    let clean_host = normalize_host_for_scan(&host);
+    if clean_host.is_empty() {
+        return Err("Пустой host для ISAPI recordings search".into());
+    }
+
+    let requested_from = from_time.unwrap_or_else(|| "2026-01-01T00:00:00Z".to_string());
+    let requested_to = to_time.unwrap_or_else(|| "2026-12-31T23:59:59Z".to_string());
+    let mut from = requested_from.clone();
+    let mut to = requested_to.clone();
+
+    let client = reqwest::Client::builder()
+        .timeout(Duration::from_secs(15))
+        .danger_accept_invalid_certs(true)
+        .build()
+        .map_err(|e| e.to_string())?;
+
+    let time_endpoint = format!("http://{}:2019/ISAPI/System/time", clean_host);
+    match send_isapi_digest_request(
+        &client,
+        reqwest::Method::GET,
+        &time_endpoint,
+        "/ISAPI/System/time",
+        &login,
+        &pass,
+        None,
+    )
+    .await
+    {
+        Ok(time_resp) => {
+            let status = time_resp.status().as_u16();
+            let body = time_resp.text().await.unwrap_or_default();
+            if let Some(camera_dt) = parse_isapi_time(&body) {
+                let now_year = Utc::now().year();
+                let cam_year = camera_dt.year();
+                let skew = (now_year - cam_year).abs();
+                push_runtime_log(
+                    &log_state,
+                    format!("🕒 Камера: {} (skew {}y)", camera_dt.to_rfc3339(), skew),
+                );
+                if skew >= 3 {
+                    from = format!("{}-01-01T00:00:00Z", cam_year - 1);
+                    to = format!("{}-12-31T23:59:59Z", cam_year + 1);
+                    push_runtime_log(
+                        &log_state,
+                        format!("⚠️ Временное окно сдвинуто под часы камеры: {} .. {}", from, to),
+                    );
+                }
+            } else {
+                push_runtime_log(
+                    &log_state,
+                    format!("⚠️ Не удалось распарсить время камеры (HTTP {})", status),
+                );
+            }
+        }
+        Err(err) => push_runtime_log(&log_state, format!("⚠️ Проверка времени камеры не удалась: {}", err)),
+    }
+
+    let endpoint = format!("http://{}:2019/ISAPI/ContentMgmt/search", clean_host);
+
+    for tid in ["101", "1", "100", "0"] {
+        let tid_str = tid.to_string();
+        let body = generate_isapi_xml(&tid_str, &from, &to);
+
+        push_runtime_log(&log_state, format!("🕵️ [STRIKE] Проверка TrackID: {}...", tid_str));
+
+        match send_isapi_digest_request(
+            &client,
+            reqwest::Method::POST,
+            &endpoint,
+            "/ISAPI/ContentMgmt/search",
+            &login,
+            &pass,
+            Some(body),
+        )
+        .await
+        {
+            Ok(resp) => {
+                let status_code = resp.status().as_u16();
+                let text = resp.text().await.unwrap_or_default();
+                push_runtime_log(
+                    &log_state,
+                    format!(
+                        "📡 [TID:{}] HTTP {} | {}",
+                        tid_str,
+                        status_code,
+                        text.chars().take(150).collect::<String>()
+                    ),
+                );
+
+                if text.contains("<playbackURI>") || text.contains("<url>") {
+                    let items = parse_isapi_xml(&text, &endpoint);
+                    if !items.is_empty() {
+                        push_runtime_log(&log_state, format!("🎯 НАЙДЕНО: {} записей!", items.len()));
+                        return Ok(items);
+                    }
+                }
+            }
+            Err(err) => {
+                push_runtime_log(
+                    &log_state,
+                    format!("❌ [TID:{}] Digest-запрос не удался: {}", tid_str, err),
+                );
+            }
+        }
+        tokio::time::sleep(Duration::from_millis(300)).await;
+    }
+
+    Err("Записи не найдены. Проверь логи [DEBUG].".into())
+}
+
 #[tauri::command]
 async fn search_isapi_recordings(
     host: String,
@@ -1760,81 +1944,7 @@ async fn search_isapi_recordings(
     to_time: Option<String>,
     log_state: State<'_, LogState>,
 ) -> Result<Vec<IsapiRecordingItem>, String> {
-    let clean_host = normalize_host_for_scan(&host);
-
-    // Широкий охват по времени, если на камере сбиты часы
-    let from = "2024-01-01T00:00:00Z".to_string();
-    let to = "2027-12-31T23:59:59Z".to_string();
-
-    let client = reqwest::Client::builder()
-        .timeout(Duration::from_secs(15))
-        .danger_accept_invalid_certs(true)
-        .build()
-        .map_err(|e| e.to_string())?;
-
-    let endpoint = format!("http://{}:2019/ISAPI/ContentMgmt/search", clean_host);
-
-    for tid in ["101", "1", "100", "0"] {
-        let tid_str = tid.to_string();
-        let body = format!(
-            r#"<?xml version="1.0" encoding="UTF-8"?><SearchDescription><searchID>1</searchID><trackList><trackID>{}</trackID></trackList><timeSpanList><timeSpan><startTime>{}</startTime><endTime>{}</endTime></timeSpan></timeSpanList><maxResults>40</maxResults></SearchDescription>"#,
-            tid_str, from, to
-        );
-
-        push_runtime_log(&log_state, format!("🕵️ [STRIKE] Проверка TrackID: {}...", tid_str));
-
-        // 1. Получаем nonce
-        let first_resp = client.post(&endpoint)
-            .header("X-Requested-With", "XMLHttpRequest")
-            .body(body.clone())
-            .send()
-            .await;
-
-        if let Ok(resp) = first_resp {
-            if resp.status().as_u16() == 401 {
-                let auth_header = resp.headers().get("www-authenticate")
-                    .and_then(|h| h.to_str().ok())
-                    .unwrap_or_default();
-
-                let mut prompt = digest_auth::parse(auth_header).map_err(|e| format!("{:?}", e))?;
-                let context = digest_auth::AuthContext::new(login.clone(), pass.clone(), "/ISAPI/ContentMgmt/search");
-                let answer = prompt.respond(&context).map_err(|e| format!("{:?}", e))?;
-
-                // 2. Основной запрос
-                let final_resp = client.post(&endpoint)
-                    .header("Authorization", answer.to_string())
-                    .header("Content-Type", "application/xml")
-                    .header("X-Requested-With", "XMLHttpRequest")
-                    .header("Accept", "application/xml, text/xml, */*")
-                    .header("Cookie", "WebSession=Guest")
-                    .body(body)
-                    .send()
-                    .await;
-
-                if let Ok(r) = final_resp {
-                    // 🔥 Сначала сохраняем статус, потом вызываем .text() 🔥
-                    let status_code = r.status().as_u16();
-                    let text = r.text().await.unwrap_or_default();
-
-                    push_runtime_log(
-                        &log_state,
-                        format!("📡 [TID:{}] HTTP {} | {}", tid_str, status_code, text.chars().take(150).collect::<String>())
-                    );
-
-                    if text.contains("<playbackURI>") || text.contains("<url>") {
-                        let items = parse_isapi_xml(&text, &endpoint);
-                        if !items.is_empty() {
-                            push_runtime_log(&log_state, format!("🎯 НАЙДЕНО: {} записей!", items.len()));
-                            return Ok(items);
-                        }
-                    }
-                }
-            }
-        }
-        tokio::time::sleep(Duration::from_millis(300)).await;
-    }
-
-    Err("Записи не найдены. Проверь логи [DEBUG].".into())
+    search_isapi_recordings_impl(host, login, pass, from_time, to_time, log_state).await
 }
 
 #[tauri::command]
