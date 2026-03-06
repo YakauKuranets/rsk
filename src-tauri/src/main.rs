@@ -1756,7 +1756,11 @@ fn calculate_isapi_v2_hash(user: &str, pass: &str, salt: &str, challenge: &str, 
 }
 
 fn extract_xml_tag_value(text: &str, tag: &str) -> Option<String> {
-    let pattern = format!(r"<{}>([^<]+)</{}>", regex::escape(tag), regex::escape(tag));
+    let pattern = format!(
+        r"<(?:\w+:)?{}>([^<]+)</(?:\w+:)?{}>",
+        regex::escape(tag),
+        regex::escape(tag)
+    );
     let re = Regex::new(&pattern).ok()?;
     re.captures(text)
         .and_then(|c| c.get(1))
@@ -1770,29 +1774,55 @@ async fn isapi_v2_session_login(
     pass: &str,
     log_state: &State<'_, LogState>,
 ) -> Result<(), String> {
-    let cap_url = format!(
-        "http://{}:2019/ISAPI/Security/sessionLogin/capabilities?username={}",
-        clean_host, login
-    );
+    let capability_urls = [
+        format!(
+            "http://{}:2019/ISAPI/Security/sessionLogin/capabilities?username={}",
+            clean_host, login
+        ),
+        format!(
+            "http://{}:2019/ISAPI/Security/sessionLogin/capabilities?userName={}",
+            clean_host, login
+        ),
+        format!("http://{}:2019/ISAPI/Security/sessionLogin/capabilities", clean_host),
+    ];
 
-    let cap_resp = client
-        .get(&cap_url)
-        .header("Accept", "application/xml, text/xml, */*")
-        .send()
-        .await
-        .map_err(|e| format!("ISAPI v2 capabilities request failed: {}", e))?;
+    let mut last_error = String::new();
+    let mut cap_xml = String::new();
 
-    if !cap_resp.status().is_success() {
-        return Err(format!(
-            "ISAPI v2 capabilities returned HTTP {}",
-            cap_resp.status().as_u16()
-        ));
+    for cap_url in capability_urls {
+        let cap_resp = client
+            .get(&cap_url)
+            .header("Accept", "application/xml, text/xml, */*")
+            .send()
+            .await
+            .map_err(|e| format!("ISAPI v2 capabilities request failed: {}", e))?;
+
+        let status = cap_resp.status().as_u16();
+        let body = cap_resp
+            .text()
+            .await
+            .map_err(|e| format!("ISAPI v2 capabilities read failed: {}", e))?;
+
+        let has_v2_fields = extract_xml_tag_value(&body, "salt").is_some()
+            && (extract_xml_tag_value(&body, "challenge").is_some()
+                || extract_xml_tag_value(&body, "sessionID").is_some());
+
+        if status == 200 && has_v2_fields {
+            cap_xml = body;
+            break;
+        }
+
+        last_error = format!(
+            "{} -> HTTP {} {}",
+            cap_url,
+            status,
+            body.chars().take(120).collect::<String>()
+        );
     }
 
-    let cap_xml = cap_resp
-        .text()
-        .await
-        .map_err(|e| format!("ISAPI v2 capabilities read failed: {}", e))?;
+    if cap_xml.is_empty() {
+        return Err(format!("ISAPI v2 capabilities not usable: {}", last_error));
+    }
 
     let salt = extract_xml_tag_value(&cap_xml, "salt").unwrap_or_default();
     let challenge = extract_xml_tag_value(&cap_xml, "challenge")
@@ -1818,7 +1848,7 @@ async fn isapi_v2_session_login(
 
     let secret_hash = calculate_isapi_v2_hash(login, pass, &salt, &challenge, iterations);
     let login_xml = format!(
-        r#"<?xml version=\"1.0\" encoding=\"UTF-8\"?>
+        r#"<?xml version="1.0" encoding="UTF-8"?>
 <SessionLogin>
   <userName>{}</userName>
   <password>{}</password>
@@ -2067,7 +2097,7 @@ async fn search_isapi_recordings_impl(
             Err(err) => {
                 push_runtime_log(
                     &log_state,
-                    format!("❌ [TID:{}] Digest-запрос не удался: {}", tid_str, err),
+                    format!("❌ [TID:{}] Поисковый запрос не удался: {}", tid_str, err),
                 );
             }
         }
