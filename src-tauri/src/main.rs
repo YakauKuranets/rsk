@@ -1734,6 +1734,123 @@ fn parse_isapi_time(text: &str) -> Option<DateTime<Utc>> {
         .or_else(|| Utc.datetime_from_str(&value, "%Y-%m-%dT%H:%M:%S").ok())
 }
 
+fn hex_encode(bytes: impl AsRef<[u8]>) -> String {
+    bytes
+        .as_ref()
+        .iter()
+        .map(|b| format!("{:02x}", b))
+        .collect::<String>()
+}
+
+fn calculate_isapi_v2_hash(user: &str, pass: &str, salt: &str, challenge: &str, iterations: u32) -> String {
+    let seed = format!("{}{}{}", user, salt, pass);
+    let mut hash_bytes = Sha256::digest(seed.as_bytes());
+
+    for _ in 1..iterations.max(1) {
+        hash_bytes = Sha256::digest(hash_bytes);
+    }
+
+    let hashed_pw = hex_encode(hash_bytes);
+    let final_raw = format!("{}{}", hashed_pw, challenge);
+    hex_encode(Sha256::digest(final_raw.as_bytes()))
+}
+
+fn extract_xml_tag_value(text: &str, tag: &str) -> Option<String> {
+    let pattern = format!(r"<{}>([^<]+)</{}>", regex::escape(tag), regex::escape(tag));
+    let re = Regex::new(&pattern).ok()?;
+    re.captures(text)
+        .and_then(|c| c.get(1))
+        .map(|m| m.as_str().trim().to_string())
+}
+
+async fn isapi_v2_session_login(
+    client: &reqwest::Client,
+    clean_host: &str,
+    login: &str,
+    pass: &str,
+    log_state: &State<'_, LogState>,
+) -> Result<(), String> {
+    let cap_url = format!(
+        "http://{}:2019/ISAPI/Security/sessionLogin/capabilities?username={}",
+        clean_host, login
+    );
+
+    let cap_resp = client
+        .get(&cap_url)
+        .header("Accept", "application/xml, text/xml, */*")
+        .send()
+        .await
+        .map_err(|e| format!("ISAPI v2 capabilities request failed: {}", e))?;
+
+    if !cap_resp.status().is_success() {
+        return Err(format!(
+            "ISAPI v2 capabilities returned HTTP {}",
+            cap_resp.status().as_u16()
+        ));
+    }
+
+    let cap_xml = cap_resp
+        .text()
+        .await
+        .map_err(|e| format!("ISAPI v2 capabilities read failed: {}", e))?;
+
+    let salt = extract_xml_tag_value(&cap_xml, "salt").unwrap_or_default();
+    let challenge = extract_xml_tag_value(&cap_xml, "challenge")
+        .or_else(|| extract_xml_tag_value(&cap_xml, "sessionID"))
+        .unwrap_or_default();
+    let iterations = extract_xml_tag_value(&cap_xml, "iterations")
+        .and_then(|n| n.parse::<u32>().ok())
+        .unwrap_or(100)
+        .max(1);
+
+    if salt.is_empty() || challenge.is_empty() {
+        return Err("ISAPI v2 capabilities missing salt/challenge".into());
+    }
+
+    push_runtime_log(
+        log_state,
+        format!(
+            "🔐 ISAPI v2 challenge получен (iterations={}, salt_len={})",
+            iterations,
+            salt.len()
+        ),
+    );
+
+    let secret_hash = calculate_isapi_v2_hash(login, pass, &salt, &challenge, iterations);
+    let login_xml = format!(
+        r#"<?xml version=\"1.0\" encoding=\"UTF-8\"?>
+<SessionLogin>
+  <userName>{}</userName>
+  <password>{}</password>
+  <sessionID>{}</sessionID>
+  <sessionIDVersion>2</sessionIDVersion>
+</SessionLogin>"#,
+        login, secret_hash, challenge
+    );
+    let login_url = format!("http://{}:2019/ISAPI/Security/sessionLogin", clean_host);
+
+    let login_resp = client
+        .post(&login_url)
+        .header("Content-Type", "application/xml; charset=UTF-8")
+        .body(login_xml)
+        .send()
+        .await
+        .map_err(|e| format!("ISAPI v2 sessionLogin request failed: {}", e))?;
+
+    if !login_resp.status().is_success() {
+        let status = login_resp.status().as_u16();
+        let body = login_resp.text().await.unwrap_or_default();
+        return Err(format!(
+            "ISAPI v2 sessionLogin failed: HTTP {} {}",
+            status,
+            body.chars().take(150).collect::<String>()
+        ));
+    }
+
+    push_runtime_log(log_state, "✅ ISAPI v2 авторизация пройдена");
+    Ok(())
+}
+
 async fn send_isapi_digest_request(
     client: &reqwest::Client,
     method: reqwest::Method,
@@ -1837,9 +1954,21 @@ async fn search_isapi_recordings_impl(
 
     let client = reqwest::Client::builder()
         .timeout(Duration::from_secs(15))
+        .cookie_store(true)
         .danger_accept_invalid_certs(true)
         .build()
         .map_err(|e| e.to_string())?;
+
+    let mut v2_authenticated = false;
+    match isapi_v2_session_login(&client, &clean_host, &login, &pass, &log_state).await {
+        Ok(_) => {
+            v2_authenticated = true;
+        }
+        Err(err) => push_runtime_log(
+            &log_state,
+            format!("⚠️ ISAPI v2 недоступен ({}), откат на Digest", err),
+        ),
+    }
 
     let time_endpoint = format!("http://{}:2019/ISAPI/System/time", clean_host);
     match send_isapi_digest_request(
@@ -1890,16 +2019,29 @@ async fn search_isapi_recordings_impl(
 
         push_runtime_log(&log_state, format!("🕵️ [STRIKE] Проверка TrackID: {}...", tid_str));
 
-        match send_isapi_digest_request(
-            &client,
-            reqwest::Method::POST,
-            &endpoint,
-            "/ISAPI/ContentMgmt/search",
-            &login,
-            &pass,
-            Some(body),
-        )
-        .await
+        let response = if v2_authenticated {
+            client
+                .post(&endpoint)
+                .header("Content-Type", "application/xml; charset=UTF-8")
+                .header("Accept", "application/xml, text/xml, */*")
+                .body(body)
+                .send()
+                .await
+                .map_err(|e| format!("ISAPI v2 search request failed: {}", e))
+        } else {
+            send_isapi_digest_request(
+                &client,
+                reqwest::Method::POST,
+                &endpoint,
+                "/ISAPI/ContentMgmt/search",
+                &login,
+                &pass,
+                Some(body),
+            )
+            .await
+        };
+
+        match response
         {
             Ok(resp) => {
                 let status_code = resp.status().as_u16();
