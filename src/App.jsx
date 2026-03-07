@@ -979,10 +979,29 @@ export default function App() {
           : t,
       ));
     } catch (err) {
-      setDownloadTasks(prev => prev.map(t =>
-        t.id === taskId ? { ...t, status: 'error', percent: 0, error: String(err) } : t,
-      ));
-      alert(`Ошибка ISAPI download: ${err}`);
+      // Fallback: если прямой ISAPI export отказал, пытаемся вытащить сегмент через FFmpeg.
+      try {
+        const fallback = await invoke('capture_archive_segment', {
+          sourceUrl: item.playbackUri,
+          filenameHint: item.playbackUri.split('/').pop() || 'isapi_record.mp4',
+          durationSeconds: 180,
+          taskId,
+        });
+
+        const durationSec = Math.max((fallback.durationMs || 0) / 1000, 0.001);
+        const speedBytesSec = Math.round((fallback.bytesWritten || 0) / durationSec);
+        setDownloadTasks(prev => prev.map(t =>
+          t.id === taskId
+            ? { ...t, status: 'done', percent: 100, bytesWritten: fallback.totalBytes || fallback.bytesWritten || 0, speedBytesSec, savePath: fallback.savePath, protocol: 'ffmpeg-fallback' }
+            : t,
+        ));
+        alert('ISAPI export отказал, файл сохранён через FFmpeg fallback.');
+      } catch (fallbackErr) {
+        setDownloadTasks(prev => prev.map(t =>
+          t.id === taskId ? { ...t, status: 'error', percent: 0, error: `${String(err)} | fallback: ${String(fallbackErr)}` } : t,
+        ));
+        alert(`Ошибка ISAPI download: ${err}\nFallback тоже не сработал: ${fallbackErr}`);
+      }
     } finally {
       setLoading(false);
     }

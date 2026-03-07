@@ -37,7 +37,7 @@ export default function NemesisArchiveTerminal({ target, onClose }) {
     const fmt = d => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
     setTimeFrom(`${fmt(now)} 00:00:00`);
     setTimeTo(`${fmt(now)} 23:59:59`);
-    if (target.channels?.length) setCamera(String(target.channels[0]?.id || '101'));
+    if (target.channels?.length) setCamera(String(target.channels[0]?.index || target.channels[0]?.id || '101'));
   }, []);
 
   useEffect(() => {
@@ -73,12 +73,33 @@ export default function NemesisArchiveTerminal({ target, onClose }) {
 
   const handleDownload = async (item, idx) => {
     const k = `dl_${idx}`; setActiveDownloads(p => ({ ...p, [k]: 'working' }));
-    log(`\u2b07 \u0417\u0410\u0413\u0420\u0423\u0417\u041a\u0410 #${idx+1}...`, 'info');
+    log(`⬇ ЗАГРУЗКА #${idx+1}...`, 'info');
+    const taskId = `nem_${Date.now()}_${idx}`;
     try {
-      const r = await invoke('download_isapi_playback_uri', { playbackUri: item.playbackUri, login: target.login||'admin', pass: target.password||'', filenameHint: `${target.host.replace(/\./g,'_')}_cam${camera}_${idx}.mp4`, taskId: `nem_${Date.now()}` });
+      const r = await invoke('download_isapi_playback_uri', {
+        playbackUri: item.playbackUri,
+        login: target.login || 'admin',
+        pass: target.password || '',
+        filenameHint: `${target.host.replace(/\./g,'_')}_cam${camera}_${idx}.mp4`,
+        taskId,
+      });
       setActiveDownloads(p => ({ ...p, [k]: 'done' }));
-      log(`\u2705 ${r.filename} (${(r.bytesWritten/1048576).toFixed(1)} MB)`, 'ok');
-    } catch (e) { setActiveDownloads(p => ({ ...p, [k]: 'error' })); log(`\u274c ${e}`, 'err'); }
+      log(`✅ ${r.filename} (${(r.bytesWritten/1048576).toFixed(1)} MB)`, 'ok');
+    } catch (e) {
+      try {
+        const fallback = await invoke('capture_archive_segment', {
+          sourceUrl: (item.playbackUri || '').replace(/&amp;/g, '&'),
+          filenameHint: `${target.host.replace(/\./g,'_')}_cam${camera}_${idx}_fallback.mp4`,
+          durationSeconds: 180,
+          taskId,
+        });
+        setActiveDownloads(p => ({ ...p, [k]: 'done' }));
+        log(`⚠ ISAPI отказал, fallback OK: ${fallback.filename} (${(fallback.bytesWritten/1048576).toFixed(1)} MB)`, 'warn');
+      } catch (fallbackErr) {
+        setActiveDownloads(p => ({ ...p, [k]: 'error' }));
+        log(`❌ ${e} | fallback: ${fallbackErr}`, 'err');
+      }
+    }
   };
 
   const handleCapture = async (item) => {
@@ -90,7 +111,7 @@ export default function NemesisArchiveTerminal({ target, onClose }) {
   };
 
   const chOpts = target.channels?.length
-    ? target.channels.map(c => ({ v: String(c.id||'101'), l: c.name||`\u041a\u0430\u043d\u0430\u043b ${c.id}` }))
+    ? target.channels.map(c => ({ v: String(c.index ?? c.id ?? '101'), l: c.name||`\u041a\u0430\u043d\u0430\u043b ${c.index ?? c.id}` }))
     : [{v:'101',l:'[A1] pod 1'},{v:'201',l:'[A2] pod 2'},{v:'301',l:'[A3] pod 3'},{v:'401',l:'[A4] pod 4'}];
 
   const pc = phase==='ready'?'#00ff9c':phase==='scanning'?'#00f0ff':phase==='error'?'#ff003c':'#ff9900';
