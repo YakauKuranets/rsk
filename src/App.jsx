@@ -914,8 +914,16 @@ export default function App() {
       });
       setIsapiSearchAuth({ login, pass });
       setIsapiSearchResults(result);
+      const downloadableCount = (result || []).filter((x) => isDownloadableRecord(x)).length;
+      const playableCount = (result || []).filter((x) => isPlayableRecord(x)).length;
+      const confidences = (result || []).map((x) => Number(x?.confidence ?? 0)).filter((x) => Number.isFinite(x));
+      const maxConfidence = confidences.length ? Math.max(...confidences) : 0;
+      const avgConfidence = confidences.length ? Math.round(confidences.reduce((a, b) => a + b, 0) / confidences.length) : 0;
       alert(`ISAPI search (${terminal.host})
-Найдено записей: ${result.length}`);
+Найдено записей: ${result.length}
+playable: ${playableCount}
+downloadable: ${downloadableCount}
+confidence(avg/max): ${avgConfidence}/${maxConfidence}`);
     } catch (err) {
       alert(`Ошибка ISAPI search: ${err}`);
     } finally {
@@ -940,16 +948,75 @@ export default function App() {
     }
   };
 
+  const isDownloadableRecord = (item) => (typeof item?.downloadable === 'boolean' ? item.downloadable : Boolean(item?.playbackUri));
+  const isPlayableRecord = (item) => (typeof item?.playable === 'boolean' ? item.playable : Boolean(item?.playbackUri));
+  const normalizePlaybackUri = (uri) => String(uri || '').replace(/&amp;/g, '&').trim();
+  const getIsapiFilenameHint = (uri, fallback = 'isapi_record.mp4') => {
+    const clean = normalizePlaybackUri(uri);
+    const sanitize = (name) => String(name || '')
+      .replace(/[\/:*?"<>|\u0000-\u001F]/g, '_')
+      .replace(/\s+/g, '_')
+      .replace(/_+/g, '_')
+      .replace(/^\.+/, '')
+      .slice(0, 180);
+
+    const fromName = clean.match(/[?&]name=([^&]+)/i)?.[1];
+    if (fromName) {
+      const decoded = (() => { try { return decodeURIComponent(fromName.replace(/\+/g, '%20')); } catch { return fromName; } })();
+      const safe = sanitize(decoded);
+      const base = safe || fallback;
+      return /\.[a-z0-9]{2,5}$/i.test(base) ? base : `${base}.mp4`;
+    }
+    const tail = clean.split('/').pop()?.split('?')[0];
+    const safeTail = sanitize(tail);
+    const base = safeTail || fallback;
+    return /\.[a-z0-9]{2,5}$/i.test(base) ? base : `${base}.mp4`;
+  };
+
+  const getIsapiCaptureDurationSeconds = (item) => {
+    const parseTs = (v) => {
+      if (!v) return null;
+      const n = new Date(v).getTime();
+      return Number.isFinite(n) ? n : null;
+    };
+    const start = parseTs(item?.startTime);
+    const end = parseTs(item?.endTime);
+    if (start && end && end > start) {
+      return Math.min(1800, Math.max(30, Math.floor((end - start) / 1000) + 15));
+    }
+    return 120;
+  };
+
+  const handleCaptureIsapiPlayback = async (item) => {
+    if (!item?.playbackUri) {
+      return alert('Для этой записи отсутствует playback URI');
+    }
+    const durationSec = getIsapiCaptureDurationSeconds(item);
+    const normalizedUri = normalizePlaybackUri(item.playbackUri);
+    if (!normalizedUri) {
+      return alert('Некорректный playback URI для capture');
+    }
+    await handleCaptureArchive(normalizedUri, getIsapiFilenameHint(normalizedUri, 'isapi_capture.mp4'), durationSec);
+  };
+
   const handleDownloadIsapiPlayback = async (item) => {
     if (!item?.playbackUri) {
       return alert('Для этой записи отсутствует playback URI');
     }
+    if (!isDownloadableRecord(item)) {
+      return alert('Запись помечена как non-downloadable по probe-классификации. Используй fallback/capture.');
+    }
 
+    const normalizedUri = normalizePlaybackUri(item.playbackUri);
+    if (!normalizedUri) {
+      return alert('Некорректный playback URI для download');
+    }
+    const filenameHint = getIsapiFilenameHint(normalizedUri, 'isapi_record.mp4');
     const taskId = `isapi_${Date.now()}`;
     setDownloadTasks(prev => ([
       {
         id: taskId,
-        filename: item.playbackUri.split('/').pop() || 'isapi_record.mp4',
+        filename: filenameHint,
         serverAlias: 'isapi',
         folderPath: '/isapi',
         status: 'running',
@@ -964,10 +1031,10 @@ export default function App() {
     setRadarStatus('ISAPI DOWNLOAD...');
     try {
       const job = await invoke('start_archive_export_job', {
-        playbackUri: item.playbackUri,
+        playbackUri: normalizedUri,
         login: isapiSearchAuth.login || 'admin',
         pass: isapiSearchAuth.pass || '',
-        filenameHint: item.playbackUri.split('/').pop() || 'isapi_record.mp4',
+        filenameHint,
         taskId,
       });
 
@@ -1830,11 +1897,19 @@ const handleSecurityAudit = async () => {
                 <div style={{ color: '#7fa9cb' }}>track: {item.trackId || '-'}</div>
                 <div style={{ color: '#7fa9cb' }}>start: {item.startTime || '-'}</div>
                 <div style={{ color: '#7fa9cb' }}>end: {item.endTime || '-'}</div>
+                <div style={{ color: '#7fa9cb' }}>
+                  probe: transport={item.transport || '-'} | playable={String(isPlayableRecord(item))} | downloadable={String(isDownloadableRecord(item))} | conf={item.confidence ?? 0}
+                </div>
                 <div style={{ color: '#9fd7ff', wordBreak: 'break-all' }}>uri: {item.playbackUri || '-'}</div>
                 {item.playbackUri && (
-                  <button onClick={() => handleDownloadIsapiPlayback(item)} style={{ marginTop: '6px', background: '#1f3a2a', color: '#9fffc5', border: '1px solid #38a169', padding: '3px 6px', cursor: 'pointer', fontSize: '10px' }}>
-                    ⬇ DOWNLOAD BY URI
-                  </button>
+                  <div style={{ display: 'flex', gap: '6px', marginTop: '6px' }}>
+                    <button onClick={() => handleDownloadIsapiPlayback(item)} disabled={!isDownloadableRecord(item)} style={{ background: isDownloadableRecord(item) ? '#1f3a2a' : '#1a1a1a', color: isDownloadableRecord(item) ? '#9fffc5' : '#666', border: isDownloadableRecord(item) ? '1px solid #38a169' : '1px solid #333', padding: '3px 6px', cursor: isDownloadableRecord(item) ? 'pointer' : 'not-allowed', fontSize: '10px', opacity: isDownloadableRecord(item) ? 1 : 0.7 }}>
+                      {isDownloadableRecord(item) ? '⬇ DOWNLOAD BY URI' : 'NO-DL (probe)'}
+                    </button>
+                    <button onClick={() => handleCaptureIsapiPlayback(item)} style={{ background: '#12263d', color: '#9fd7ff', border: '1px solid #2f6aa3', padding: '3px 6px', cursor: 'pointer', fontSize: '10px' }}>
+                      ◉ CAPTURE FALLBACK
+                    </button>
+                  </div>
                 )}
               </div>
             ))}

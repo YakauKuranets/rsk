@@ -20,7 +20,9 @@ export default function NemesisArchiveTerminal({ target, onClose }) {
   const [timeTo, setTimeTo] = useState('');
   const [records, setRecords] = useState([]);
   const [scanning, setScanning] = useState(false);
+  const [bulkRunning, setBulkRunning] = useState(false);
   const [activeDownloads, setActiveDownloads] = useState({});
+  const [selectedIndexes, setSelectedIndexes] = useState({});
   const [logs, setLogs] = useState([]);
   const logRef = useRef(null);
   const bootRef = useRef(false);
@@ -56,8 +58,52 @@ export default function NemesisArchiveTerminal({ target, onClose }) {
     })();
   }, []);
 
+  const isDownloadableRecord = (item) => (typeof item?.downloadable === 'boolean' ? item.downloadable : Boolean(item?.playbackUri));
+  const isPlayableRecord = (item) => (typeof item?.playable === 'boolean' ? item.playable : Boolean(item?.playbackUri));
+  const normalizePlaybackUri = (uri) => String(uri || '').replace(/&amp;/g, '&').trim();
+  const getIsapiFilenameHint = (uri, fallback = 'capture.mp4') => {
+    const clean = normalizePlaybackUri(uri);
+    const sanitize = (name) => String(name || '')
+      .replace(/[\/:*?"<>|\u0000-\u001F]/g, '_')
+      .replace(/\s+/g, '_')
+      .replace(/_+/g, '_')
+      .replace(/^\.+/, '')
+      .slice(0, 180);
+
+    const fromName = clean.match(/[?&]name=([^&]+)/i)?.[1];
+    if (fromName) {
+      const decoded = (() => { try { return decodeURIComponent(fromName.replace(/\+/g, '%20')); } catch { return fromName; } })();
+      const safe = sanitize(decoded);
+      const base = safe || fallback;
+      return /\.[a-z0-9]{2,5}$/i.test(base) ? base : `${base}.mp4`;
+    }
+    const tail = clean.split('/').pop()?.split('?')[0];
+    const safeTail = sanitize(tail);
+    const base = safeTail || fallback;
+    return /\.[a-z0-9]{2,5}$/i.test(base) ? base : `${base}.mp4`;
+  };
+  const getIsapiCaptureDurationSeconds = (item) => {
+    const parseTs = (v) => {
+      if (!v) return null;
+      const n = new Date(v).getTime();
+      return Number.isFinite(n) ? n : null;
+    };
+    const start = parseTs(item?.startTime);
+    const end = parseTs(item?.endTime);
+    if (start && end && end > start) return Math.min(1800, Math.max(30, Math.floor((end - start) / 1000) + 15));
+    return 120;
+  };
+
   const handleSearch = async () => {
-    setScanning(true); setRecords([]); setPhase('scanning'); setStatusText('\u0421\u041a\u0410\u041d\u0418\u0420\u041e\u0412\u0410\u041d\u0418\u0415...');
+    if (bulkRunning) {
+      log('⚠ Дождитесь завершения BULK очереди перед новым поиском', 'warn');
+      return;
+    }
+    if (Object.values(activeDownloads).some((st) => st === 'working')) {
+      log('⚠ Дождитесь завершения активных загрузок перед новым поиском', 'warn');
+      return;
+    }
+    setScanning(true); setRecords([]); setSelectedIndexes({}); setActiveDownloads({}); setPhase('scanning'); setStatusText('\u0421\u041a\u0410\u041d\u0418\u0420\u041e\u0412\u0410\u041d\u0418\u0415...');
     const from = timeFrom.replace(' ', 'T') + (timeFrom.includes('Z') ? '' : 'Z');
     const to = timeTo.replace(' ', 'T') + (timeTo.includes('Z') ? '' : 'Z');
     log(`\ud83d\udd0e \u041f\u041e\u0418\u0421\u041a: ${timeFrom} \u2192 ${timeTo} | cam:${camera}`, 'info');
@@ -76,20 +122,55 @@ export default function NemesisArchiveTerminal({ target, onClose }) {
         streamType: 1,
       });
       const filtered = (items || []).filter(i => i.playbackUri || i.startTime);
-      setRecords(filtered); setPhase('ready'); setStatusText(`\u041d\u0410\u0419\u0414\u0415\u041d\u041e: ${filtered.length}`);
-      log(`\u2705 \u0420\u0435\u0437\u0443\u043b\u044c\u0442\u0430\u0442: ${filtered.length} \u0437\u0430\u043f\u0438\u0441\u0435\u0439`, 'ok');
+      const downloadableCount = filtered.filter(isDownloadableRecord).length;
+      const playableCount = filtered.filter(isPlayableRecord).length;
+      const maxConfidence = filtered.reduce((m, x) => Math.max(m, Number(x?.confidence ?? 0) || 0), 0);
+      setRecords(filtered); setPhase('ready'); setStatusText(`НАЙДЕНО: ${filtered.length}`);
+      log(`✅ Результат: ${filtered.length} записей | playable=${playableCount} | downloadable=${downloadableCount} | maxConf=${maxConfidence}`, 'ok');
+      log(`ℹ Выбрано: 0 / ${downloadableCount} downloadable | осталось выбрать: ${downloadableCount}`, 'sys');
+      log('ℹ Шаги: выбери дату/время → Поиск → отметь записи → Загрузка из сети (или CAPTURE).', 'sys');
     } catch (err) {
       setPhase('ready'); setStatusText('\u041e\u0428\u0418\u0411\u041a\u0410'); log(`\u274c ${err}`, 'err');
     } finally { setScanning(false); }
   };
 
+  const logBulkProgressSnapshot = (downloadsState) => {
+    const scopeIndexes = effectiveDownloadIndexes.length ? effectiveDownloadIndexes : downloadableIndexes;
+    const inScope = scopeIndexes.length;
+    const done = scopeIndexes.filter((i) => downloadsState[`dl_${i}`] === 'done').length;
+    const err = scopeIndexes.filter((i) => downloadsState[`dl_${i}`] === 'error').length;
+    const left = Math.max(inScope - done - err, 0);
+    log(`ℹ BULK SNAPSHOT: done=${done}/${inScope} err=${err} left=${left}`, 'sys');
+  };
+
+  const updateDownloadStatus = (key, status) => {
+    setActiveDownloads((prev) => {
+      const next = { ...prev, [key]: status };
+      if (status === 'done' || status === 'error') {
+        logBulkProgressSnapshot(next);
+      }
+      return next;
+    });
+  };
+
   const handleDownload = async (item, idx) => {
-    const k = `dl_${idx}`; setActiveDownloads(p => ({ ...p, [k]: 'working' }));
+    if (!isDownloadableRecord(item)) {
+      log('⚠ запись помечена как non-downloadable; используй CAPTURE', 'warn');
+      return false;
+    }
+    const normalizedUri = normalizePlaybackUri(item.playbackUri);
+    if (!normalizedUri) {
+      updateDownloadStatus(`dl_${idx}`, 'error');
+      log('❌ Некорректный playback URI для download', 'err');
+      return false;
+    }
+
+    const k = `dl_${idx}`; updateDownloadStatus(k, 'working');
     log(`⬇ ЗАГРУЗКА #${idx+1}...`, 'info');
     const taskId = `nem_${Date.now()}_${idx}`;
     try {
       const job = await invoke('start_archive_export_job', {
-        playbackUri: item.playbackUri,
+        playbackUri: normalizedUri,
         login: target.login || 'admin',
         pass: target.password || '',
         filenameHint: `${target.host.replace(/\./g,'_')}_cam${camera}_${idx}.mp4`,
@@ -100,18 +181,80 @@ export default function NemesisArchiveTerminal({ target, onClose }) {
         throw new Error(reason || 'Archive export failed');
       }
       const r = job.report;
-      setActiveDownloads(p => ({ ...p, [k]: 'done' }));
+      updateDownloadStatus(k, 'done');
       log(`✅ ${r.filename} (${(r.bytesWritten/1048576).toFixed(1)} MB) [${job.selectedStage}] status=${job.finalStatus || 'done'} retries=${job.retryCount || 0}${job.fallbackDurationSeconds ? ` ffmpegT=${job.fallbackDurationSeconds}s` : ''}`, 'ok');
+      return true;
     } catch (e) {
-      setActiveDownloads(p => ({ ...p, [k]: 'error' }));
+      updateDownloadStatus(k, 'error');
       log(`❌ ${e}`, 'err');
+      return false;
+    }
+  };
+
+  const runBulkQueue = async (queue, modeLabel) => {
+    if (!queue.length) return { okCount: 0, errCount: 0 };
+    setBulkRunning(true);
+    log(`⬇ BULK START: ${queue.length} записей (${modeLabel})`, 'info');
+    let okCount = 0;
+    let errCount = 0;
+    try {
+      for (let pos = 0; pos < queue.length; pos += 1) {
+        const idx = queue[pos];
+        log(`ℹ BULK STEP ${pos + 1}/${queue.length}: запись #${idx + 1}`, 'sys');
+        // Последовательная очередь снижает пиковую нагрузку на NVR/канал.
+        // eslint-disable-next-line no-await-in-loop
+        const success = await handleDownload(records[idx], idx);
+        if (success) okCount += 1; else errCount += 1;
+      }
+      log(`✅ BULK FINISH: очередь завершена | ok=${okCount} err=${errCount}`, 'ok');
+      return { okCount, errCount };
+    } finally {
+      setBulkRunning(false);
+    }
+  };
+
+  const handleBulkDownload = async () => {
+    const scopeIndexes = [...effectiveDownloadIndexes];
+    const queue = scopeIndexes.filter((idx) => {
+      const st = activeDownloads[`dl_${idx}`];
+      return st !== 'working' && st !== 'done';
+    });
+    const skippedDoneCount = scopeIndexes.length - queue.length;
+    if (!queue.length) {
+      log('⚠ Нет доступных записей для пакетной загрузки (все уже завершены/в процессе)', 'warn');
+      return;
+    }
+    if (skippedDoneCount > 0) {
+      log(`ℹ BULK SKIP: пропущено уже завершённых/активных записей: ${skippedDoneCount}`, 'sys');
+    }
+    const summary = await runBulkQueue(queue, hasAnySelection ? 'только выбранные' : 'все downloadable');
+    if (summary?.errCount) {
+      log(`ℹ Для повтора ошибок используй ↻ Retry ERR (${summary.errCount})`, 'sys');
+    }
+  };
+
+  const handleRetryErrors = async () => {
+    const errorQueue = effectiveDownloadIndexes.filter((idx) => activeDownloads[`dl_${idx}`] === 'error');
+    if (!errorQueue.length) {
+      log('⚠ Нет ошибочных записей для повтора', 'warn');
+      return;
+    }
+    log(`ℹ RETRY MODE: перезапуск только ERR записей (${errorQueue.length})`, 'sys');
+    const summary = await runBulkQueue(errorQueue, 'retry ERR');
+    if (summary?.errCount === 0) {
+      log('✅ RETRY MODE: все ошибочные записи успешно перекачаны', 'ok');
     }
   };
 
   const handleCapture = async (item) => {
     log('\ud83c\udfaf \u0417\u0410\u0425\u0412\u0410\u0422 \u0421\u0415\u0413\u041c\u0415\u041d\u0422\u0410...', 'info');
     try {
-      const r = await invoke('capture_archive_segment', { sourceUrl: (item.playbackUri||'').replace(/&amp;/g,'&'), filenameHint: `capture_${Date.now()}.mp4`, durationSeconds: 120, taskId: `cap_${Date.now()}` });
+      const normalizedUri = normalizePlaybackUri(item.playbackUri);
+      if (!normalizedUri) throw new Error('Некорректный playback URI для capture');
+      const captureDurationSeconds = getIsapiCaptureDurationSeconds(item);
+      const captureHint = getIsapiFilenameHint(normalizedUri, `capture_${Date.now()}.mp4`);
+      log(`ℹ capture policy: duration=${captureDurationSeconds}s file=${captureHint}`, 'sys');
+      const r = await invoke('capture_archive_segment', { sourceUrl: normalizedUri, filenameHint: captureHint, durationSeconds: captureDurationSeconds, taskId: `cap_${Date.now()}` });
       log(`\u2705 ${r.filename} (${(r.bytesWritten/1048576).toFixed(1)} MB)`, 'ok');
     } catch (e) { log(`\u274c ${e}`, 'err'); }
   };
@@ -121,6 +264,30 @@ export default function NemesisArchiveTerminal({ target, onClose }) {
     : [{v:'101',l:'[A1] pod 1'},{v:'201',l:'[A2] pod 2'},{v:'301',l:'[A3] pod 3'},{v:'401',l:'[A4] pod 4'}];
 
   const pc = phase==='ready'?'#00ff9c':phase==='scanning'?'#00f0ff':phase==='error'?'#ff003c':'#ff9900';
+  const downloadableIndexes = records
+    .map((record, index) => (isDownloadableRecord(record) ? index : -1))
+    .filter((index) => index >= 0);
+  const selectedDownloadableIndexes = downloadableIndexes.filter((idx) => Boolean(selectedIndexes[idx]));
+  const hasAnySelection = selectedDownloadableIndexes.length > 0;
+  const effectiveDownloadIndexes = hasAnySelection ? selectedDownloadableIndexes : downloadableIndexes;
+  const areAllDownloadableSelected = downloadableIndexes.length > 0 && selectedDownloadableIndexes.length === downloadableIndexes.length;
+  const remainingDownloadableCount = Math.max(downloadableIndexes.length - selectedDownloadableIndexes.length, 0);
+  const bulkModeLabel = hasAnySelection ? 'режим: только выбранные' : 'режим: все downloadable';
+  const downloadedInScopeCount = effectiveDownloadIndexes.filter((idx) => activeDownloads[`dl_${idx}`] === 'done').length;
+  const failedInScopeCount = effectiveDownloadIndexes.filter((idx) => activeDownloads[`dl_${idx}`] === 'error').length;
+  const workingInScopeCount = effectiveDownloadIndexes.filter((idx) => activeDownloads[`dl_${idx}`] === 'working').length;
+  const activeWorkingCount = Object.values(activeDownloads).filter((st) => st === 'working').length;
+  const hasActiveTransfers = bulkRunning || activeWorkingCount > 0;
+  const failedIndexesInScope = effectiveDownloadIndexes.filter((idx) => activeDownloads[`dl_${idx}`] === 'error');
+  const toggleAllDownloadableSelection = (checked) => {
+    setSelectedIndexes(() => {
+      const next = {};
+      downloadableIndexes.forEach((idx) => {
+        next[idx] = checked;
+      });
+      return next;
+    });
+  };
 
   return (
     <div style={{ position:'fixed',inset:0,background:'rgba(0,0,0,.88)',backdropFilter:'blur(3px)',zIndex:10000,display:'flex',alignItems:'center',justifyContent:'center',animation:'nemIn .25s ease-out' }}>
@@ -209,16 +376,16 @@ export default function NemesisArchiveTerminal({ target, onClose }) {
               <input className="ni" value={timeTo} onChange={e=>setTimeTo(e.target.value)}/>
             </div>
 
-            <button onClick={handleSearch} disabled={scanning||phase==='connecting'} style={{
+            <button onClick={handleSearch} disabled={scanning||phase==='connecting'||hasActiveTransfers} style={{
               width:'100%',padding:'10px 0',marginTop:'auto',
               background:scanning?'#1a0a0a':'linear-gradient(180deg,#3a0a0a,#1a0505)',
               color:'#ff003c',border:'1px solid #ff003c',fontSize:12,fontFamily:'Consolas,monospace',
-              fontWeight:'bold',cursor:scanning?'not-allowed':'pointer',letterSpacing:1,
-              transition:'all .2s',opacity:scanning?.5:1
+              fontWeight:'bold',cursor:(scanning||hasActiveTransfers)?'not-allowed':'pointer',letterSpacing:1,
+              transition:'all .2s',opacity:(scanning||hasActiveTransfers)?.5:1
             }}
-              onMouseEnter={e=>{if(!scanning){e.target.style.background='#ff003c';e.target.style.color='#000'}}}
+              onMouseEnter={e=>{if(!scanning && !hasActiveTransfers){e.target.style.background='#ff003c';e.target.style.color='#000'}}}
               onMouseLeave={e=>{e.target.style.background='linear-gradient(180deg,#3a0a0a,#1a0505)';e.target.style.color='#ff003c'}}
-            >{scanning?'\u25c9 \u041f\u041e\u0418\u0421\u041a...':'\ud83d\udd0e \u041f\u043e\u0438\u0441\u043a'}</button>
+            >{scanning?'\u25c9 \u041f\u041e\u0418\u0421\u041a...':(hasActiveTransfers?'⏳ DOWNLOAD ACTIVE':'\ud83d\udd0e \u041f\u043e\u0438\u0441\u043a')}</button>
           </div>
 
           {/* RIGHT TABLE */}
@@ -226,16 +393,32 @@ export default function NemesisArchiveTerminal({ target, onClose }) {
             {/* toolbar */}
             <div style={{ display:'flex',alignItems:'center',justifyContent:'space-between',padding:'6px 14px',borderBottom:'1px solid #151518',background:'#0a0a0e' }}>
               <span style={{ color:'#555',fontSize:10,fontFamily:'monospace',letterSpacing:1 }}>СПИСОК ФАЙЛОВ</span>
-              <button onClick={()=>records.filter(r=>r.playbackUri).forEach((r,i)=>handleDownload(r,i))} disabled={!records.filter(r=>r.playbackUri).length}
-                style={{ background:'#0a1a0a',color:'#00ff9c',border:'1px solid #00ff9c55',padding:'4px 12px',fontSize:10,fontFamily:'monospace',cursor:'pointer',transition:'all .15s',opacity:records.filter(r=>r.playbackUri).length?1:.3 }}
-                onMouseEnter={e=>{e.target.style.background='#00ff9c';e.target.style.color='#000'}}
-                onMouseLeave={e=>{e.target.style.background='#0a1a0a';e.target.style.color='#00ff9c'}}
-              >{'\u2b07'} Загрузка из сети</button>
+              <div style={{ display:'flex',gap:6,alignItems:'center' }}>
+                <button onClick={handleBulkDownload} disabled={!effectiveDownloadIndexes.length || hasActiveTransfers}
+                  style={{ background:'#0a1a0a',color:'#00ff9c',border:'1px solid #00ff9c55',padding:'4px 12px',fontSize:10,fontFamily:'monospace',cursor:(!effectiveDownloadIndexes.length || hasActiveTransfers)?'not-allowed':'pointer',transition:'all .15s',opacity:(!effectiveDownloadIndexes.length || hasActiveTransfers)?.6:1 }}
+                  onMouseEnter={e=>{if (!hasActiveTransfers && effectiveDownloadIndexes.length) { e.target.style.background='#00ff9c';e.target.style.color='#000'; }}}
+                  onMouseLeave={e=>{e.target.style.background='#0a1a0a';e.target.style.color='#00ff9c'}}
+                  title={hasActiveTransfers ? 'Недоступно: есть активные передачи' : (hasAnySelection ? 'Скачать только выбранные downloadable записи (последовательно)' : 'Скачать все downloadable записи (последовательно)')}
+                >{hasActiveTransfers ? '⏳ DOWNLOAD ACTIVE...' : `⬇ Загрузка из сети${hasAnySelection ? ` (${selectedDownloadableIndexes.length} из выбранных)` : ''}`}</button>
+                <button onClick={handleRetryErrors} disabled={hasActiveTransfers||!failedIndexesInScope.length}
+                  style={{ background:'#2a1200',color:'#ffb266',border:'1px solid #ff990055',padding:'4px 10px',fontSize:10,fontFamily:'monospace',cursor:(hasActiveTransfers||!failedIndexesInScope.length)?'not-allowed':'pointer',transition:'all .15s',opacity:(hasActiveTransfers||!failedIndexesInScope.length)?.6:1 }}
+                  title={hasActiveTransfers ? 'Недоступно: есть активные передачи' : 'Повторить только записи со статусом ERR'}
+                >↻ Retry ERR ({failedIndexesInScope.length})</button>
+                <button onClick={()=>setSelectedIndexes({})} disabled={hasActiveTransfers||!hasAnySelection}
+                  style={{ background:'#141418',color:hasAnySelection?'#9faec0':'#5a6370',border:'1px solid #2a3240',padding:'4px 10px',fontSize:10,fontFamily:'monospace',cursor:(hasActiveTransfers||!hasAnySelection)?'not-allowed':'pointer',opacity:(hasActiveTransfers||!hasAnySelection)?.6:1 }}
+                 title={hasActiveTransfers ? 'Недоступно: есть активные передачи' : 'Снять текущий выбор'}>Снять выбор</button>
+              </div>
             </div>
+            <div style={{ padding:'6px 14px',borderBottom:'1px solid #121216',background:'#09090d',color:'#4e6475',fontSize:9,fontFamily:'monospace',lineHeight:1.5 }}>
+              HYPERION ARCHIVE FLOW: 1) выбери дату/время 2) Поиск 3) отметь записи 4) загрузи выбранные (обычно до ~1050MB) или используй CAPTURE.
+            </div>
+            <div style={{ padding:'4px 14px',borderBottom:'1px solid #111',background:'#08080c',color:'#3f5566',fontSize:9,fontFamily:'monospace' }}>Чекбокс в заголовке отмечает/снимает все downloadable записи текущего списка.</div>
+            <div style={{ padding:'3px 14px',borderBottom:'1px solid #111',background:'#07070b',color:'#4d6779',fontSize:9,fontFamily:'monospace' }}>SELECTED DOWNLOADABLE: {selectedDownloadableIndexes.length}/{downloadableIndexes.length} | ОСТАЛОСЬ: {remainingDownloadableCount} | СКАЧАНО: {downloadedInScopeCount}/{effectiveDownloadIndexes.length || downloadableIndexes.length} | WORKING(scope/all): {workingInScopeCount}/{activeWorkingCount} | ERR: {failedInScopeCount}</div>
+            <div style={{ padding:'2px 14px',borderBottom:'1px solid #111',background:'#06060a',color:'#3e5567',fontSize:9,fontFamily:'monospace' }}>{bulkModeLabel}</div>
 
             {/* col headers */}
             <div style={{ display:'flex',alignItems:'center',padding:'5px 14px',borderBottom:'1px solid #1a1a1e',background:'#0c0c10',fontSize:9,fontFamily:'monospace',color:'#555',letterSpacing:1,flexShrink:0 }}>
-              <div style={{ width:26 }}>{'\u2610'}</div>
+              <div style={{ width:26 }}><input type="checkbox" disabled={hasActiveTransfers} checked={areAllDownloadableSelected} onChange={(e)=>toggleAllDownloadableSelection(e.target.checked)} style={{ accentColor:'#00f0ff' }} title="Выбрать все downloadable" /></div>
               <div style={{ width:32 }}>№</div>
               <div style={{ flex:2 }}>Имя файла</div>
               <div style={{ flex:1 }}>Время начала</div>
@@ -263,9 +446,9 @@ export default function NemesisArchiveTerminal({ target, onClose }) {
                 const fid=item.playbackUri?.match(/name=([^&]+)/)?.[1]||item.playbackUri?.match(/(\d{10,})/)?.[1]||`rec_${idx}`;
                 return (
                   <div key={idx} className="nr">
-                    <div style={{ width:26 }}><input type="checkbox" style={{ accentColor:'#00f0ff' }}/></div>
+                    <div style={{ width:26 }}><input type="checkbox" disabled={hasActiveTransfers||!isDownloadableRecord(item)} title={hasActiveTransfers ? 'Недоступно: выполняется активная загрузка' : (isDownloadableRecord(item) ? 'Выбрать для загрузки' : 'Недоступно: non-downloadable')} checked={Boolean(selectedIndexes[idx])} onChange={(e)=>setSelectedIndexes((prev)=>({ ...prev, [idx]: e.target.checked }))} style={{ accentColor:'#00f0ff', opacity:(!hasActiveTransfers&&isDownloadableRecord(item))?1:.45, cursor:(!hasActiveTransfers&&isDownloadableRecord(item))?'pointer':'not-allowed' }}/></div>
                     <div style={{ width:32,color:'#444',fontSize:10,fontFamily:'monospace' }}>{idx+1}</div>
-                    <div style={{ flex:2,color:'#9fd7ff',fontSize:10,fontFamily:'monospace',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap' }}>{fid}</div>
+                    <div style={{ flex:2,color:'#9fd7ff',fontSize:10,fontFamily:'monospace',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap' }} title={`transport=${item.transport||'-'} conf=${item.confidence??0} playable=${String(isPlayableRecord(item))} downloadable=${String(isDownloadableRecord(item))}`}>{fid}</div>
                     <div style={{ flex:1,color:'#7fa9cb',fontSize:10,fontFamily:'monospace' }}>{item.startTime?.replace('T',' ').replace('Z','')||'\u2014'}</div>
                     <div style={{ flex:1,color:'#7fa9cb',fontSize:10,fontFamily:'monospace' }}>{item.endTime?.replace('T',' ').replace('Z','')||'\u2014'}</div>
                     <div style={{ width:65,textAlign:'right',color:'#ff9900',fontSize:10,fontFamily:'monospace' }}>\u2014</div>
@@ -273,7 +456,7 @@ export default function NemesisArchiveTerminal({ target, onClose }) {
                       {ds==='done'?<span style={{color:'#00ff9c',fontSize:9,fontFamily:'monospace'}}>{'\u2713'} OK</span>
                        :ds==='error'?<span style={{color:'#ff003c',fontSize:9,fontFamily:'monospace'}}>{'\u2716'} ERR</span>
                        :ds==='working'?<span style={{color:'#00f0ff',fontSize:9,fontFamily:'monospace',animation:'nemP .6s infinite'}}>{'\u25cc'} ...</span>
-                       :item.playbackUri?<><button className="nb" onClick={()=>handleDownload(item,idx)}>{'\u2b07'}</button><button className="nc" onClick={()=>handleCapture(item)}>{'\u25c9'}</button></>
+                       :item.playbackUri?<>{isDownloadableRecord(item)?<button className="nb" disabled={hasActiveTransfers} onClick={()=>handleDownload(item,idx)}>{'\u2b07'}</button>:<span style={{color:'#6a4a3f',fontSize:8,fontFamily:'monospace'}}>NO-DL</span>}<button className="nc" disabled={hasActiveTransfers} onClick={()=>handleCapture(item)}>{'\u25c9'}</button></>
                        :<span style={{color:'#222',fontSize:9,fontFamily:'monospace'}}>\u2014</span>}
                     </div>
                   </div>

