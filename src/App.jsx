@@ -19,6 +19,34 @@ function MapController({ center }) {
   return null;
 }
 
+function normalizeTargetRecords(rawTargets) {
+  const normalized = [];
+
+  for (const raw of rawTargets) {
+    if (!raw || typeof raw !== 'object') continue;
+
+    if (Array.isArray(raw.terminals) && raw.terminals.length > 0) {
+      for (const terminal of raw.terminals) {
+        if (!terminal || typeof terminal !== 'object') continue;
+        normalized.push({
+          ...terminal,
+          id: terminal.id || `${raw.id || 'site'}_${terminal.host || Date.now()}`,
+          name: terminal.name || raw.name || 'Терминал',
+          lat: terminal.lat ?? raw.lat,
+          lng: terminal.lng ?? raw.lng,
+          siteId: raw.id || terminal.siteId,
+          siteName: raw.name || terminal.siteName,
+        });
+      }
+      continue;
+    }
+
+    normalized.push(raw);
+  }
+
+  return normalized;
+}
+
 export default function App() {
   const [targets, setTargets] = useState([]);
   const [activeStream, setActiveStream] = useState(null);
@@ -287,7 +315,7 @@ export default function App() {
         const jsonStr = await invoke('read_target', { targetId: key });
         loaded.push(JSON.parse(jsonStr));
       }
-      setTargets(loaded);
+      setTargets(normalizeTargetRecords(loaded));
     } catch (err) { console.error(err); }
   };
 
@@ -1058,6 +1086,22 @@ export default function App() {
     return byQuery && byType && byArchive;
   });
 
+  const groupedMapTargets = filteredTargets.reduce((acc, target) => {
+    const lat = Number(target.lat);
+    const lng = Number(target.lng);
+    if (!Number.isFinite(lat) || !Number.isFinite(lng)) return acc;
+
+    const siteKey = target.siteId || `${lat.toFixed(6)}:${lng.toFixed(6)}`;
+    const siteName = target.siteName || `Позиция ${lat.toFixed(4)}, ${lng.toFixed(4)}`;
+
+    if (!acc.has(siteKey)) {
+      acc.set(siteKey, { id: siteKey, siteName, lat, lng, terminals: [] });
+    }
+
+    acc.get(siteKey).terminals.push(target);
+    return acc;
+  }, new Map());
+
   const handlePortScan = async () => {
     const host = portScanHost.trim();
     if (!host) return alert('Укажите host/IP для сканирования');
@@ -1151,38 +1195,48 @@ const handleSecurityAudit = async () => {
           <MapController center={mapCenter} />
           <TileLayer url="https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png" />
 
-          {filteredTargets.map(t => (
-            <Marker key={t.id} position={[t.lat, t.lng]}>
+          {Array.from(groupedMapTargets.values()).map(site => (
+            <Marker key={site.id} position={[site.lat, site.lng]}>
               <Popup>
                 <div style={{ color: '#000', minWidth: '150px' }}>
-                  <strong>{t.name}</strong><br/>
-                  <div style={{ marginTop: '8px' }}>
-                    {t.channels?.map(ch => (
-                      <button key={ch.id} onClick={() => handleStartStream(t, ch)} style={{ display: 'block', width: '100%', marginBottom: '4px', padding: '6px', cursor: 'pointer', backgroundColor: '#111', color: '#00f0ff', border: '1px solid #00f0ff', fontSize: '11px' }}>
-                        ▶ ПЕРЕХВАТ: {ch.name}
-                      </button>
-                    ))}
+                  <strong>{site.siteName}</strong><br/>
+                  <div style={{ marginTop: '6px', marginBottom: '6px', color: '#444', fontSize: '11px' }}>
+                    Терминалов: {site.terminals.length}
+                  </div>
+                  <div style={{ marginTop: '8px', maxHeight: '300px', overflowY: 'auto' }}>
+                    {site.terminals.map((t) => (
+                      <div key={t.id} style={{ borderTop: '1px solid #ddd', paddingTop: '8px', marginTop: '8px' }}>
+                        <div style={{ fontWeight: 700, fontSize: '12px' }}>{t.name}</div>
+                        <div style={{ color: '#666', fontSize: '10px', marginBottom: '6px' }}>{t.host}</div>
 
-                    {t.type === 'hub' ? (
-                        <button onClick={() => fetchFtpRoot('video1')} style={{ display: 'block', width: '100%', marginTop: '8px', padding: '6px', cursor: 'pointer', backgroundColor: '#1a4a4a', color: '#00f0ff', border: '1px solid #00f0ff', fontSize: '11px', fontWeight: 'bold' }}>
-                          📁 АРХИВ ХАБА (FTP)
-                        </button>
-                    ) : (
-                        <>
-                          <button onClick={() => setNemesisTarget({ host: t.host, login: t.login || 'admin', password: t.password || '', name: t.name, channels: t.channels })} style={{ display: 'block', width: '100%', marginTop: '8px', padding: '6px', cursor: 'pointer', background: 'linear-gradient(90deg, #2a0808, #0a0808)', color: '#ff003c', border: '1px solid #ff003c', fontSize: '11px', fontWeight: 'bold', letterSpacing: '1px' }}>
-                            ☢ NEMESIS ARCHIVE
+                        {t.channels?.map(ch => (
+                          <button key={ch.id} onClick={() => handleStartStream(t, ch)} style={{ display: 'block', width: '100%', marginBottom: '4px', padding: '6px', cursor: 'pointer', backgroundColor: '#111', color: '#00f0ff', border: '1px solid #00f0ff', fontSize: '11px' }}>
+                            ▶ ПЕРЕХВАТ: {ch.name}
                           </button>
-                          <button onClick={() => handleLocalArchive(t)} style={{ display: 'block', width: '100%', marginTop: '6px', padding: '6px', cursor: 'pointer', backgroundColor: '#4a1a1a', color: '#ff9900', border: '1px solid #ff9900', fontSize: '11px', fontWeight: 'bold' }}>
-                            ⏳ ЗАПРОС ПАМЯТИ
-                          </button>
-                          <button onClick={() => handleFetchNvrDeviceInfo(t)} style={{ display: 'block', width: '100%', marginTop: '6px', padding: '6px', cursor: 'pointer', backgroundColor: '#1a1a4a', color: '#9fc2ff', border: '1px solid #6a88ff', fontSize: '11px', fontWeight: 'bold' }}>
-                            ℹ ISAPI DEVICE INFO
-                          </button>
-                          <button onClick={() => handleFetchOnvifDeviceInfo(t)} style={{ display: 'block', width: '100%', marginTop: '6px', padding: '6px', cursor: 'pointer', backgroundColor: '#1a3a1a', color: '#a8ffb0', border: '1px solid #47c45a', fontSize: '11px', fontWeight: 'bold' }}>
-                            ℹ ONVIF DEVICE INFO
-                          </button>
-                        </>
-                    )}
+                        ))}
+
+                        {t.type === 'hub' ? (
+                            <button onClick={() => fetchFtpRoot('video1')} style={{ display: 'block', width: '100%', marginTop: '8px', padding: '6px', cursor: 'pointer', backgroundColor: '#1a4a4a', color: '#00f0ff', border: '1px solid #00f0ff', fontSize: '11px', fontWeight: 'bold' }}>
+                              📁 АРХИВ ХАБА (FTP)
+                            </button>
+                        ) : (
+                            <>
+                              <button onClick={() => setNemesisTarget({ host: t.host, login: t.login || 'admin', password: t.password || '', name: t.name, channels: t.channels })} style={{ display: 'block', width: '100%', marginTop: '8px', padding: '6px', cursor: 'pointer', background: 'linear-gradient(90deg, #2a0808, #0a0808)', color: '#ff003c', border: '1px solid #ff003c', fontSize: '11px', fontWeight: 'bold', letterSpacing: '1px' }}>
+                                ☢ NEMESIS ARCHIVE
+                              </button>
+                              <button onClick={() => handleLocalArchive(t)} style={{ display: 'block', width: '100%', marginTop: '6px', padding: '6px', cursor: 'pointer', backgroundColor: '#4a1a1a', color: '#ff9900', border: '1px solid #ff9900', fontSize: '11px', fontWeight: 'bold' }}>
+                                ⏳ ЗАПРОС ПАМЯТИ
+                              </button>
+                              <button onClick={() => handleFetchNvrDeviceInfo(t)} style={{ display: 'block', width: '100%', marginTop: '6px', padding: '6px', cursor: 'pointer', backgroundColor: '#1a1a4a', color: '#9fc2ff', border: '1px solid #6a88ff', fontSize: '11px', fontWeight: 'bold' }}>
+                                ℹ ISAPI DEVICE INFO
+                              </button>
+                              <button onClick={() => handleFetchOnvifDeviceInfo(t)} style={{ display: 'block', width: '100%', marginTop: '6px', padding: '6px', cursor: 'pointer', backgroundColor: '#1a3a1a', color: '#a8ffb0', border: '1px solid #47c45a', fontSize: '11px', fontWeight: 'bold' }}>
+                                ℹ ONVIF DEVICE INFO
+                              </button>
+                            </>
+                        )}
+                      </div>
+                    ))}
                   </div>
                 </div>
               </Popup>
