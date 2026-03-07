@@ -62,7 +62,19 @@ export default function NemesisArchiveTerminal({ target, onClose }) {
     const to = timeTo.replace(' ', 'T') + (timeTo.includes('Z') ? '' : 'Z');
     log(`\ud83d\udd0e \u041f\u041e\u0418\u0421\u041a: ${timeFrom} \u2192 ${timeTo} | cam:${camera}`, 'info');
     try {
-      const items = await invoke('search_isapi_recordings', { host: target.host, login: target.login || 'admin', pass: target.password || '', fromTime: from, toTime: to });
+      const channelNum = Number(String(camera).replace(/[^0-9]/g, ''));
+      const cameraChannelId = Number.isFinite(channelNum) && channelNum > 0
+        ? (channelNum >= 100 ? Math.floor(channelNum / 100) : channelNum)
+        : undefined;
+      const items = await invoke('search_isapi_recordings', {
+        host: target.host,
+        login: target.login || 'admin',
+        pass: target.password || '',
+        fromTime: from,
+        toTime: to,
+        cameraChannelId,
+        streamType: 1,
+      });
       const filtered = (items || []).filter(i => i.playbackUri || i.startTime);
       setRecords(filtered); setPhase('ready'); setStatusText(`\u041d\u0410\u0419\u0414\u0415\u041d\u041e: ${filtered.length}`);
       log(`\u2705 \u0420\u0435\u0437\u0443\u043b\u044c\u0442\u0430\u0442: ${filtered.length} \u0437\u0430\u043f\u0438\u0441\u0435\u0439`, 'ok');
@@ -76,29 +88,23 @@ export default function NemesisArchiveTerminal({ target, onClose }) {
     log(`⬇ ЗАГРУЗКА #${idx+1}...`, 'info');
     const taskId = `nem_${Date.now()}_${idx}`;
     try {
-      const r = await invoke('download_isapi_playback_uri', {
+      const job = await invoke('start_archive_export_job', {
         playbackUri: item.playbackUri,
         login: target.login || 'admin',
         pass: target.password || '',
         filenameHint: `${target.host.replace(/\./g,'_')}_cam${camera}_${idx}.mp4`,
         taskId,
       });
-      setActiveDownloads(p => ({ ...p, [k]: 'done' }));
-      log(`✅ ${r.filename} (${(r.bytesWritten/1048576).toFixed(1)} MB)`, 'ok');
-    } catch (e) {
-      try {
-        const fallback = await invoke('capture_archive_segment', {
-          sourceUrl: (item.playbackUri || '').replace(/&amp;/g, '&'),
-          filenameHint: `${target.host.replace(/\./g,'_')}_cam${camera}_${idx}_fallback.mp4`,
-          durationSeconds: 180,
-          taskId,
-        });
-        setActiveDownloads(p => ({ ...p, [k]: 'done' }));
-        log(`⚠ ISAPI отказал, fallback OK: ${fallback.filename} (${(fallback.bytesWritten/1048576).toFixed(1)} MB)`, 'warn');
-      } catch (fallbackErr) {
-        setActiveDownloads(p => ({ ...p, [k]: 'error' }));
-        log(`❌ ${e} | fallback: ${fallbackErr}`, 'err');
+      if (!job?.report) {
+        const reason = job?.finalReason || (job?.stages || []).filter((s) => !s.success).map((s) => `${s.stage}: ${s.reason || 'failed'}`).join(' || ');
+        throw new Error(reason || 'Archive export failed');
       }
+      const r = job.report;
+      setActiveDownloads(p => ({ ...p, [k]: 'done' }));
+      log(`✅ ${r.filename} (${(r.bytesWritten/1048576).toFixed(1)} MB) [${job.selectedStage}] status=${job.finalStatus || 'done'} retries=${job.retryCount || 0}${job.fallbackDurationSeconds ? ` ffmpegT=${job.fallbackDurationSeconds}s` : ''}`, 'ok');
+    } catch (e) {
+      setActiveDownloads(p => ({ ...p, [k]: 'error' }));
+      log(`❌ ${e}`, 'err');
     }
   };
 

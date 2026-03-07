@@ -963,7 +963,7 @@ export default function App() {
     setLoading(true);
     setRadarStatus('ISAPI DOWNLOAD...');
     try {
-      const report = await invoke('download_isapi_playback_uri', {
+      const job = await invoke('start_archive_export_job', {
         playbackUri: item.playbackUri,
         login: isapiSearchAuth.login || 'admin',
         pass: isapiSearchAuth.pass || '',
@@ -971,37 +971,56 @@ export default function App() {
         taskId,
       });
 
+      if (!job?.report) {
+        const stageSummary = (job?.stages || []).map((s) => `${s.stage}:${s.success ? 'ok' : 'fail'}`).join(' | ');
+        const reason = job?.finalReason || (job?.stages || []).filter((s) => !s.success).map((s) => `${s.stage}: ${s.reason || 'failed'}`).join(' || ');
+        const stageDetails = (job?.stages || []).map((s) => ({
+          stage: s.stage,
+          success: !!s.success,
+          reason: s.reason || '',
+        }));
+        setDownloadTasks(prev => prev.map(t =>
+          t.id === taskId ? { ...t, status: 'error', percent: 0, error: reason || 'Archive export failed', stageSummary, stageDetails, finalStatus: job?.finalStatus || 'failed', retryCount: Number(job?.retryCount || 0), stageCount: Number(job?.stageCount || stageDetails.length), fallbackDurationSeconds: Number(job?.fallbackDurationSeconds || 0) } : t,
+        ));
+        alert(`Ошибка ISAPI download: ${reason || 'Archive export failed'}`);
+        return;
+      }
+
+      const report = job.report;
       const durationSec = Math.max((report.durationMs || 0) / 1000, 0.001);
       const speedBytesSec = Math.round((report.bytesWritten || 0) / durationSec);
       setDownloadTasks(prev => prev.map(t =>
         t.id === taskId
-          ? { ...t, status: 'done', percent: 100, bytesWritten: report.totalBytes || report.bytesWritten || 0, speedBytesSec, savePath: report.savePath }
+          ? {
+              ...t,
+              status: 'done',
+              percent: 100,
+              bytesWritten: report.totalBytes || report.bytesWritten || 0,
+              speedBytesSec,
+              savePath: report.savePath,
+              protocol: job.selectedStage,
+              stageSummary: (job.stages || []).map((s) => `${s.stage}:${s.success ? 'ok' : 'fail'}`).join(' | '),
+              stageDetails: (job.stages || []).map((s) => ({
+                stage: s.stage,
+                success: !!s.success,
+                reason: s.reason || '',
+              })),
+              finalStatus: job.finalStatus || 'done',
+              retryCount: Number(job.retryCount || 0),
+              stageCount: Number(job.stageCount || (job.stages || []).length),
+              fallbackDurationSeconds: Number(job.fallbackDurationSeconds || 0),
+            }
           : t,
       ));
-    } catch (err) {
-      // Fallback: если прямой ISAPI export отказал, пытаемся вытащить сегмент через FFmpeg.
-      try {
-        const fallback = await invoke('capture_archive_segment', {
-          sourceUrl: item.playbackUri,
-          filenameHint: item.playbackUri.split('/').pop() || 'isapi_record.mp4',
-          durationSeconds: 180,
-          taskId,
-        });
-
-        const durationSec = Math.max((fallback.durationMs || 0) / 1000, 0.001);
-        const speedBytesSec = Math.round((fallback.bytesWritten || 0) / durationSec);
-        setDownloadTasks(prev => prev.map(t =>
-          t.id === taskId
-            ? { ...t, status: 'done', percent: 100, bytesWritten: fallback.totalBytes || fallback.bytesWritten || 0, speedBytesSec, savePath: fallback.savePath, protocol: 'ffmpeg-fallback' }
-            : t,
-        ));
-        alert('ISAPI export отказал, файл сохранён через FFmpeg fallback.');
-      } catch (fallbackErr) {
-        setDownloadTasks(prev => prev.map(t =>
-          t.id === taskId ? { ...t, status: 'error', percent: 0, error: `${String(err)} | fallback: ${String(fallbackErr)}` } : t,
-        ));
-        alert(`Ошибка ISAPI download: ${err}\nFallback тоже не сработал: ${fallbackErr}`);
+      if (job.selectedStage !== 'direct') {
+        const note = job.finalReason ? `\nПричина direct: ${job.finalReason}` : '';
+        alert(`Прямой export отказал, задача завершена через ${job.selectedStage}.${note}`);
       }
+    } catch (err) {
+      setDownloadTasks(prev => prev.map(t =>
+        t.id === taskId ? { ...t, status: 'error', percent: 0, error: String(err) } : t,
+      ));
+      alert(`Ошибка ISAPI download: ${err}`);
     } finally {
       setLoading(false);
     }
@@ -2032,11 +2051,37 @@ const handleSecurityAudit = async () => {
                 </span>
               </div>
               <div style={{ fontSize: '10px', color: '#888', marginTop: '4px' }}>
-                {task.serverAlias} • {formatBytes(task.bytesWritten)}
+                {task.serverAlias}
+                {task.protocol ? `/${task.protocol}` : ''} • {formatBytes(task.bytesWritten)}
                 {task.speedBytesSec > 0 ? ` • ${formatBytes(task.speedBytesSec)}/s` : ''}
                 {task.resumed ? ' • RESUME' : ''}
                 {task.skipped ? ' • SKIPPED' : ''}
               </div>
+              {task.stageSummary && (
+                <div style={{ fontSize: '10px', color: '#6da8ff', marginTop: '4px' }}>
+                  {task.stageSummary}
+                </div>
+              )}
+              {(task.finalStatus || Number.isFinite(task.retryCount) || Number.isFinite(task.stageCount)) && (
+                <div style={{ fontSize: '10px', color: '#9ca8bd', marginTop: '3px' }}>
+                  status={task.finalStatus || task.status} • retries={task.retryCount ?? 0} • stages={task.stageCount ?? (task.stageDetails?.length || 0)}{task.fallbackDurationSeconds ? ` • ffmpegT=${task.fallbackDurationSeconds}s` : ''}
+                </div>
+              )}
+              {Array.isArray(task.stageDetails) && task.stageDetails.length > 0 && (
+                <div style={{ marginTop: '4px', border: '1px solid #1a2238', background: '#070b14', padding: '4px 6px' }}>
+                  {task.stageDetails.map((s, idx) => (
+                    <div key={`${task.id}_${s.stage}_${idx}`} style={{ fontSize: '10px', color: s.success ? '#73ffb0' : '#ffb6b6', marginBottom: '2px' }}>
+                      {s.success ? '✅' : '❌'} {s.stage}
+                      {s.reason ? ` — ${s.reason}` : ''}
+                    </div>
+                  ))}
+                </div>
+              )}
+              {task.error && (
+                <div style={{ fontSize: '10px', color: '#ff9b9b', marginTop: '4px', wordBreak: 'break-word' }}>
+                  {task.error}
+                </div>
+              )}
               <div style={{ height: '4px', background: '#111', marginTop: '6px' }}>
                 <div
                   style={{

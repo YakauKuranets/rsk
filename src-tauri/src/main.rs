@@ -22,6 +22,7 @@ mod nexus;
 use suppaftp::FtpStream;
 use tauri::State;
 use tokio::sync::Mutex as TokioMutex;
+use tokio::sync::Semaphore;
 use tokio::{
     net::TcpStream,
     time::{timeout, Duration},
@@ -44,6 +45,10 @@ struct LogState {
 
 struct DownloadCancelState {
     cancelled_tasks: std::sync::Mutex<HashSet<String>>,
+}
+
+struct FfmpegLimiterState {
+    semaphore: Arc<Semaphore>,
 }
 
 // 🔥 СТЕЙТ ДЛЯ ПУЛЬТА ГИПЕРИОНА (nexus)
@@ -124,6 +129,63 @@ struct ArchiveEndpointResult {
     method: String,
     status: String,
     status_code: Option<u16>,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ArchiveExportStage {
+    stage: String,
+    success: bool,
+    reason: Option<String>,
+    save_path: Option<String>,
+    bytes_written: Option<u64>,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ArchiveExportJobResult {
+    task_id: String,
+    final_status: String,
+    selected_stage: String,
+    retry_count: u8,
+    stage_count: usize,
+    fallback_duration_seconds: Option<u64>,
+    final_reason: Option<String>,
+    report: Option<DownloadReport>,
+    stages: Vec<ArchiveExportStage>,
+}
+
+fn parse_archive_duration_from_uri(uri: &str) -> Option<u64> {
+    fn parse_ts(input: &str) -> Option<chrono::DateTime<chrono::Utc>> {
+        let cleaned = input.trim().replace("%3A", ":").replace("%2F", "/");
+        let normalized = cleaned
+            .replace(' ', "T")
+            .trim_end_matches('Z')
+            .replace('-', "")
+            .replace(':', "");
+
+        // 20260307T121314
+        if normalized.len() == 15 && normalized.chars().nth(8) == Some('T') {
+            chrono::NaiveDateTime::parse_from_str(&normalized, "%Y%m%dT%H%M%S")
+                .ok()
+                .map(|ndt| chrono::DateTime::<chrono::Utc>::from_naive_utc_and_offset(ndt, chrono::Utc))
+        } else {
+            None
+        }
+    }
+
+    let start_raw = uri.split("starttime=").nth(1)?.split('&').next()?.trim();
+    let end_raw = uri.split("endtime=").nth(1)?.split('&').next()?.trim();
+
+    let start = parse_ts(start_raw)?;
+    let end = parse_ts(end_raw)?;
+    let sec = (end - start).num_seconds();
+    if sec <= 0 {
+        return None;
+    }
+
+    // +15с буфер, но держим в разумных пределах
+    Some((sec as u64).saturating_add(15).clamp(30, 1800))
 }
 
 #[derive(Debug, Serialize)]
@@ -1879,6 +1941,8 @@ async fn search_isapi_recordings(
     pass: String,
     from_time: Option<String>,
     to_time: Option<String>,
+    camera_channel_id: Option<u32>,
+    stream_type: Option<u32>,
     log_state: State<'_, LogState>,
 ) -> Result<Vec<IsapiRecordingItem>, String> {
     let clean_host = normalize_host_for_scan(&host);
@@ -1915,12 +1979,20 @@ async fn search_isapi_recordings(
         Regex::new(r"<playbackURI>([^<]+)</playbackURI>").map_err(|e| e.to_string())?;
     let url_re = Regex::new(r"<url>([^<]+)</url>").map_err(|e| e.to_string())?;
 
-    let track_ids = ["101", "1", "100", "0"];
+    let mut track_ids: Vec<String> = Vec::new();
+    if let Some(channel_id) = camera_channel_id {
+        let stream = stream_type.unwrap_or(1);
+        track_ids.push((channel_id.saturating_mul(100).saturating_add(stream)).to_string());
+        track_ids.push(channel_id.to_string());
+    }
+    track_ids.extend(["101", "1", "100", "0"].iter().map(|v| v.to_string()));
+    let mut seen = HashSet::new();
+    track_ids.retain(|tid| seen.insert(tid.clone()));
 
     for endpoint in candidates {
         let is_2019 = endpoint.contains(":2019");
 
-        for tid in track_ids {
+        for tid in &track_ids {
             let xml_variants = vec![
                 (
                     "CMSearchDescription",
@@ -2783,6 +2855,7 @@ async fn download_isapi_playback_uri(
     task_id: Option<String>,
     log_state: State<'_, LogState>,
     cancel_state: State<'_, DownloadCancelState>,
+    ffmpeg_limiter: State<'_, FfmpegLimiterState>,
 ) -> Result<DownloadReport, String> {
     if playback_uri.trim().is_empty() {
         return Err("Пустой playback_uri".into());
@@ -2815,7 +2888,7 @@ async fn download_isapi_playback_uri(
             &log_state,
             format!("ISAPI transport: RTSP detected → FFmpeg capture [task:{}]", task_key),
         );
-        return download_isapi_via_rtsp(&uri, &login, &pass, filename_hint, &task_key, &log_state, &cancel_state).await;
+        return download_isapi_via_rtsp(&uri, &login, &pass, filename_hint, &task_key, &log_state, &cancel_state, &ffmpeg_limiter).await;
     }
 
     if uri_lc.starts_with("http://") || uri_lc.starts_with("https://") {
@@ -2833,8 +2906,153 @@ async fn download_isapi_playback_uri(
         &log_state,
         format!("ISAPI transport: unknown scheme '{}' → trying FFmpeg [task:{}]", uri.chars().take(30).collect::<String>(), task_key),
     );
-    download_isapi_via_rtsp(&uri, &login, &pass, filename_hint, &task_key, &log_state, &cancel_state).await
+    download_isapi_via_rtsp(&uri, &login, &pass, filename_hint, &task_key, &log_state, &cancel_state, &ffmpeg_limiter).await
 }
+
+#[tauri::command]
+async fn start_archive_export_job(
+    playback_uri: String,
+    login: String,
+    pass: String,
+    filename_hint: Option<String>,
+    task_id: Option<String>,
+    log_state: State<'_, LogState>,
+    cancel_state: State<'_, DownloadCancelState>,
+    ffmpeg_limiter: State<'_, FfmpegLimiterState>,
+) -> Result<ArchiveExportJobResult, String> {
+    if playback_uri.trim().is_empty() {
+        return Err("Пустой playback_uri".into());
+    }
+
+    let task_key = task_id.unwrap_or_else(|| format!("export_{}", Utc::now().timestamp_millis()));
+    let mut stages: Vec<ArchiveExportStage> = Vec::new();
+    let mut direct_failure_reason: Option<String> = None;
+    let fallback_duration = parse_archive_duration_from_uri(&playback_uri).or(Some(180));
+
+    push_runtime_log(
+        &log_state,
+        format!("ARCHIVE_EXPORT|{}|stage=direct|status=started", task_key),
+    );
+
+    let direct_result = download_isapi_playback_uri(
+        playback_uri.clone(),
+        login.clone(),
+        pass.clone(),
+        filename_hint.clone(),
+        Some(task_key.clone()),
+        log_state.clone(),
+        cancel_state.clone(),
+        ffmpeg_limiter.clone(),
+    ).await;
+
+    match direct_result {
+        Ok(report) => {
+            stages.push(ArchiveExportStage {
+                stage: "direct".into(),
+                success: true,
+                reason: None,
+                save_path: Some(report.save_path.clone()),
+                bytes_written: Some(report.bytes_written),
+            });
+            push_runtime_log(&log_state, format!("ARCHIVE_EXPORT|{}|stage=direct|status=done", task_key));
+            return Ok(ArchiveExportJobResult {
+                task_id: task_key,
+                final_status: "done".into(),
+                selected_stage: "direct".into(),
+                retry_count: 0,
+                stage_count: stages.len(),
+                fallback_duration_seconds: fallback_duration,
+                final_reason: None,
+                report: Some(report),
+                stages,
+            });
+        }
+        Err(err) => {
+            direct_failure_reason = Some(err.clone());
+            stages.push(ArchiveExportStage {
+                stage: "direct".into(),
+                success: false,
+                reason: Some(err.clone()),
+                save_path: None,
+                bytes_written: None,
+            });
+            push_runtime_log(
+                &log_state,
+                format!("ARCHIVE_EXPORT|{}|stage=direct|status=failed|reason={}", task_key, err),
+            );
+        }
+    }
+
+    push_runtime_log(
+        &log_state,
+        format!("ARCHIVE_EXPORT|{}|stage=ffmpeg|status=started", task_key),
+    );
+    let fallback_result = capture_archive_segment(
+        playback_uri,
+        filename_hint,
+        fallback_duration,
+        None,
+        Some(task_key.clone()),
+        log_state.clone(),
+        cancel_state.clone(),
+        ffmpeg_limiter.clone(),
+    ).await;
+
+    match fallback_result {
+        Ok(report) => {
+            stages.push(ArchiveExportStage {
+                stage: "ffmpeg".into(),
+                success: true,
+                reason: None,
+                save_path: Some(report.save_path.clone()),
+                bytes_written: Some(report.bytes_written),
+            });
+            push_runtime_log(&log_state, format!("ARCHIVE_EXPORT|{}|stage=ffmpeg|status=done", task_key));
+            Ok(ArchiveExportJobResult {
+                task_id: task_key,
+                final_status: "done".into(),
+                selected_stage: "ffmpeg".into(),
+                retry_count: 1,
+                stage_count: stages.len(),
+                fallback_duration_seconds: fallback_duration,
+                final_reason: direct_failure_reason,
+                report: Some(report),
+                stages,
+            })
+        }
+        Err(err) => {
+            stages.push(ArchiveExportStage {
+                stage: "ffmpeg".into(),
+                success: false,
+                reason: Some(err.clone()),
+                save_path: None,
+                bytes_written: None,
+            });
+            push_runtime_log(
+                &log_state,
+                format!("ARCHIVE_EXPORT|{}|stage=ffmpeg|status=failed|reason={}", task_key, err),
+            );
+
+            let final_reason = match direct_failure_reason {
+                Some(direct_err) => Some(format!("direct: {} || ffmpeg: {}", direct_err, err)),
+                None => Some(format!("ffmpeg: {}", err)),
+            };
+
+            Ok(ArchiveExportJobResult {
+                task_id: task_key,
+                final_status: "failed".into(),
+                selected_stage: "none".into(),
+                retry_count: 1,
+                stage_count: stages.len(),
+                fallback_duration_seconds: fallback_duration,
+                final_reason,
+                report: None,
+                stages,
+            })
+        }
+    }
+}
+
 
 /// RTSP ветка: скачивание через FFmpeg capture
 /// Инжектит login:pass в RTSP URI и запускает FFmpeg
@@ -2844,7 +3062,17 @@ async fn download_isapi_via_rtsp(
     task_key: &str,
     log_state: &State<'_, LogState>,
     cancel_state: &State<'_, DownloadCancelState>,
+    ffmpeg_limiter: &State<'_, FfmpegLimiterState>,
 ) -> Result<DownloadReport, String> {
+    push_runtime_log(log_state, format!("FFMPEG_SLOT_WAIT|{}|rtsp", task_key));
+    let permit = ffmpeg_limiter
+        .semaphore
+        .clone()
+        .acquire_owned()
+        .await
+        .map_err(|e| format!("FFmpeg semaphore acquire failed: {}", e))?;
+    push_runtime_log(log_state, format!("FFMPEG_SLOT_ACQUIRED|{}|rtsp", task_key));
+
     // Инжектим кредентиалы в RTSP URI если их там нет
     // rtsp://host/path → rtsp://login:pass@host/path
     let authed_uri = inject_rtsp_credentials(uri, login, pass);
@@ -2984,6 +3212,9 @@ async fn download_isapi_via_rtsp(
     if let Ok(mut cancelled) = cancel_state.cancelled_tasks.lock() {
         cancelled.remove(task_key);
     }
+
+    drop(permit);
+    push_runtime_log(log_state, format!("FFMPEG_SLOT_RELEASED|{}|rtsp", task_key));
 
     Ok(DownloadReport {
         server_alias: "isapi_rtsp".into(),
@@ -3195,6 +3426,7 @@ async fn capture_archive_segment(
     task_id: Option<String>,
     log_state: State<'_, LogState>,
     cancel_state: State<'_, DownloadCancelState>,
+    ffmpeg_limiter: State<'_, FfmpegLimiterState>,
 ) -> Result<DownloadReport, String> {
     if source_url.trim().is_empty() {
         return Err("Пустой source_url для захвата архива".into());
@@ -3204,6 +3436,15 @@ async fn capture_archive_segment(
     if let Ok(mut cancelled) = cancel_state.cancelled_tasks.lock() {
         cancelled.remove(&task_key);
     }
+
+    push_runtime_log(&log_state, format!("FFMPEG_SLOT_WAIT|{}|capture", task_key));
+    let permit = ffmpeg_limiter
+        .semaphore
+        .clone()
+        .acquire_owned()
+        .await
+        .map_err(|e| format!("FFmpeg semaphore acquire failed: {}", e))?;
+    push_runtime_log(&log_state, format!("FFMPEG_SLOT_ACQUIRED|{}|capture", task_key));
 
     let duration = duration_seconds.unwrap_or(60); // По умолчанию 60 секунд
     let mut filename = filename_hint
@@ -3413,6 +3654,9 @@ async fn capture_archive_segment(
     if let Ok(mut cancelled) = cancel_state.cancelled_tasks.lock() {
         cancelled.remove(&task_key);
     }
+
+    drop(permit);
+    push_runtime_log(&log_state, format!("FFMPEG_SLOT_RELEASED|{}|capture", task_key));
 
     if bytes_written == 0 {
         let _ = std::fs::remove_file(&path);
@@ -4758,6 +5002,9 @@ fn main() {
         .manage(DownloadCancelState {
             cancelled_tasks: std::sync::Mutex::new(HashSet::new()),
         })
+        .manage(FfmpegLimiterState {
+            semaphore: Arc::new(Semaphore::new(2)),
+        })
         .invoke_handler(tauri::generate_handler![
             save_target,
             read_target,
@@ -4789,6 +5036,7 @@ fn main() {
             search_onvif_recordings,
             download_onvif_recording_token,
             download_isapi_playback_uri,
+            start_archive_export_job,
             probe_archive_export_endpoints,
             get_implementation_status,
             // ☢️ ПРОТОКОЛ NEMESIS (nexus.rs)
