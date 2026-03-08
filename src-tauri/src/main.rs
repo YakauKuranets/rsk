@@ -3706,6 +3706,13 @@ async fn download_isapi_playback_uri(
                     return Ok(report);
                 }
                 Err(http_err) => {
+                    push_runtime_log(
+                        &log_state,
+                        format!(
+                            "ISAPI fallback via {} failed: {} [task:{}]",
+                            http_download_uri, http_err, task_key
+                        ),
+                    );
                     return Err(format!(
                         "RTSP capture failed: {} ; HTTP fallback failed: {}",
                         rtsp_error, http_err
@@ -4136,12 +4143,60 @@ async fn download_isapi_via_http(
         .map_err(|e| e.to_string())?;
 
     let started = std::time::Instant::now();
-    let resp = client
+    let mut resp = client
         .get(uri)
         .basic_auth(login, Some(pass))
         .send()
         .await
         .map_err(|e| e.to_string())?;
+
+    if resp.status().as_u16() == 401 {
+        let www_auth = resp
+            .headers()
+            .get(reqwest::header::WWW_AUTHENTICATE)
+            .and_then(|h| h.to_str().ok())
+            .map(|s| s.to_string());
+
+        let _ = resp.text().await;
+
+        if let Some(www_auth) = www_auth {
+            if let Ok(mut prompt) = digest_auth::parse(&www_auth) {
+                let digest_path = reqwest::Url::parse(uri)
+                    .ok()
+                    .map(|u| {
+                        let mut p = u.path().to_string();
+                        if let Some(q) = u.query() {
+                            p.push('?');
+                            p.push_str(q);
+                        }
+                        p
+                    })
+                    .unwrap_or_else(|| "/ISAPI/ContentMgmt/download".to_string());
+
+                let mut ctx =
+                    digest_auth::AuthContext::new(login.to_string(), pass.to_string(), digest_path);
+                ctx.method = digest_auth::HttpMethod::GET;
+
+                if let Ok(answer) = prompt.respond(&ctx) {
+                    push_runtime_log(
+                        log_state,
+                        format!(
+                            "ISAPI HTTP download got 401, retrying with Digest auth [task:{}]",
+                            task_key
+                        ),
+                    );
+                    resp = client
+                        .get(uri)
+                        .header("Authorization", answer.to_string())
+                        .header("X-Requested-With", "XMLHttpRequest")
+                        .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/145.0.0.0 Safari/537.36")
+                        .send()
+                        .await
+                        .map_err(|e| e.to_string())?;
+                }
+            }
+        }
+    }
 
     if !resp.status().is_success() {
         return Err(format!(
