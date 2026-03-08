@@ -4126,6 +4126,121 @@ async fn download_isapi_via_rtsp(
     })
 }
 
+async fn try_isapi_download_post_xml(
+    client: &reqwest::Client,
+    endpoint: &str,
+    playback_uri: &str,
+    login: &str,
+    pass: &str,
+    task_key: &str,
+    log_state: &State<'_, LogState>,
+) -> Result<reqwest::Response, String> {
+    let playback_uri_xml = playback_uri
+        .replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
+        .replace('"', "&quot;")
+        .replace('\'', "&apos;");
+
+    let body_variants = [
+        format!(
+            r#"<?xml version="1.0" encoding="UTF-8"?><downloadRequest version="1.0" xmlns="http://www.hikvision.com/ver20/XMLSchema"><playbackURI>{}</playbackURI></downloadRequest>"#,
+            playback_uri_xml
+        ),
+        format!(
+            r#"<?xml version="1.0" encoding="UTF-8"?><downloadRequest><playbackURI>{}</playbackURI></downloadRequest>"#,
+            playback_uri_xml
+        ),
+    ];
+    let content_types = [
+        "application/xml; charset=UTF-8",
+        "application/x-www-form-urlencoded; charset=UTF-8",
+    ];
+
+    let mut last_err = String::new();
+
+    for body in body_variants.iter() {
+        for ct in content_types.iter() {
+            let mut resp = client
+                .post(endpoint)
+                .header("Content-Type", *ct)
+                .header("Accept", "*/*")
+                .header("X-Requested-With", "XMLHttpRequest")
+                .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/145.0.0.0 Safari/537.36")
+                .basic_auth(login, Some(pass))
+                .body(body.clone())
+                .send()
+                .await
+                .map_err(|e| e.to_string())?;
+
+            if resp.status().as_u16() == 401 {
+                let www_auth = resp
+                    .headers()
+                    .get(reqwest::header::WWW_AUTHENTICATE)
+                    .and_then(|h| h.to_str().ok())
+                    .map(|s| s.to_string());
+
+                if let Some(www_auth) = www_auth {
+                    if let Ok(mut prompt) = digest_auth::parse(&www_auth) {
+                        let mut ctx = digest_auth::AuthContext::new(
+                            login.to_string(),
+                            pass.to_string(),
+                            "/ISAPI/ContentMgmt/download".to_string(),
+                        );
+                        ctx.method = digest_auth::HttpMethod::POST;
+
+                        if let Ok(answer) = prompt.respond(&ctx) {
+                            push_runtime_log(
+                                log_state,
+                                format!(
+                                    "ISAPI HTTP POST download got 401, retrying with Digest auth [task:{}]",
+                                    task_key
+                                ),
+                            );
+                            resp = client
+                                .post(endpoint)
+                                .header("Authorization", answer.to_string())
+                                .header("Content-Type", *ct)
+                                .header("Accept", "*/*")
+                                .header("X-Requested-With", "XMLHttpRequest")
+                                .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/145.0.0.0 Safari/537.36")
+                                .body(body.clone())
+                                .send()
+                                .await
+                                .map_err(|e| e.to_string())?;
+                        }
+                    }
+                }
+            }
+
+            if resp.status().is_success() {
+                return Ok(resp);
+            }
+
+            let code = resp.status().as_u16();
+            let text = resp.text().await.unwrap_or_default();
+            let preview = text
+                .split_whitespace()
+                .take(28)
+                .collect::<Vec<_>>()
+                .join(" ");
+            last_err = format!(
+                "POST /download failed ct={} status={} preview='{}'",
+                ct, code, preview
+            );
+            push_runtime_log(
+                log_state,
+                format!(
+                    "ISAPI HTTP POST download attempt failed: {} [task:{}]",
+                    last_err, task_key
+                ),
+            );
+        }
+    }
+
+    Err(last_err)
+}
+
 /// HTTP ветка: скачивание через reqwest (оригинальная логика)
 async fn download_isapi_via_http(
     uri: &str,
@@ -4219,10 +4334,69 @@ async fn download_isapi_via_http(
                 code, preview, task_key
             ),
         );
-        return Err(format!(
-            "ISAPI download failed with HTTP {} preview='{}'",
-            code, preview
-        ));
+
+        if code == 400
+            && preview.to_ascii_lowercase().contains("badxmlcontent")
+            && uri.contains("/ISAPI/ContentMgmt/download?playbackURI=")
+        {
+            if let Ok(url) = reqwest::Url::parse(uri) {
+                if let Some(encoded_playback_uri) = url
+                    .query_pairs()
+                    .find(|(k, _)| k.eq_ignore_ascii_case("playbackURI"))
+                    .map(|(_, v)| v.into_owned())
+                {
+                    let endpoint = format!(
+                        "{}://{}:{}/ISAPI/ContentMgmt/download",
+                        url.scheme(),
+                        url.host_str().unwrap_or_default(),
+                        url.port_or_known_default().unwrap_or(80)
+                    );
+                    push_runtime_log(
+                        log_state,
+                        format!(
+                            "ISAPI HTTP GET fallback returned badXmlContent, trying POST XML download [task:{}]",
+                            task_key
+                        ),
+                    );
+                    match try_isapi_download_post_xml(
+                        &client,
+                        &endpoint,
+                        &encoded_playback_uri,
+                        login,
+                        pass,
+                        task_key,
+                        log_state,
+                    )
+                    .await
+                    {
+                        Ok(post_resp) => {
+                            resp = post_resp;
+                        }
+                        Err(post_err) => {
+                            return Err(format!(
+                                "ISAPI download failed with HTTP {} preview='{}'; POST fallback failed: {}",
+                                code, preview, post_err
+                            ));
+                        }
+                    }
+                } else {
+                    return Err(format!(
+                        "ISAPI download failed with HTTP {} preview='{}'",
+                        code, preview
+                    ));
+                }
+            } else {
+                return Err(format!(
+                    "ISAPI download failed with HTTP {} preview='{}'",
+                    code, preview
+                ));
+            }
+        } else {
+            return Err(format!(
+                "ISAPI download failed with HTTP {} preview='{}'",
+                code, preview
+            ));
+        }
     }
 
     let total_size = resp.content_length().unwrap_or(0);
