@@ -2668,6 +2668,35 @@ async fn search_isapi_recordings(
                         }
                     };
 
+                    if is_2019 && endpoint_reachable && endpoint_invalid_request {
+                        let reason = endpoint_last_error.clone().unwrap_or_else(|| {
+                            "statusCode=6 (Invalid) для ContentMgmt/search".to_string()
+                        });
+                        push_runtime_log(
+                            &log_state,
+                            format!(
+                                "ISAPI search: устройство отклоняет XML-шаблон запроса на :2019 ({}). Останавливаю дальнейший перебор немедленно.",
+                                reason
+                            ),
+                        );
+                        let diag_request = isapi_diagnostics_request_template(
+                            &clean_host,
+                            &endpoint,
+                            &reason,
+                            &from,
+                            &to,
+                            tid,
+                        );
+                        push_runtime_log(
+                            &log_state,
+                            format!("ISAPI search diagnostics request: {}", diag_request),
+                        );
+                        return Err(format!(
+                            "ISAPI ContentMgmt/search отклонён устройством как invalid request ({}). {}",
+                            reason, diag_request
+                        ));
+                    }
+
                     if let Some(text) = text {
                         let starts: Vec<String> = start_re
                             .captures_iter(&text)
@@ -2769,28 +2798,6 @@ async fn search_isapi_recordings(
                 }
             }
 
-            if is_2019 && endpoint_reachable && endpoint_invalid_request {
-                let reason = endpoint_last_error.clone().unwrap_or_else(|| {
-                    "statusCode=6 (Invalid) для ContentMgmt/search".to_string()
-                });
-                push_runtime_log(
-                    &log_state,
-                    format!(
-                        "ISAPI search: устройство отклоняет XML-шаблон запроса на :2019 ({}). Останавливаю дальнейший перебор TID.",
-                        reason
-                    ),
-                );
-                let diag_request =
-                    isapi_diagnostics_request_template(&clean_host, &endpoint, &reason, &from, &to, tid);
-                push_runtime_log(
-                    &log_state,
-                    format!("ISAPI search diagnostics request: {}", diag_request),
-                );
-                return Err(format!(
-                    "ISAPI ContentMgmt/search отклонён устройством как invalid request ({}). {}",
-                    reason, diag_request
-                ));
-            }
         }
 
         if is_2019 && endpoint_reachable && endpoint_client_error {
