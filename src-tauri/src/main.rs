@@ -4110,20 +4110,19 @@ async fn download_isapi_via_rtsp(
                         ),
                     );
 
-                    // Если файл непустой — возможно он частичный но полезный
+                    // На ошибке FFmpeg всегда уходим в fallback, partial-файл удаляем
                     let file_size = std::fs::metadata(&path).map(|m| m.len()).unwrap_or(0);
                     if file_size > 1024 {
                         push_runtime_log(
                             log_state,
                             format!(
-                                "RTSP capture: FFmpeg ошибка но файл {}B сохранён: {}",
+                                "RTSP capture: FFmpeg error, deleting partial {}B and switching to fallback: {}",
                                 file_size, filename
                             ),
                         );
-                    } else {
-                        let _ = std::fs::remove_file(&path);
-                        return Err(format!("FFmpeg RTSP capture failed: {}", stderr_text));
                     }
+                    let _ = std::fs::remove_file(&path);
+                    return Err(format!("FFmpeg RTSP capture failed: {}", stderr_text));
                 }
                 break;
             }
