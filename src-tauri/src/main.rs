@@ -118,6 +118,20 @@ struct IsapiRecordingItem {
     confidence: u8,
 }
 
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct IsapiHarTemplateResult {
+    endpoint: String,
+    method: String,
+    content_type: Option<String>,
+    request_body: String,
+    search_id: Option<String>,
+    track_id: Option<String>,
+    start_time: Option<String>,
+    end_time: Option<String>,
+}
+
+
 fn classify_isapi_record(
     playback_uri: Option<&str>,
     start_time: Option<&str>,
@@ -2198,6 +2212,120 @@ fn isapi_diagnostics_request_template(
     )
 }
 
+
+#[tauri::command]
+async fn extract_isapi_search_template_from_har(
+    har_json: String,
+    host: Option<String>,
+    log_state: State<'_, LogState>,
+) -> Result<IsapiHarTemplateResult, String> {
+    let parsed: Value = serde_json::from_str(&har_json).map_err(|e| e.to_string())?;
+    let entries = parsed
+        .get("log")
+        .and_then(|v| v.get("entries"))
+        .and_then(|v| v.as_array())
+        .ok_or_else(|| "HAR не содержит log.entries".to_string())?;
+
+    let host_filter = host
+        .as_deref()
+        .map(normalize_host_for_scan)
+        .filter(|h| !h.is_empty());
+
+    let rx = |pat: &str| Regex::new(pat).ok();
+    let re_search_id = rx(r"<searchID>([^<]+)</searchID>");
+    let re_track_id = rx(r"<trackID>([^<]+)</trackID>");
+    let re_start = rx(r"<startTime>([^<]+)</startTime>");
+    let re_end = rx(r"<endTime>([^<]+)</endTime>");
+
+    for entry in entries.iter().rev() {
+        let req = match entry.get("request") {
+            Some(v) => v,
+            None => continue,
+        };
+
+        let method = req
+            .get("method")
+            .and_then(|v| v.as_str())
+            .unwrap_or_default()
+            .to_string();
+        if method.to_uppercase() != "POST" {
+            continue;
+        }
+
+        let url = req
+            .get("url")
+            .and_then(|v| v.as_str())
+            .unwrap_or_default()
+            .to_string();
+        if !url.contains("/ISAPI/ContentMgmt/search") {
+            continue;
+        }
+
+        if let Some(hf) = &host_filter {
+            if !url.contains(hf) {
+                continue;
+            }
+        }
+
+        let content_type = req
+            .get("headers")
+            .and_then(|v| v.as_array())
+            .and_then(|headers| {
+                headers.iter().find_map(|h| {
+                    let name = h.get("name")?.as_str()?.to_ascii_lowercase();
+                    if name == "content-type" {
+                        h.get("value")?.as_str().map(|v| v.to_string())
+                    } else {
+                        None
+                    }
+                })
+            });
+
+        let request_body = req
+            .get("postData")
+            .and_then(|v| v.get("text"))
+            .and_then(|v| v.as_str())
+            .unwrap_or_default()
+            .to_string();
+
+        if request_body.trim().is_empty() {
+            continue;
+        }
+
+        let extract = |re: &Option<Regex>| {
+            re.as_ref().and_then(|r| {
+                r.captures(&request_body)
+                    .and_then(|c| c.get(1).map(|m| m.as_str().trim().to_string()))
+            })
+        };
+
+        let result = IsapiHarTemplateResult {
+            endpoint: url.clone(),
+            method,
+            content_type,
+            request_body,
+            search_id: extract(&re_search_id),
+            track_id: extract(&re_track_id),
+            start_time: extract(&re_start),
+            end_time: extract(&re_end),
+        };
+
+        push_runtime_log(
+            &log_state,
+            format!(
+                "ISAPI HAR template extracted: endpoint={} track={:?} [{} - {}]",
+                result.endpoint,
+                result.track_id,
+                result.start_time.clone().unwrap_or_default(),
+                result.end_time.clone().unwrap_or_default()
+            ),
+        );
+
+        return Ok(result);
+    }
+
+    Err("Не найден POST /ISAPI/ContentMgmt/search в HAR (с body)".into())
+}
 
 #[tauri::command]
 async fn search_isapi_recordings(
@@ -6107,6 +6235,7 @@ fn main() {
             probe_nvr_protocols,
             fetch_nvr_device_info,
             fetch_onvif_device_info,
+            extract_isapi_search_template_from_har,
             search_isapi_recordings,
             search_onvif_recordings,
             download_onvif_recording_token,
