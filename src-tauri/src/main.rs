@@ -17,7 +17,7 @@ use std::fs::OpenOptions;
 use std::net::ToSocketAddrs;
 use std::path::PathBuf;
 use std::process::{Command, Stdio};
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
 mod nexus;
 use suppaftp::FtpStream;
 use tauri::State;
@@ -59,6 +59,11 @@ struct HyperionState {
 // 🔥 МОСТ ЛОГОВ NEXUS -> UI
 struct NexusLogBridge {
     lines: Arc<std::sync::Mutex<Vec<String>>>,
+}
+
+fn isapi_http_download_semaphore() -> Arc<Semaphore> {
+    static SEM: OnceLock<Arc<Semaphore>> = OnceLock::new();
+    SEM.get_or_init(|| Arc::new(Semaphore::new(1))).clone()
 }
 
 fn push_runtime_log(state: &State<'_, LogState>, message: impl Into<String>) {
@@ -4429,6 +4434,13 @@ async fn download_isapi_via_http(
         format!("ISAPI HTTP download started: {} [task:{}]", uri, task_key),
     );
 
+    push_runtime_log(log_state, format!("ISAPI_HTTP_SLOT_WAIT|{}", task_key));
+    let http_slot = isapi_http_download_semaphore()
+        .acquire_owned()
+        .await
+        .map_err(|e| format!("ISAPI HTTP semaphore acquire failed: {}", e))?;
+    push_runtime_log(log_state, format!("ISAPI_HTTP_SLOT_ACQUIRED|{}", task_key));
+
     let mut resp =
         send_isapi_http_get_with_retry(&client, uri, login, pass, task_key, log_state, None, None)
             .await?;
@@ -4536,6 +4548,10 @@ async fn download_isapi_via_http(
                             resp = post_resp;
                         }
                         Err(post_err) => {
+                            push_runtime_log(
+                                log_state,
+                                format!("ISAPI_HTTP_SLOT_RELEASED|{}", task_key),
+                            );
                             return Err(format!(
                                 "ISAPI download failed with HTTP {} preview='{}'; POST fallback failed: {}",
                                 code, preview, post_err
@@ -4543,12 +4559,14 @@ async fn download_isapi_via_http(
                         }
                     }
                 } else {
+                    push_runtime_log(log_state, format!("ISAPI_HTTP_SLOT_RELEASED|{}", task_key));
                     return Err(format!(
                         "ISAPI download failed with HTTP {} preview='{}'",
                         code, preview
                     ));
                 }
             } else {
+                push_runtime_log(log_state, format!("ISAPI_HTTP_SLOT_RELEASED|{}", task_key));
                 return Err(format!(
                     "ISAPI download failed with HTTP {} preview='{}'",
                     code, preview
@@ -4604,6 +4622,9 @@ async fn download_isapi_via_http(
                 .unwrap_or(false)
             {
                 let _ = std::fs::remove_file(&path);
+                drop(http_slot);
+                push_runtime_log(log_state, format!("ISAPI_HTTP_SLOT_RELEASED|{}", task_key));
+
                 if let Ok(mut cancelled) = cancel_state.cancelled_tasks.lock() {
                     cancelled.remove(task_key);
                 }
@@ -4611,6 +4632,7 @@ async fn download_isapi_via_http(
                     log_state,
                     format!("DOWNLOAD_CANCELLED|{}|{}", task_key, filename),
                 );
+                push_runtime_log(log_state, format!("ISAPI_HTTP_SLOT_RELEASED|{}", task_key));
                 return Err(format!(
                     "Загрузка отменена пользователем [task:{}]",
                     task_key
@@ -4747,6 +4769,7 @@ async fn download_isapi_via_http(
                 continue 'download_stream;
             }
 
+            push_runtime_log(log_state, format!("ISAPI_HTTP_SLOT_RELEASED|{}", task_key));
             return Err(format!(
                 "ISAPI HTTP stream failed after {} bytes: {}",
                 bytes_written, err_text
