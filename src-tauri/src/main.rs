@@ -1359,7 +1359,11 @@ fn ftp_nlst_root_with_fallback(ftp: &mut FtpStream) -> Result<Vec<String>, Strin
         }
     }
 
-    Err(if errors.is_empty() { "FTP список недоступен".into() } else { errors.join(" || ") })
+    Err(if errors.is_empty() {
+        "FTP список недоступен".into()
+    } else {
+        errors.join(" || ")
+    })
 }
 
 #[tauri::command]
@@ -2225,7 +2229,6 @@ async fn search_isapi_recordings(
     };
 
     for endpoint in candidates {
-
         let is_2019 = endpoint.contains(":2019");
         let mut endpoint_reachable = false;
         let mut endpoint_client_error = false;
@@ -2285,7 +2288,7 @@ async fn search_isapi_recordings(
                     "CMSearchDescription-xmlns",
                     format!(
                         r#"<?xml version="1.0" encoding="UTF-8"?>
-<CMSearchDescription xmlns="http://www.hikvision.com/ver20/XMLSchema">
+<CMSearchDescription version="1.0" xmlns="http://www.hikvision.com/ver20/XMLSchema">
   <searchID>1</searchID>
   <trackList>
     <trackID>{}</trackID>
@@ -2297,11 +2300,56 @@ async fn search_isapi_recordings(
     </timeSpan>
   </timeSpanList>
   <maxResults>40</maxResults>
-  <searchResultPosition>0</searchResultPosition>
+  <searchResultPostion>0</searchResultPostion>
   <metadataList>
     <metadataDescriptor>//recordType.meta.std-cgi.com</metadataDescriptor>
   </metadataList>
 </CMSearchDescription>"#,
+                        tid, from, to
+                    ),
+                ),
+                (
+                    "CMSearchDescription-xmlns-min",
+                    format!(
+                        r#"<?xml version="1.0" encoding="UTF-8"?>
+<CMSearchDescription version="1.0" xmlns="http://www.hikvision.com/ver20/XMLSchema">
+  <searchID>1</searchID>
+  <trackList>
+    <trackID>{}</trackID>
+  </trackList>
+  <timeSpanList>
+    <timeSpan>
+      <startTime>{}</startTime>
+      <endTime>{}</endTime>
+    </timeSpan>
+  </timeSpanList>
+  <maxResults>40</maxResults>
+  <searchResultPostion>0</searchResultPostion>
+</CMSearchDescription>"#,
+                        tid, from, to
+                    ),
+                ),
+                (
+                    "SearchDescription-xmlns",
+                    format!(
+                        r#"<?xml version="1.0" encoding="UTF-8"?>
+<SearchDescription version="1.0" xmlns="http://www.hikvision.com/ver20/XMLSchema">
+  <searchID>1</searchID>
+  <trackList>
+    <trackID>{}</trackID>
+  </trackList>
+  <timeSpanList>
+    <timeSpan>
+      <startTime>{}</startTime>
+      <endTime>{}</endTime>
+    </timeSpan>
+  </timeSpanList>
+  <maxResults>40</maxResults>
+  <searchResultPostion>0</searchResultPostion>
+  <metadataList>
+    <metadataDescriptor>//recordType.meta.std-cgi.com</metadataDescriptor>
+  </metadataList>
+</SearchDescription>"#,
                         tid, from, to
                     ),
                 ),
@@ -2330,20 +2378,20 @@ async fn search_isapi_recordings(
                     ),
                 ),
             ];
-
             for (variant_name, body) in &xml_variants {
-                push_runtime_log(
-                    &log_state,
-                    format!(
-                        "ISAPI search try: endpoint={} tid={} variant={}",
-                        endpoint, tid, variant_name
-                    ),
-                );
+                for content_type in ["application/xml; charset=UTF-8", "text/xml; charset=UTF-8"] {
+                    push_runtime_log(
+                        &log_state,
+                        format!(
+                            "ISAPI search try: endpoint={} tid={} variant={} content-type={}",
+                            endpoint, tid, variant_name, content_type
+                        ),
+                    );
 
-                let text = if is_2019 {
-                    let boot = client
+                    let text = if is_2019 {
+                        let boot = client
                         .post(&endpoint)
-                        .header("Content-Type", "application/xml; charset=UTF-8")
+                        .header("Content-Type", content_type)
                         .header("X-Requested-With", "XMLHttpRequest")
                         .header(
                             "User-Agent",
@@ -2354,30 +2402,30 @@ async fn search_isapi_recordings(
                         .send()
                         .await;
 
-                    match boot {
-                        Ok(r) if r.status().as_u16() == 401 => {
-                            let www_auth = r
-                                .headers()
-                                .get(reqwest::header::WWW_AUTHENTICATE)
-                                .and_then(|h| h.to_str().ok())
-                                .map(|s| s.to_string());
-                            let _ = r.text().await;
+                        match boot {
+                            Ok(r) if r.status().as_u16() == 401 => {
+                                let www_auth = r
+                                    .headers()
+                                    .get(reqwest::header::WWW_AUTHENTICATE)
+                                    .and_then(|h| h.to_str().ok())
+                                    .map(|s| s.to_string());
+                                let _ = r.text().await;
 
-                            if let Some(ah) = www_auth {
-                                let path = "/ISAPI/ContentMgmt/search";
-                                if let Ok(mut prompt) = digest_auth::parse(&ah) {
-                                    let mut ctx = digest_auth::AuthContext::new(
-                                        login.clone(),
-                                        pass.clone(),
-                                        path,
-                                    );
-                                    ctx.method = digest_auth::HttpMethod::POST;
+                                if let Some(ah) = www_auth {
+                                    let path = "/ISAPI/ContentMgmt/search";
+                                    if let Ok(mut prompt) = digest_auth::parse(&ah) {
+                                        let mut ctx = digest_auth::AuthContext::new(
+                                            login.clone(),
+                                            pass.clone(),
+                                            path,
+                                        );
+                                        ctx.method = digest_auth::HttpMethod::POST;
 
-                                    if let Ok(answer) = prompt.respond(&ctx) {
-                                        let resp2 = client
+                                        if let Ok(answer) = prompt.respond(&ctx) {
+                                            let resp2 = client
                                             .post(&endpoint)
                                             .header("Authorization", answer.to_string())
-                                            .header("Content-Type", "application/xml; charset=UTF-8")
+                                            .header("Content-Type", content_type)
                                             .header("X-Requested-With", "XMLHttpRequest")
                                             .header(
                                                 "User-Agent",
@@ -2388,42 +2436,45 @@ async fn search_isapi_recordings(
                                             .send()
                                             .await;
 
-                                        match resp2 {
-                                            Ok(r2) => {
-                                                let code = r2.status().as_u16();
-                                                let t = r2.text().await.unwrap_or_default();
-                                                endpoint_reachable = true;
-                                                if code >= 400 {
-                                                    endpoint_client_error = true;
-                                                    endpoint_last_error = Some(format!(
-                                                        "HTTP {} body='{}'",
-                                                        code,
-                                                        body_preview(&t)
-                                                    ));
-                                                }
-                                                push_runtime_log(
+                                            match resp2 {
+                                                Ok(r2) => {
+                                                    let code = r2.status().as_u16();
+                                                    let t = r2.text().await.unwrap_or_default();
+                                                    endpoint_reachable = true;
+                                                    if code >= 400 {
+                                                        endpoint_client_error = true;
+                                                        endpoint_last_error = Some(format!(
+                                                            "HTTP {} body='{}'",
+                                                            code,
+                                                            body_preview(&t)
+                                                        ));
+                                                    }
+                                                    push_runtime_log(
                                                     &log_state,
                                                     format!(
-                                                        "ISAPI search Digest :2019 variant={} tid={} → HTTP {} ({} chars) preview='{}'",
-                                                        variant_name, tid, code, t.len(), body_preview(&t)
+                                                        "ISAPI search Digest :2019 variant={} tid={} content-type={} → HTTP {} ({} chars) preview='{}'",
+                                                        variant_name, tid, content_type, code, t.len(), body_preview(&t)
                                                     ),
                                                 );
-                                                if code == 200 {
-                                                    Some(t)
-                                                } else {
+                                                    if code == 200 {
+                                                        Some(t)
+                                                    } else {
+                                                        None
+                                                    }
+                                                }
+                                                Err(e) => {
+                                                    push_runtime_log(
+                                                    &log_state,
+                                                    format!(
+                                                        "ISAPI search Digest error variant={} tid={} content-type={}: {}",
+                                                        variant_name, tid, content_type, e
+                                                    ),
+                                                );
                                                     None
                                                 }
                                             }
-                                            Err(e) => {
-                                                push_runtime_log(
-                                                    &log_state,
-                                                    format!(
-                                                        "ISAPI search Digest error variant={} tid={}: {}",
-                                                        variant_name, tid, e
-                                                    ),
-                                                );
-                                                None
-                                            }
+                                        } else {
+                                            None
                                         }
                                     } else {
                                         None
@@ -2431,170 +2482,167 @@ async fn search_isapi_recordings(
                                 } else {
                                     None
                                 }
-                            } else {
-                                None
                             }
-                        }
-                        Ok(r) if r.status().is_success() => {
-                            endpoint_reachable = true;
-                            let t = r.text().await.unwrap_or_default();
-                            Some(t)
-                        }
-                        Ok(r) => {
-                            endpoint_reachable = true;
-                            let code = r.status().as_u16();
-                            let t = r.text().await.unwrap_or_default();
-                            if code >= 400 {
-                                endpoint_client_error = true;
-                                endpoint_last_error = Some(format!(
-                                    "HTTP {} body='{}'",
-                                    code,
-                                    body_preview(&t)
-                                ));
+                            Ok(r) if r.status().is_success() => {
+                                endpoint_reachable = true;
+                                let t = r.text().await.unwrap_or_default();
+                                Some(t)
                             }
-                            push_runtime_log(
+                            Ok(r) => {
+                                endpoint_reachable = true;
+                                let code = r.status().as_u16();
+                                let t = r.text().await.unwrap_or_default();
+                                if code >= 400 {
+                                    endpoint_client_error = true;
+                                    endpoint_last_error =
+                                        Some(format!("HTTP {} body='{}'", code, body_preview(&t)));
+                                }
+                                push_runtime_log(
                                 &log_state,
                                 format!(
-                                    "ISAPI search :2019 variant={} tid={} → HTTP {} ({} chars) preview='{}'",
+                                    "ISAPI search :2019 variant={} tid={} content-type={} → HTTP {} ({} chars) preview='{}'",
                                     variant_name,
                                     tid,
+                                    content_type,
                                     code,
                                     t.len(),
                                     body_preview(&t)
                                 ),
                             );
-                            None
-                        }
-                        Err(e) => {
-                            push_runtime_log(
+                                None
+                            }
+                            Err(e) => {
+                                push_runtime_log(
                                 &log_state,
                                 format!(
-                                    "ISAPI search :2019 error variant={} tid={}: {}",
-                                    variant_name, tid, e
+                                    "ISAPI search :2019 error variant={} tid={} content-type={}: {}",
+                                    variant_name, tid, content_type, e
                                 ),
                             );
-                            None
-                        }
-                    }
-                } else {
-                    let resp = client
-                        .post(&endpoint)
-                        .header("Content-Type", "application/xml; charset=UTF-8")
-                        .basic_auth(login.clone(), Some(pass.clone()))
-                        .body(body.clone())
-                        .send()
-                        .await;
-
-                    match resp {
-                        Ok(r) => {
-                            let code = r.status().as_u16();
-                            let t = r.text().await.unwrap_or_default();
-                            push_runtime_log(
-                                &log_state,
-                                format!(
-                                    "ISAPI search standard port variant={} tid={} → HTTP {} ({} chars) preview='{}'",
-                                    variant_name, tid, code, t.len(), body_preview(&t)
-                                ),
-                            );
-                            if code == 200 {
-                                Some(t)
-                            } else {
                                 None
                             }
                         }
-                        Err(e) => {
-                            push_runtime_log(
+                    } else {
+                        let resp = client
+                            .post(&endpoint)
+                            .header("Content-Type", content_type)
+                            .basic_auth(login.clone(), Some(pass.clone()))
+                            .body(body.clone())
+                            .send()
+                            .await;
+
+                        match resp {
+                            Ok(r) => {
+                                let code = r.status().as_u16();
+                                let t = r.text().await.unwrap_or_default();
+                                push_runtime_log(
                                 &log_state,
                                 format!(
-                                    "ISAPI search standard port error variant={} tid={}: {}",
-                                    variant_name, tid, e
+                                    "ISAPI search standard port variant={} tid={} content-type={} → HTTP {} ({} chars) preview='{}'",
+                                    variant_name, tid, content_type, code, t.len(), body_preview(&t)
                                 ),
                             );
-                            None
+                                if code == 200 {
+                                    Some(t)
+                                } else {
+                                    None
+                                }
+                            }
+                            Err(e) => {
+                                push_runtime_log(
+                                &log_state,
+                                format!(
+                                    "ISAPI search standard port error variant={} tid={} content-type={}: {}",
+                                    variant_name, tid, content_type, e
+                                ),
+                            );
+                                None
+                            }
                         }
-                    }
-                };
+                    };
 
-                if let Some(text) = text {
-                    let starts: Vec<String> = start_re
-                        .captures_iter(&text)
-                        .filter_map(|c| c.get(1).map(|m| m.as_str().to_string()))
-                        .collect();
+                    if let Some(text) = text {
+                        let starts: Vec<String> = start_re
+                            .captures_iter(&text)
+                            .filter_map(|c| c.get(1).map(|m| m.as_str().to_string()))
+                            .collect();
 
-                    let ends: Vec<String> = end_re
-                        .captures_iter(&text)
-                        .filter_map(|c| c.get(1).map(|m| m.as_str().to_string()))
-                        .collect();
+                        let ends: Vec<String> = end_re
+                            .captures_iter(&text)
+                            .filter_map(|c| c.get(1).map(|m| m.as_str().to_string()))
+                            .collect();
 
-                    let tracks: Vec<String> = track_re
-                        .captures_iter(&text)
-                        .filter_map(|c| c.get(1).map(|m| m.as_str().to_string()))
-                        .collect();
+                        let tracks: Vec<String> = track_re
+                            .captures_iter(&text)
+                            .filter_map(|c| c.get(1).map(|m| m.as_str().to_string()))
+                            .collect();
 
-                    let mut uris: Vec<String> = playback_uri_re
-                        .captures_iter(&text)
-                        .filter_map(|c| {
-                            c.get(1)
-                                .map(|m| m.as_str().replace("&amp;", "&").trim().to_string())
-                        })
-                        .collect();
-
-                    if uris.is_empty() {
-                        uris = url_re
+                        let mut uris: Vec<String> = playback_uri_re
                             .captures_iter(&text)
                             .filter_map(|c| {
                                 c.get(1)
                                     .map(|m| m.as_str().replace("&amp;", "&").trim().to_string())
                             })
                             .collect();
-                    }
 
-                    let count = [starts.len(), ends.len(), tracks.len(), uris.len()]
-                        .into_iter()
-                        .max()
-                        .unwrap_or(0)
-                        .min(40);
+                        if uris.is_empty() {
+                            uris = url_re
+                                .captures_iter(&text)
+                                .filter_map(|c| {
+                                    c.get(1).map(|m| {
+                                        m.as_str().replace("&amp;", "&").trim().to_string()
+                                    })
+                                })
+                                .collect();
+                        }
 
-                    if count == 0 {
-                        push_runtime_log(
+                        let count = [starts.len(), ends.len(), tracks.len(), uris.len()]
+                            .into_iter()
+                            .max()
+                            .unwrap_or(0)
+                            .min(40);
+
+                        if count == 0 {
+                            push_runtime_log(
                             &log_state,
                             format!(
                                 "ISAPI search response accepted, but no items parsed: endpoint={} tid={} variant={}",
                                 endpoint, tid, variant_name
                             ),
                         );
-                        continue;
-                    }
+                            continue;
+                        }
 
-                    let mut items = Vec::with_capacity(count);
-                    for i in 0..count {
-                        let start_time = starts.get(i).cloned();
-                        let end_time = ends.get(i).cloned();
-                        let playback_uri = uris.get(i).cloned();
-                        let (transport, downloadable, playable, confidence) = classify_isapi_record(
-                            playback_uri.as_deref(),
-                            start_time.as_deref(),
-                            end_time.as_deref(),
-                        );
+                        let mut items = Vec::with_capacity(count);
+                        for i in 0..count {
+                            let start_time = starts.get(i).cloned();
+                            let end_time = ends.get(i).cloned();
+                            let playback_uri = uris.get(i).cloned();
+                            let (transport, downloadable, playable, confidence) =
+                                classify_isapi_record(
+                                    playback_uri.as_deref(),
+                                    start_time.as_deref(),
+                                    end_time.as_deref(),
+                                );
 
-                        items.push(IsapiRecordingItem {
-                            endpoint: endpoint.clone(),
-                            track_id: tracks.get(i).cloned().or_else(|| Some(tid.to_string())),
-                            start_time,
-                            end_time,
-                            playback_uri,
-                            transport,
-                            downloadable,
-                            playable,
-                            confidence,
-                        });
-                    }
+                            items.push(IsapiRecordingItem {
+                                endpoint: endpoint.clone(),
+                                track_id: tracks.get(i).cloned().or_else(|| Some(tid.to_string())),
+                                start_time,
+                                end_time,
+                                playback_uri,
+                                transport,
+                                downloadable,
+                                playable,
+                                confidence,
+                            });
+                        }
 
-                    let downloadable_count = items.iter().filter(|x| x.downloadable).count();
-                    let playable_count = items.iter().filter(|x| x.playable).count();
-                    let max_confidence = items.iter().map(|x| x.confidence).max().unwrap_or(0);
+                        let downloadable_count = items.iter().filter(|x| x.downloadable).count();
+                        let playable_count = items.iter().filter(|x| x.playable).count();
+                        let max_confidence = items.iter().map(|x| x.confidence).max().unwrap_or(0);
 
-                    push_runtime_log(
+                        push_runtime_log(
                         &log_state,
                         format!(
                             "ISAPI search finished for {} via {} | tid={} | variant={} | items={} | playable={} | downloadable={} | max_conf={}",
@@ -2609,7 +2657,8 @@ async fn search_isapi_recordings(
                         ),
                     );
 
-                    return Ok(items);
+                        return Ok(items);
+                    }
                 }
             }
         }
@@ -3442,7 +3491,10 @@ async fn start_archive_export_job(
                 ),
             );
 
-            let final_reason = Some(format!("direct: {} || ffmpeg: {}", direct_failure_reason, err));
+            let final_reason = Some(format!(
+                "direct: {} || ffmpeg: {}",
+                direct_failure_reason, err
+            ));
 
             Ok(ArchiveExportJobResult {
                 task_id: task_key,
