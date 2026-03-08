@@ -3897,8 +3897,6 @@ async fn download_isapi_via_rtsp(
             "tcp",
             "-timeout",
             "15000000",
-            "-stimeout",
-            "15000000",
             "-i",
             &authed_uri,
             "-t",
@@ -4293,8 +4291,6 @@ async fn capture_archive_segment(
             "-rtsp_transport".into(),
             "tcp".into(),
             "-timeout".into(),
-            "10000000".into(),
-            "-stimeout".into(),
             "10000000".into(),
         ]);
     }
