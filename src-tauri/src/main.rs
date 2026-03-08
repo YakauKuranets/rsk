@@ -2160,6 +2160,14 @@ async fn fetch_onvif_device_info(
     Err("ONVIF device_service недоступен или не поддерживает GetDeviceInformation".into())
 }
 
+
+fn isapi_diagnostics_request_template(host: &str, endpoint: &str, reason: &str) -> String {
+    format!(
+        "DIAG_REQUEST host={host} endpoint={endpoint} reason={reason}; приложите модель/прошивку NVR, полный XML ответа ResponseStatus, рабочий запрос из web UI (HAR/DevTools), timezone устройства, channel/stream и временной диапазон"
+    )
+}
+
+
 #[tauri::command]
 async fn search_isapi_recordings(
     host: String,
@@ -2741,9 +2749,15 @@ async fn search_isapi_recordings(
                         reason
                     ),
                 );
+                let diag_request =
+                    isapi_diagnostics_request_template(&clean_host, &endpoint, &reason);
+                push_runtime_log(
+                    &log_state,
+                    format!("ISAPI search diagnostics request: {}", diag_request),
+                );
                 return Err(format!(
-                    "ISAPI ContentMgmt/search отклонён устройством как invalid request ({}). Нужен vendor-specific шаблон поиска для этой прошивки.",
-                    reason
+                    "ISAPI ContentMgmt/search отклонён устройством как invalid request ({}). {}",
+                    reason, diag_request
                 ));
             }
         }
@@ -2771,7 +2785,19 @@ async fn search_isapi_recordings(
         &log_state,
         format!("ISAPI search unavailable for {}", clean_host),
     );
-    Err("ISAPI ContentMgmt/search недоступен или вернул неподдерживаемый ответ".into())
+    let diag_request = isapi_diagnostics_request_template(
+        &clean_host,
+        &preferred_endpoint,
+        "no_successful_search_response",
+    );
+    push_runtime_log(
+        &log_state,
+        format!("ISAPI search diagnostics request: {}", diag_request),
+    );
+    Err(format!(
+        "ISAPI ContentMgmt/search недоступен или вернул неподдерживаемый ответ. {}",
+        diag_request
+    ))
 }
 
 #[tauri::command]
