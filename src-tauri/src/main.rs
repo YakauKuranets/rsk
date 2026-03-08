@@ -4350,6 +4350,62 @@ async fn try_isapi_download_post_xml(
     Err(last_err)
 }
 
+async fn send_isapi_http_get_with_retry(
+    client: &reqwest::Client,
+    uri: &str,
+    login: &str,
+    pass: &str,
+    task_key: &str,
+    log_state: &State<'_, LogState>,
+    range_start: Option<u64>,
+    authorization: Option<String>,
+) -> Result<reqwest::Response, String> {
+    let mut attempt: u8 = 0;
+    loop {
+        attempt += 1;
+        let mut req = client
+            .get(uri)
+            .header("Accept", "*/*")
+            .header("X-Requested-With", "XMLHttpRequest")
+            .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/145.0.0.0 Safari/537.36");
+
+        if let Some(start) = range_start {
+            req = req.header("Range", format!("bytes={}-", start));
+        }
+
+        if let Some(ref auth) = authorization {
+            req = req.header("Authorization", auth.clone());
+        } else {
+            req = req.basic_auth(login, Some(pass));
+        }
+
+        match req.send().await {
+            Ok(resp) => return Ok(resp),
+            Err(e) => {
+                let msg = e.to_string();
+                let retryable = msg
+                    .to_ascii_lowercase()
+                    .contains("connection closed before message completed")
+                    || msg
+                        .to_ascii_lowercase()
+                        .contains("error sending request for url");
+                if retryable && attempt < 4 {
+                    push_runtime_log(
+                        log_state,
+                        format!(
+                            "ISAPI HTTP request send failed, retry {}/3: {} [task:{}]",
+                            attempt, msg, task_key
+                        ),
+                    );
+                    tokio::time::sleep(Duration::from_millis(350 * attempt as u64)).await;
+                    continue;
+                }
+                return Err(msg);
+            }
+        }
+    }
+}
+
 /// HTTP ветка: скачивание через reqwest (оригинальная логика)
 async fn download_isapi_via_http(
     uri: &str,
@@ -4373,15 +4429,9 @@ async fn download_isapi_via_http(
         format!("ISAPI HTTP download started: {} [task:{}]", uri, task_key),
     );
 
-    let mut resp = client
-        .get(uri)
-        .header("Accept", "*/*")
-        .header("X-Requested-With", "XMLHttpRequest")
-        .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/145.0.0.0 Safari/537.36")
-        .basic_auth(login, Some(pass))
-        .send()
-        .await
-        .map_err(|e| e.to_string())?;
+    let mut resp =
+        send_isapi_http_get_with_retry(&client, uri, login, pass, task_key, log_state, None, None)
+            .await?;
 
     if resp.status().as_u16() == 401 {
         let www_auth = resp
@@ -4416,14 +4466,17 @@ async fn download_isapi_via_http(
                             task_key
                         ),
                     );
-                    resp = client
-                        .get(uri)
-                        .header("Authorization", answer.to_string())
-                        .header("X-Requested-With", "XMLHttpRequest")
-                        .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/145.0.0.0 Safari/537.36")
-                        .send()
-                        .await
-                        .map_err(|e| e.to_string())?;
+                    resp = send_isapi_http_get_with_retry(
+                        &client,
+                        uri,
+                        login,
+                        pass,
+                        task_key,
+                        log_state,
+                        None,
+                        Some(answer.to_string()),
+                    )
+                    .await?;
                 }
             }
         }
@@ -4607,16 +4660,17 @@ async fn download_isapi_via_http(
                     ),
                 );
 
-                let mut resume_resp = client
-                    .get(uri)
-                    .header("Accept", "*/*")
-                    .header("X-Requested-With", "XMLHttpRequest")
-                    .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/145.0.0.0 Safari/537.36")
-                    .header("Range", format!("bytes={}-", bytes_written))
-                    .basic_auth(login, Some(pass))
-                    .send()
-                    .await
-                    .map_err(|e| e.to_string())?;
+                let mut resume_resp = send_isapi_http_get_with_retry(
+                    &client,
+                    uri,
+                    login,
+                    pass,
+                    task_key,
+                    log_state,
+                    Some(bytes_written),
+                    None,
+                )
+                .await?;
 
                 if resume_resp.status().as_u16() == 401 {
                     let www_auth = resume_resp
@@ -4647,15 +4701,17 @@ async fn download_isapi_via_http(
                             ctx.method = digest_auth::HttpMethod::GET;
 
                             if let Ok(answer) = prompt.respond(&ctx) {
-                                resume_resp = client
-                                    .get(uri)
-                                    .header("Authorization", answer.to_string())
-                                    .header("X-Requested-With", "XMLHttpRequest")
-                                    .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/145.0.0.0 Safari/537.36")
-                                    .header("Range", format!("bytes={}-", bytes_written))
-                                    .send()
-                                    .await
-                                    .map_err(|e| e.to_string())?;
+                                resume_resp = send_isapi_http_get_with_retry(
+                                    &client,
+                                    uri,
+                                    login,
+                                    pass,
+                                    task_key,
+                                    log_state,
+                                    Some(bytes_written),
+                                    Some(answer.to_string()),
+                                )
+                                .await?;
                             }
                         }
                     }
