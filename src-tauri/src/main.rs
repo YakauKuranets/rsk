@@ -259,6 +259,56 @@ fn parse_archive_duration_from_uri(uri: &str) -> Option<u64> {
     Some((sec as u64).saturating_add(15).clamp(30, 1800))
 }
 
+fn clamp_isapi_playback_uri_window(uri: &str, from: &str, to: &str) -> String {
+    if !(uri.to_ascii_lowercase().starts_with("rtsp://")
+        || uri.to_ascii_lowercase().starts_with("rtsps://"))
+    {
+        return uri.to_string();
+    }
+
+    let from_dt = chrono::DateTime::parse_from_rfc3339(from)
+        .ok()
+        .map(|d| d.with_timezone(&chrono::Utc));
+    let to_dt = chrono::DateTime::parse_from_rfc3339(to)
+        .ok()
+        .map(|d| d.with_timezone(&chrono::Utc));
+
+    let (from_dt, to_dt) = match (from_dt, to_dt) {
+        (Some(f), Some(t)) if t > f => (f, t),
+        _ => return uri.to_string(),
+    };
+
+    let from_compact = from_dt.format("%Y%m%dT%H%M%SZ").to_string();
+    let to_compact = to_dt.format("%Y%m%dT%H%M%SZ").to_string();
+
+    let mut out = uri.to_string();
+    if out.contains("starttime=") {
+        if let Some((head, tail)) = out.split_once("starttime=") {
+            let mut rest = tail.to_string();
+            if let Some(pos) = rest.find('&') {
+                rest.replace_range(..pos, &from_compact);
+            } else {
+                rest = from_compact.clone();
+            }
+            out = format!("{}starttime={}", head, rest);
+        }
+    }
+
+    if out.contains("endtime=") {
+        if let Some((head, tail)) = out.split_once("endtime=") {
+            let mut rest = tail.to_string();
+            if let Some(pos) = rest.find('&') {
+                rest.replace_range(..pos, &to_compact);
+            } else {
+                rest = to_compact.clone();
+            }
+            out = format!("{}endtime={}", head, rest);
+        }
+    }
+
+    out
+}
+
 #[derive(Debug, Serialize)]
 struct PortProbeResult {
     port: u16,
@@ -2958,7 +3008,10 @@ async fn search_isapi_recordings(
                         for i in 0..count {
                             let start_time = starts.get(i).cloned();
                             let end_time = ends.get(i).cloned();
-                            let playback_uri = uris.get(i).cloned();
+                            let playback_uri = uris
+                                .get(i)
+                                .cloned()
+                                .map(|u| clamp_isapi_playback_uri_window(&u, &from, &to));
                             let (transport, downloadable, playable, confidence) =
                                 classify_isapi_record(
                                     playback_uri.as_deref(),
