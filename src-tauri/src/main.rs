@@ -2175,13 +2175,15 @@ async fn search_isapi_recordings(
     let from = from_time.unwrap_or_else(|| "2026-01-01T00:00:00Z".into());
     let to = to_time.unwrap_or_else(|| "2026-12-31T23:59:59Z".into());
 
-    let candidates = vec![
-        format!("http://{}:2019/ISAPI/ContentMgmt/search", clean_host),
+    let preferred_endpoint = format!("http://{}:2019/ISAPI/ContentMgmt/search", clean_host);
+    let fallback_endpoints = vec![
         format!("http://{}:80/ISAPI/ContentMgmt/search", clean_host),
         format!("http://{}:8080/ISAPI/ContentMgmt/search", clean_host),
         format!("https://{}:443/ISAPI/ContentMgmt/search", clean_host),
         format!("https://{}:8443/ISAPI/ContentMgmt/search", clean_host),
     ];
+    let mut candidates = vec![preferred_endpoint.clone()];
+    candidates.extend(fallback_endpoints);
 
     let client = reqwest::Client::builder()
         .timeout(Duration::from_secs(15))
@@ -2214,13 +2216,25 @@ async fn search_isapi_recordings(
     let mut seen = HashSet::new();
     track_ids.retain(|tid| seen.insert(tid.clone()));
 
+    let body_preview = |text: &str| {
+        text.chars()
+            .take(220)
+            .collect::<String>()
+            .replace('\n', " ")
+            .replace('\r', " ")
+    };
+
     for endpoint in candidates {
+
         let is_2019 = endpoint.contains(":2019");
+        let mut endpoint_reachable = false;
+        let mut endpoint_client_error = false;
+        let mut endpoint_last_error: Option<String> = None;
 
         for tid in &track_ids {
             let xml_variants = vec![
                 (
-                    "CMSearchDescription",
+                    "CMSearchDescription-legacy-postion",
                     format!(
                         r#"<?xml version="1.0" encoding="UTF-8"?>
 <CMSearchDescription>
@@ -2244,6 +2258,54 @@ async fn search_isapi_recordings(
                     ),
                 ),
                 (
+                    "CMSearchDescription-position",
+                    format!(
+                        r#"<?xml version="1.0" encoding="UTF-8"?>
+<CMSearchDescription>
+  <searchID>1</searchID>
+  <trackList>
+    <trackID>{}</trackID>
+  </trackList>
+  <timeSpanList>
+    <timeSpan>
+      <startTime>{}</startTime>
+      <endTime>{}</endTime>
+    </timeSpan>
+  </timeSpanList>
+  <maxResults>40</maxResults>
+  <searchResultPosition>0</searchResultPosition>
+  <metadataList>
+    <metadataDescriptor>//recordType.meta.std-cgi.com</metadataDescriptor>
+  </metadataList>
+</CMSearchDescription>"#,
+                        tid, from, to
+                    ),
+                ),
+                (
+                    "CMSearchDescription-xmlns",
+                    format!(
+                        r#"<?xml version="1.0" encoding="UTF-8"?>
+<CMSearchDescription xmlns="http://www.hikvision.com/ver20/XMLSchema">
+  <searchID>1</searchID>
+  <trackList>
+    <trackID>{}</trackID>
+  </trackList>
+  <timeSpanList>
+    <timeSpan>
+      <startTime>{}</startTime>
+      <endTime>{}</endTime>
+    </timeSpan>
+  </timeSpanList>
+  <maxResults>40</maxResults>
+  <searchResultPosition>0</searchResultPosition>
+  <metadataList>
+    <metadataDescriptor>//recordType.meta.std-cgi.com</metadataDescriptor>
+  </metadataList>
+</CMSearchDescription>"#,
+                        tid, from, to
+                    ),
+                ),
+                (
                     "SearchDescription",
                     format!(
                         r#"<?xml version="1.0" encoding="UTF-8"?>
@@ -2259,7 +2321,7 @@ async fn search_isapi_recordings(
     </timeSpan>
   </timeSpanList>
   <maxResults>40</maxResults>
-  <searchResultPostion>0</searchResultPostion>
+  <searchResultPosition>0</searchResultPosition>
   <metadataList>
     <metadataDescriptor>//recordType.meta.std-cgi.com</metadataDescriptor>
   </metadataList>
@@ -2330,11 +2392,20 @@ async fn search_isapi_recordings(
                                             Ok(r2) => {
                                                 let code = r2.status().as_u16();
                                                 let t = r2.text().await.unwrap_or_default();
+                                                endpoint_reachable = true;
+                                                if code >= 400 {
+                                                    endpoint_client_error = true;
+                                                    endpoint_last_error = Some(format!(
+                                                        "HTTP {} body='{}'",
+                                                        code,
+                                                        body_preview(&t)
+                                                    ));
+                                                }
                                                 push_runtime_log(
                                                     &log_state,
                                                     format!(
-                                                        "ISAPI search Digest :2019 variant={} tid={} → HTTP {} ({} chars)",
-                                                        variant_name, tid, code, t.len()
+                                                        "ISAPI search Digest :2019 variant={} tid={} → HTTP {} ({} chars) preview='{}'",
+                                                        variant_name, tid, code, t.len(), body_preview(&t)
                                                     ),
                                                 );
                                                 if code == 200 {
@@ -2365,20 +2436,31 @@ async fn search_isapi_recordings(
                             }
                         }
                         Ok(r) if r.status().is_success() => {
+                            endpoint_reachable = true;
                             let t = r.text().await.unwrap_or_default();
                             Some(t)
                         }
                         Ok(r) => {
+                            endpoint_reachable = true;
                             let code = r.status().as_u16();
                             let t = r.text().await.unwrap_or_default();
+                            if code >= 400 {
+                                endpoint_client_error = true;
+                                endpoint_last_error = Some(format!(
+                                    "HTTP {} body='{}'",
+                                    code,
+                                    body_preview(&t)
+                                ));
+                            }
                             push_runtime_log(
                                 &log_state,
                                 format!(
-                                    "ISAPI search :2019 variant={} tid={} → HTTP {} ({} chars)",
+                                    "ISAPI search :2019 variant={} tid={} → HTTP {} ({} chars) preview='{}'",
                                     variant_name,
                                     tid,
                                     code,
-                                    t.len()
+                                    t.len(),
+                                    body_preview(&t)
                                 ),
                             );
                             None
@@ -2410,8 +2492,8 @@ async fn search_isapi_recordings(
                             push_runtime_log(
                                 &log_state,
                                 format!(
-                                    "ISAPI search standard port variant={} tid={} → HTTP {} ({} chars)",
-                                    variant_name, tid, code, t.len()
+                                    "ISAPI search standard port variant={} tid={} → HTTP {} ({} chars) preview='{}'",
+                                    variant_name, tid, code, t.len(), body_preview(&t)
                                 ),
                             );
                             if code == 200 {
@@ -2530,6 +2612,24 @@ async fn search_isapi_recordings(
                     return Ok(items);
                 }
             }
+        }
+
+        if is_2019 && endpoint_reachable && endpoint_client_error {
+            let reason = endpoint_last_error.unwrap_or_else(|| {
+                "Устройство вернуло client-error на 2019 порту для всех проверенных ISAPI-шаблонов"
+                    .to_string()
+            });
+            push_runtime_log(
+                &log_state,
+                format!(
+                    "ISAPI search: порт 2019 доступен, но запросы отклоняются. Пропускаю медленный перебор fallback-портов. {}",
+                    reason
+                ),
+            );
+            return Err(format!(
+                "ISAPI порт 2019 доступен, но ContentMgmt/search отклоняет запросы ({}). Проверьте совместимость XML-шаблона/прошивки.",
+                reason
+            ));
         }
     }
 
