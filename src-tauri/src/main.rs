@@ -3319,7 +3319,8 @@ async fn download_onvif_recording_token(
     );
 
     let client = reqwest::Client::builder()
-        .timeout(Duration::from_secs(45))
+        .connect_timeout(Duration::from_secs(10))
+        .timeout(Duration::from_secs(600))
         .danger_accept_invalid_certs(true)
         .build()
         .map_err(|e| e.to_string())?;
@@ -4252,7 +4253,8 @@ async fn download_isapi_via_http(
     cancel_state: &State<'_, DownloadCancelState>,
 ) -> Result<DownloadReport, String> {
     let client = reqwest::Client::builder()
-        .timeout(Duration::from_secs(45))
+        .connect_timeout(Duration::from_secs(10))
+        .timeout(Duration::from_secs(600))
         .danger_accept_invalid_certs(true)
         .build()
         .map_err(|e| e.to_string())?;
@@ -4330,7 +4332,7 @@ async fn download_isapi_via_http(
         push_runtime_log(
             log_state,
             format!(
-                "ISAPI HTTP download failed: status={} preview='{}' [task:{}]",
+                "ISAPI HTTP initial GET failed: status={} preview='{}' [task:{}]",
                 code, preview, task_key
             ),
         );
