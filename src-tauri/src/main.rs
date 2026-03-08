@@ -17,6 +17,7 @@ use std::fs::OpenOptions;
 use std::net::ToSocketAddrs;
 use std::path::PathBuf;
 use std::process::{Command, Stdio};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, OnceLock};
 mod nexus;
 use suppaftp::FtpStream;
@@ -64,6 +65,13 @@ struct NexusLogBridge {
 fn isapi_http_download_semaphore() -> Arc<Semaphore> {
     static SEM: OnceLock<Arc<Semaphore>> = OnceLock::new();
     SEM.get_or_init(|| Arc::new(Semaphore::new(1))).clone()
+}
+
+fn make_unique_task_key(base: Option<String>, prefix: &str) -> String {
+    static SEQ: AtomicU64 = AtomicU64::new(1);
+    let n = SEQ.fetch_add(1, Ordering::Relaxed);
+    let raw = base.unwrap_or_else(|| format!("{}_{}", prefix, Utc::now().timestamp_millis()));
+    format!("{}_{}", raw, n)
 }
 
 fn push_runtime_log(state: &State<'_, LogState>, message: impl Into<String>) {
@@ -1051,30 +1059,50 @@ fn inject_rtsp_credentials(uri: &str, login: &str, pass: &str) -> String {
 
 /// Строит HTTP(S) endpoint выгрузки архива из RTSP playbackURI:
 ///   rtsp://host:2019/... -> http://host:2019/ISAPI/ContentMgmt/download?playbackURI=...
-fn build_isapi_download_endpoint_from_rtsp(playback_uri: &str) -> Option<String> {
-    let parsed = reqwest::Url::parse(playback_uri).ok()?;
-    let host = parsed.host_str()?;
+fn build_isapi_download_endpoints_from_rtsp(playback_uri: &str) -> Vec<String> {
+    let parsed = match reqwest::Url::parse(playback_uri) {
+        Ok(v) => v,
+        Err(_) => return Vec::new(),
+    };
+    let host = match parsed.host_str() {
+        Some(v) => v,
+        None => return Vec::new(),
+    };
     let rtsp_port = parsed
         .port_or_known_default()
         .unwrap_or(if parsed.scheme() == "rtsps" { 322 } else { 554 });
 
-    let http_port = match rtsp_port {
+    let mut candidate_ports: Vec<u16> = Vec::new();
+    candidate_ports.push(match rtsp_port {
         554 => 80,
         p => p,
-    };
-    let http_scheme = if http_port == 443 || parsed.scheme() == "rtsps" {
-        "https"
-    } else {
-        "http"
-    };
+    });
+    if !candidate_ports.contains(&2019) {
+        candidate_ports.push(2019);
+    }
+    if !candidate_ports.contains(&80) {
+        candidate_ports.push(80);
+    }
+    if !candidate_ports.contains(&443) {
+        candidate_ports.push(443);
+    }
 
-    Some(format!(
-        "{}://{}:{}/ISAPI/ContentMgmt/download?playbackURI={}",
-        http_scheme,
-        host,
-        http_port,
-        urlencoding::encode(playback_uri)
-    ))
+    let mut out = Vec::new();
+    for p in candidate_ports {
+        let scheme = if p == 443 || parsed.scheme() == "rtsps" {
+            "https"
+        } else {
+            "http"
+        };
+        out.push(format!(
+            "{}://{}:{}/ISAPI/ContentMgmt/download?playbackURI={}",
+            scheme,
+            host,
+            p,
+            urlencoding::encode(playback_uri)
+        ));
+    }
+    out
 }
 
 fn resolve_ftp_config(server_alias: &str) -> Result<FtpConfig, String> {
@@ -3748,7 +3776,7 @@ async fn download_isapi_playback_uri(
     // Камера может вернуть XML-экранированные символы: &amp; → &
     let uri = playback_uri.replace("&amp;", "&");
 
-    let task_key = task_id.unwrap_or_else(|| format!("isapi_{}", Utc::now().timestamp_millis()));
+    let task_key = make_unique_task_key(task_id, "isapi");
     push_runtime_log(
         &log_state,
         format!("ISAPI download requested: {} [task:{}]", uri, task_key),
@@ -3798,12 +3826,15 @@ async fn download_isapi_playback_uri(
             ),
         );
 
-        if let Some(http_download_uri) = build_isapi_download_endpoint_from_rtsp(&uri) {
+        let http_fallbacks = build_isapi_download_endpoints_from_rtsp(&uri);
+        let mut http_errors: Vec<String> = Vec::new();
+
+        for http_download_uri in http_fallbacks {
             match download_isapi_via_http(
                 &http_download_uri,
                 &login,
                 &pass,
-                filename_hint,
+                filename_hint.clone(),
                 &task_key,
                 &log_state,
                 &cancel_state,
@@ -3828,15 +3859,19 @@ async fn download_isapi_playback_uri(
                             http_download_uri, http_err, task_key
                         ),
                     );
-                    return Err(format!(
-                        "RTSP capture failed: {} ; HTTP fallback failed: {}",
-                        rtsp_error, http_err
-                    ));
+                    http_errors.push(format!("{} -> {}", http_download_uri, http_err));
                 }
             }
         }
 
-        return Err(rtsp_error);
+        if http_errors.is_empty() {
+            return Err(rtsp_error);
+        }
+        return Err(format!(
+            "RTSP capture failed: {} ; HTTP fallbacks failed: {}",
+            rtsp_error,
+            http_errors.join(" || ")
+        ));
     }
 
     if uri_lc.starts_with("http://") || uri_lc.starts_with("https://") {
