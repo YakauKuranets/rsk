@@ -1263,7 +1263,11 @@ fn ftp_banner_probe(host: &str, attempts: usize) -> Result<String, String> {
         std::thread::sleep(std::time::Duration::from_millis(350));
     }
 
-    Err(last_err.unwrap_or_else(|| "FTP список недоступен".into()))
+    Err(if last_err.is_empty() {
+        "FTP список недоступен".into()
+    } else {
+        last_err
+    })
 }
 
 fn ftp_connect_with_retry(
