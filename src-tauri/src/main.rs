@@ -4143,8 +4143,16 @@ async fn download_isapi_via_http(
         .map_err(|e| e.to_string())?;
 
     let started = std::time::Instant::now();
+    push_runtime_log(
+        log_state,
+        format!("ISAPI HTTP download started: {} [task:{}]", uri, task_key),
+    );
+
     let mut resp = client
         .get(uri)
+        .header("Accept", "*/*")
+        .header("X-Requested-With", "XMLHttpRequest")
+        .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/145.0.0.0 Safari/537.36")
         .basic_auth(login, Some(pass))
         .send()
         .await
@@ -4199,9 +4207,23 @@ async fn download_isapi_via_http(
     }
 
     if !resp.status().is_success() {
+        let code = resp.status().as_u16();
+        let body = resp.text().await.unwrap_or_default();
+        let preview = body
+            .split_whitespace()
+            .take(40)
+            .collect::<Vec<_>>()
+            .join(" ");
+        push_runtime_log(
+            log_state,
+            format!(
+                "ISAPI HTTP download failed: status={} preview='{}' [task:{}]",
+                code, preview, task_key
+            ),
+        );
         return Err(format!(
-            "ISAPI download failed with HTTP {}",
-            resp.status().as_u16()
+            "ISAPI download failed with HTTP {} preview='{}'",
+            code, preview
         ));
     }
 
