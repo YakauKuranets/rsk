@@ -2209,6 +2209,9 @@ async fn search_isapi_recordings(
     let playback_uri_re =
         Regex::new(r"<playbackURI>([^<]+)</playbackURI>").map_err(|e| e.to_string())?;
     let url_re = Regex::new(r"<url>([^<]+)</url>").map_err(|e| e.to_string())?;
+    let status_code_re = Regex::new(r"<statusCode>([^<]+)</statusCode>").map_err(|e| e.to_string())?;
+    let status_string_re =
+        Regex::new(r"<statusString>([^<]+)</statusString>").map_err(|e| e.to_string())?;
 
     let mut track_ids: Vec<String> = Vec::new();
     if let Some(channel_id) = camera_channel_id {
@@ -2232,6 +2235,7 @@ async fn search_isapi_recordings(
         let is_2019 = endpoint.contains(":2019");
         let mut endpoint_reachable = false;
         let mut endpoint_client_error = false;
+        let mut endpoint_invalid_request = false;
         let mut endpoint_last_error: Option<String> = None;
 
         for tid in &track_ids {
@@ -2317,6 +2321,25 @@ async fn search_isapi_recordings(
   <trackList>
     <trackID>{}</trackID>
   </trackList>
+  <timeSpanList>
+    <timeSpan>
+      <startTime>{}</startTime>
+      <endTime>{}</endTime>
+    </timeSpan>
+  </timeSpanList>
+  <maxResults>40</maxResults>
+  <searchResultPostion>0</searchResultPostion>
+</CMSearchDescription>"#,
+                        tid, from, to
+                    ),
+                ),
+                (
+                    "CMSearchDescription-flat-track",
+                    format!(
+                        r#"<?xml version="1.0" encoding="UTF-8"?>
+<CMSearchDescription version="1.0" xmlns="http://www.hikvision.com/ver20/XMLSchema">
+  <searchID>1</searchID>
+  <trackID>{}</trackID>
   <timeSpanList>
     <timeSpan>
       <startTime>{}</startTime>
@@ -2443,9 +2466,32 @@ async fn search_isapi_recordings(
                                                     endpoint_reachable = true;
                                                     if code >= 400 {
                                                         endpoint_client_error = true;
+                                                        let parsed_status_code = status_code_re
+                                                            .captures(&t)
+                                                            .and_then(|c| {
+                                                                c.get(1).map(|m| m.as_str().trim().to_string())
+                                                            });
+                                                        let parsed_status_string = status_string_re
+                                                            .captures(&t)
+                                                            .and_then(|c| {
+                                                                c.get(1).map(|m| m.as_str().trim().to_string())
+                                                            });
+
+                                                        if parsed_status_code.as_deref() == Some("6")
+                                                            && parsed_status_string
+                                                                .as_deref()
+                                                                .unwrap_or_default()
+                                                                .to_ascii_lowercase()
+                                                                .contains("invalid")
+                                                        {
+                                                            endpoint_invalid_request = true;
+                                                        }
+
                                                         endpoint_last_error = Some(format!(
-                                                            "HTTP {} body='{}'",
+                                                            "HTTP {} statusCode={:?} statusString={:?} body='{}'",
                                                             code,
+                                                            parsed_status_code,
+                                                            parsed_status_string,
                                                             body_preview(&t)
                                                         ));
                                                     }
@@ -2494,8 +2540,30 @@ async fn search_isapi_recordings(
                                 let t = r.text().await.unwrap_or_default();
                                 if code >= 400 {
                                     endpoint_client_error = true;
-                                    endpoint_last_error =
-                                        Some(format!("HTTP {} body='{}'", code, body_preview(&t)));
+                                    let parsed_status_code = status_code_re
+                                        .captures(&t)
+                                        .and_then(|c| c.get(1).map(|m| m.as_str().trim().to_string()));
+                                    let parsed_status_string = status_string_re
+                                        .captures(&t)
+                                        .and_then(|c| c.get(1).map(|m| m.as_str().trim().to_string()));
+
+                                    if parsed_status_code.as_deref() == Some("6")
+                                        && parsed_status_string
+                                            .as_deref()
+                                            .unwrap_or_default()
+                                            .to_ascii_lowercase()
+                                            .contains("invalid")
+                                    {
+                                        endpoint_invalid_request = true;
+                                    }
+
+                                    endpoint_last_error = Some(format!(
+                                        "HTTP {} statusCode={:?} statusString={:?} body='{}'",
+                                        code,
+                                        parsed_status_code,
+                                        parsed_status_string,
+                                        body_preview(&t)
+                                    ));
                                 }
                                 push_runtime_log(
                                 &log_state,
@@ -2660,6 +2728,23 @@ async fn search_isapi_recordings(
                         return Ok(items);
                     }
                 }
+            }
+
+            if is_2019 && endpoint_reachable && endpoint_invalid_request {
+                let reason = endpoint_last_error.clone().unwrap_or_else(|| {
+                    "statusCode=6 (Invalid) для ContentMgmt/search".to_string()
+                });
+                push_runtime_log(
+                    &log_state,
+                    format!(
+                        "ISAPI search: устройство отклоняет XML-шаблон запроса на :2019 ({}). Останавливаю дальнейший перебор TID.",
+                        reason
+                    ),
+                );
+                return Err(format!(
+                    "ISAPI ContentMgmt/search отклонён устройством как invalid request ({}). Нужен vendor-specific шаблон поиска для этой прошивки.",
+                    reason
+                ));
             }
         }
 
