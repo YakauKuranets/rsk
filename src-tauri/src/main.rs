@@ -2007,15 +2007,7 @@ async fn fetch_nvr_device_info(
                     "User-Agent",
                     "Mozilla/4.0 (compatible; MSIE 8.0; Windows NT 6.1; WOW64; Trident/4.0)",
                 )
-                .header("Accept", "*/*")
-                        .header("Origin", format!("http://{}:2019", clean_host))
-                        .header(
-                            "Referer",
-                            format!(
-                                "http://{}:2019/doc/page/download.asp?fileType=record&date={}"
-                                , clean_host, from.split('T').next().unwrap_or(""),
-                            ),
-                        )
+                .header("Accept", "application/xml, text/xml, */*")
                 .send()
                 .await
         } else {
