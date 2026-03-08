@@ -1080,7 +1080,7 @@ async fn search_onvif(host: &str, login: &str, pass: &str, tx: &mpsc::Sender<Hyp
 async fn sand_download_isapi_stream(
     client: &reqwest::Client, url: &str, path: &str, login: &str, pass: &str,
     filename: &str, fpath: &std::path::Path, task_key: &str,
-    session_client: &Option<reqwest::Client>,
+    _session_client: &Option<reqwest::Client>,
     tx: &mpsc::Sender<HyperionEvent>,
 ) -> Result<String, String> {
     use futures_util::StreamExt;
@@ -1118,8 +1118,6 @@ async fn sand_download_isapi(
     session_client: &Option<reqwest::Client>,
     tx: &mpsc::Sender<HyperionEvent>,
 ) -> Result<String, String> {
-    use futures_util::StreamExt;
-
     let mut rng = SandRng::new();
     let sand = SandProfile::standard();
     let task_key = format!("nexus_isapi_{}", Utc::now().timestamp_millis());
@@ -1355,7 +1353,7 @@ async fn sand_download_isapi(
 
 async fn sand_download_onvif(
     endpoint: &str, token: &str, login: &str, pass: &str, filename_hint: &str,
-    session_client: &Option<reqwest::Client>,
+    _session_client: &Option<reqwest::Client>,
     tx: &mpsc::Sender<HyperionEvent>,
 ) -> Result<String, String> {
     let mut rng = SandRng::new(); let sand = SandProfile::standard();

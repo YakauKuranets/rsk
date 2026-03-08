@@ -877,7 +877,7 @@ struct FtpConfig {
     pass: &'static str,
 }
 
-#[derive(Serialize)]
+#[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 struct DownloadReport {
     server_alias: String,
@@ -1263,7 +1263,7 @@ fn ftp_banner_probe(host: &str, attempts: usize) -> Result<String, String> {
         std::thread::sleep(std::time::Duration::from_millis(350));
     }
 
-    Err(last_err)
+    Err(last_err.unwrap_or_else(|| "FTP список недоступен".into()))
 }
 
 fn ftp_connect_with_retry(
@@ -1273,7 +1273,7 @@ fn ftp_connect_with_retry(
     max_retries: usize,
 ) -> Result<suppaftp::FtpStream, String> {
     let mut delay_ms: u64 = 2000; // Стартуем с 2 секунд
-    let mut last_err = String::new();
+    let mut last_err: Option<String> = None;
 
     for attempt in 1..=max_retries {
         println!(
@@ -1311,16 +1311,16 @@ fn ftp_connect_with_retry(
 }
 
 fn ftp_nlst_root_with_fallback(ftp: &mut FtpStream) -> Result<Vec<String>, String> {
-    let mut last_err = String::new();
+    let mut last_err: Option<String> = None;
 
     for candidate in [Some("/"), Some("."), None] {
         match ftp.nlst(candidate) {
             Ok(items) if !items.is_empty() => return Ok(items),
             Ok(_) => {
-                last_err = format!("FTP nlst вернул пустой список для {:?}", candidate);
+                last_err = Some(format!("FTP nlst вернул пустой список для {:?}", candidate));
             }
             Err(e) => {
-                last_err = format!("FTP nlst ошибка для {:?}: {}", candidate, e);
+                last_err = Some(format!("FTP nlst ошибка для {:?}: {}", candidate, e));
             }
         }
     }
@@ -1345,17 +1345,17 @@ fn ftp_nlst_root_with_fallback(ftp: &mut FtpStream) -> Result<Vec<String>, Strin
             if !items.is_empty() {
                 return Ok(items);
             }
-            last_err = "FTP list fallback вернул пустой список".into();
+            last_err = Some("FTP list fallback вернул пустой список".into());
         }
         Ok(_) => {
-            last_err = "FTP list fallback вернул пустой ответ".into();
+            last_err = Some("FTP list fallback вернул пустой ответ".into());
         }
         Err(e) => {
-            last_err = format!("FTP list fallback ошибка: {}", e);
+            last_err = Some(format!("FTP list fallback ошибка: {}", e));
         }
     }
 
-    Err(last_err)
+    Err(last_err.unwrap_or_else(|| "FTP список недоступен".into()))
 }
 
 #[tauri::command]
@@ -1385,8 +1385,6 @@ fn get_ftp_folders(
     }
 
     // 2. Интеллектуальное переключение режимов
-    let mut list_result = Err(String::from("Инициализация"));
-
     // Попытка 1: Пассивный режим
     ftp.set_mode(suppaftp::Mode::Passive);
     push_runtime_log(
@@ -1394,10 +1392,10 @@ fn get_ftp_folders(
         "Пробуем Пассивный (Passive) режим...".to_string(),
     );
 
-    match ftp_nlst_root_with_fallback(&mut ftp) {
+    let list = match ftp_nlst_root_with_fallback(&mut ftp) {
         Ok(items) => {
             push_runtime_log(&log_state, "Пассивный режим сработал!".to_string());
-            list_result = Ok(items);
+            items
         }
         Err(e) => {
             push_runtime_log(
@@ -1414,19 +1412,17 @@ fn get_ftp_folders(
                         &log_state,
                         "Активный режим успешно пробил файрвол!".to_string(),
                     );
-                    list_result = Ok(items);
+                    items
                 }
                 Err(e_act) => {
-                    list_result = Err(format!(
+                    return Err(format!(
                         "Оба режима отклонены сервером. Passive: {}, Active: {}",
                         e, e_act
                     ));
                 }
             }
         }
-    }
-
-    let list = list_result?;
+    };
     let mut folders = Vec::new();
 
     for item in list {
@@ -3222,7 +3218,6 @@ async fn start_archive_export_job(
 
     let task_key = task_id.unwrap_or_else(|| format!("export_{}", Utc::now().timestamp_millis()));
     let mut stages: Vec<ArchiveExportStage> = Vec::new();
-    let mut direct_failure_reason: Option<String> = None;
     let fallback_duration = parse_archive_duration_from_uri(&playback_uri).or(Some(180));
 
     push_runtime_log(
@@ -3242,7 +3237,7 @@ async fn start_archive_export_job(
     )
     .await;
 
-    match direct_result {
+    let direct_failure_reason = match direct_result {
         Ok(report) => {
             stages.push(ArchiveExportStage {
                 stage: "direct".into(),
@@ -3268,7 +3263,6 @@ async fn start_archive_export_job(
             });
         }
         Err(err) => {
-            direct_failure_reason = Some(err.clone());
             stages.push(ArchiveExportStage {
                 stage: "direct".into(),
                 success: false,
@@ -3283,8 +3277,9 @@ async fn start_archive_export_job(
                     task_key, err
                 ),
             );
+            err
         }
-    }
+    };
 
     push_runtime_log(
         &log_state,
@@ -3322,7 +3317,7 @@ async fn start_archive_export_job(
                 retry_count: 1,
                 stage_count: stages.len(),
                 fallback_duration_seconds: fallback_duration,
-                final_reason: direct_failure_reason,
+                final_reason: Some(direct_failure_reason),
                 report: Some(report),
                 stages,
             })
@@ -3343,10 +3338,7 @@ async fn start_archive_export_job(
                 ),
             );
 
-            let final_reason = match direct_failure_reason {
-                Some(direct_err) => Some(format!("direct: {} || ffmpeg: {}", direct_err, err)),
-                None => Some(format!("ffmpeg: {}", err)),
-            };
+            let final_reason = Some(format!("direct: {} || ffmpeg: {}", direct_failure_reason, err));
 
             Ok(ArchiveExportJobResult {
                 task_id: task_key,
