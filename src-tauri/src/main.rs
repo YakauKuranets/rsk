@@ -2007,7 +2007,15 @@ async fn fetch_nvr_device_info(
                     "User-Agent",
                     "Mozilla/4.0 (compatible; MSIE 8.0; Windows NT 6.1; WOW64; Trident/4.0)",
                 )
-                .header("Accept", "application/xml, text/xml, */*")
+                .header("Accept", "*/*")
+                        .header("Origin", format!("http://{}:2019", clean_host))
+                        .header(
+                            "Referer",
+                            format!(
+                                "http://{}:2019/doc/page/download.asp?fileType=record&date={}"
+                                , clean_host, from.split('T').next().unwrap_or(""),
+                            ),
+                        )
                 .send()
                 .await
         } else {
@@ -2421,6 +2429,13 @@ async fn search_isapi_recordings(
         for tid in &track_ids {
             let xml_variants = vec![
                 (
+                    "CMSearchDescription-webui-form",
+                    format!(
+                        r#"<?xml version="1.0" encoding="utf-8"?><CMSearchDescription><searchID>CB934AB2-2AA0-0001-566E-A50063501778</searchID><trackList><trackID>{}</trackID></trackList><timeSpanList><timeSpan><startTime>{}</startTime><endTime>{}</endTime></timeSpan></timeSpanList><maxResults>50</maxResults><searchResultPostion>0</searchResultPostion><metadataList><metadataDescriptor>//recordType.meta.std-cgi.com</metadataDescriptor></metadataList></CMSearchDescription>"#,
+                        tid, from, to
+                    ),
+                ),
+                (
                     "CMSearchDescription-legacy-postion",
                     format!(
                         r#"<?xml version="1.0" encoding="UTF-8"?>
@@ -2582,7 +2597,11 @@ async fn search_isapi_recordings(
                 ),
             ];
             for (variant_name, body) in &xml_variants {
-                for content_type in ["application/xml; charset=UTF-8", "text/xml; charset=UTF-8"] {
+                for content_type in [
+                    "application/x-www-form-urlencoded; charset=UTF-8",
+                    "application/xml; charset=UTF-8",
+                    "text/xml; charset=UTF-8",
+                ] {
                     push_runtime_log(
                         &log_state,
                         format!(
@@ -2600,7 +2619,15 @@ async fn search_isapi_recordings(
                             "User-Agent",
                             "Mozilla/4.0 (compatible; MSIE 8.0; Windows NT 6.1; WOW64; Trident/4.0)",
                         )
-                        .header("Accept", "application/xml, text/xml, */*")
+                        .header("Accept", "*/*")
+                        .header("Origin", format!("http://{}:2019", clean_host))
+                        .header(
+                            "Referer",
+                            format!(
+                                "http://{}:2019/doc/page/download.asp?fileType=record&date={}"
+                                , clean_host, from.split('T').next().unwrap_or(""),
+                            ),
+                        )
                         .body(body.clone())
                         .send()
                         .await;
@@ -2634,7 +2661,16 @@ async fn search_isapi_recordings(
                                                 "User-Agent",
                                                 "Mozilla/4.0 (compatible; MSIE 8.0; Windows NT 6.1; WOW64; Trident/4.0)",
                                             )
-                                            .header("Accept", "application/xml, text/xml, */*")
+                                            .header("Accept", "*/*")
+                                            .header("Origin", format!("http://{}:2019", clean_host))
+                                            .header(
+                                                "Referer",
+                                                format!(
+                                                    "http://{}:2019/doc/page/download.asp?fileType=record&date={}",
+                                                    clean_host,
+                                                    from.split('T').next().unwrap_or(""),
+                                                ),
+                                            )
                                             .body(body.clone())
                                             .send()
                                             .await;
