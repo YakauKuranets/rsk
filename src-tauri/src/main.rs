@@ -4525,7 +4525,6 @@ async fn download_isapi_via_http(
         .join(&filename);
     let _ = std::fs::create_dir_all(path.parent().unwrap());
 
-    let mut stream = resp.bytes_stream();
     let mut file = OpenOptions::new()
         .create(true)
         .write(true)
@@ -4534,46 +4533,171 @@ async fn download_isapi_via_http(
         .map_err(|e| e.to_string())?;
 
     let mut bytes_written: u64 = 0;
+    let mut total_size = total_size;
     let progress_step = 2 * 1024 * 1024u64;
     let mut next_progress_mark = progress_step;
+    let mut resume_attempts: u8 = 0;
+    let max_resume_attempts: u8 = 4;
 
-    while let Some(chunk) = stream.next().await {
-        if cancel_state
-            .cancelled_tasks
-            .lock()
-            .map(|set| set.contains(task_key))
-            .unwrap_or(false)
-        {
-            let _ = std::fs::remove_file(&path);
-            if let Ok(mut cancelled) = cancel_state.cancelled_tasks.lock() {
-                cancelled.remove(task_key);
+    'download_stream: loop {
+        let mut stream = resp.bytes_stream();
+        let mut stream_error: Option<String> = None;
+
+        while let Some(chunk) = stream.next().await {
+            if cancel_state
+                .cancelled_tasks
+                .lock()
+                .map(|set| set.contains(task_key))
+                .unwrap_or(false)
+            {
+                let _ = std::fs::remove_file(&path);
+                if let Ok(mut cancelled) = cancel_state.cancelled_tasks.lock() {
+                    cancelled.remove(task_key);
+                }
+                push_runtime_log(
+                    log_state,
+                    format!("DOWNLOAD_CANCELLED|{}|{}", task_key, filename),
+                );
+                return Err(format!(
+                    "Загрузка отменена пользователем [task:{}]",
+                    task_key
+                ));
             }
-            push_runtime_log(
-                log_state,
-                format!("DOWNLOAD_CANCELLED|{}|{}", task_key, filename),
-            );
+
+            match chunk {
+                Ok(data) => {
+                    std::io::Write::write_all(&mut file, &data).map_err(|e| e.to_string())?;
+                    bytes_written += data.len() as u64;
+
+                    if bytes_written >= next_progress_mark {
+                        push_runtime_log(
+                            log_state,
+                            format!(
+                                "DOWNLOAD_PROGRESS|{}|{}|{}",
+                                task_key,
+                                bytes_written,
+                                total_size.max(bytes_written)
+                            ),
+                        );
+                        next_progress_mark += progress_step;
+                    }
+                }
+                Err(e) => {
+                    stream_error = Some(e.to_string());
+                    break;
+                }
+            }
+        }
+
+        if let Some(err_text) = stream_error {
+            let err_lc = err_text.to_ascii_lowercase();
+            let resumable = (err_lc.contains("end of file before message length reached")
+                || err_lc.contains("error reading a body from connection"))
+                && bytes_written > 0
+                && (total_size == 0 || bytes_written < total_size)
+                && resume_attempts < max_resume_attempts;
+
+            if resumable {
+                resume_attempts += 1;
+                push_runtime_log(
+                    log_state,
+                    format!(
+                        "ISAPI HTTP stream interrupted at {} bytes, trying resume {}/{} [task:{}]",
+                        bytes_written, resume_attempts, max_resume_attempts, task_key
+                    ),
+                );
+
+                let mut resume_resp = client
+                    .get(uri)
+                    .header("Accept", "*/*")
+                    .header("X-Requested-With", "XMLHttpRequest")
+                    .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/145.0.0.0 Safari/537.36")
+                    .header("Range", format!("bytes={}-", bytes_written))
+                    .basic_auth(login, Some(pass))
+                    .send()
+                    .await
+                    .map_err(|e| e.to_string())?;
+
+                if resume_resp.status().as_u16() == 401 {
+                    let www_auth = resume_resp
+                        .headers()
+                        .get(reqwest::header::WWW_AUTHENTICATE)
+                        .and_then(|h| h.to_str().ok())
+                        .map(|s| s.to_string());
+
+                    if let Some(www_auth) = www_auth {
+                        if let Ok(mut prompt) = digest_auth::parse(&www_auth) {
+                            let digest_path = reqwest::Url::parse(uri)
+                                .ok()
+                                .map(|u| {
+                                    let mut p = u.path().to_string();
+                                    if let Some(q) = u.query() {
+                                        p.push('?');
+                                        p.push_str(q);
+                                    }
+                                    p
+                                })
+                                .unwrap_or_else(|| "/ISAPI/ContentMgmt/download".to_string());
+
+                            let mut ctx = digest_auth::AuthContext::new(
+                                login.to_string(),
+                                pass.to_string(),
+                                digest_path,
+                            );
+                            ctx.method = digest_auth::HttpMethod::GET;
+
+                            if let Ok(answer) = prompt.respond(&ctx) {
+                                resume_resp = client
+                                    .get(uri)
+                                    .header("Authorization", answer.to_string())
+                                    .header("X-Requested-With", "XMLHttpRequest")
+                                    .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/145.0.0.0 Safari/537.36")
+                                    .header("Range", format!("bytes={}-", bytes_written))
+                                    .send()
+                                    .await
+                                    .map_err(|e| e.to_string())?;
+                            }
+                        }
+                    }
+                }
+
+                let status = resume_resp.status().as_u16();
+                if status != 206 && status != 200 {
+                    return Err(format!(
+                        "ISAPI download resume failed at {} bytes with HTTP {}",
+                        bytes_written, status
+                    ));
+                }
+
+                if status == 200 && bytes_written > 0 {
+                    push_runtime_log(
+                        log_state,
+                        format!(
+                            "ISAPI resume server ignored Range (HTTP 200), restarting from zero [task:{}]",
+                            task_key
+                        ),
+                    );
+                    file.set_len(0).map_err(|e| e.to_string())?;
+                    std::io::Seek::seek(&mut file, std::io::SeekFrom::Start(0))
+                        .map_err(|e| e.to_string())?;
+                    bytes_written = 0;
+                    next_progress_mark = progress_step;
+                } else if total_size == 0 {
+                    total_size =
+                        bytes_written.saturating_add(resume_resp.content_length().unwrap_or(0));
+                }
+
+                resp = resume_resp;
+                continue 'download_stream;
+            }
+
             return Err(format!(
-                "Загрузка отменена пользователем [task:{}]",
-                task_key
+                "ISAPI HTTP stream failed after {} bytes: {}",
+                bytes_written, err_text
             ));
         }
 
-        let data = chunk.map_err(|e| e.to_string())?;
-        std::io::Write::write_all(&mut file, &data).map_err(|e| e.to_string())?;
-        bytes_written += data.len() as u64;
-
-        if bytes_written >= next_progress_mark {
-            push_runtime_log(
-                log_state,
-                format!(
-                    "DOWNLOAD_PROGRESS|{}|{}|{}",
-                    task_key,
-                    bytes_written,
-                    total_size.max(bytes_written)
-                ),
-            );
-            next_progress_mark += progress_step;
-        }
+        break;
     }
 
     let duration_ms = started.elapsed().as_millis();
