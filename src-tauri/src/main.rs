@@ -2161,9 +2161,40 @@ async fn fetch_onvif_device_info(
 }
 
 
-fn isapi_diagnostics_request_template(host: &str, endpoint: &str, reason: &str) -> String {
+fn isapi_reference_search_request_xml(from: &str, to: &str, track_id: &str) -> String {
     format!(
-        "DIAG_REQUEST host={host} endpoint={endpoint} reason={reason}; приложите модель/прошивку NVR, полный XML ответа ResponseStatus, рабочий запрос из web UI (HAR/DevTools), timezone устройства, channel/stream и временной диапазон"
+        r#"<?xml version="1.0" encoding="UTF-8"?>
+<CMSearchDescription version="1.0" xmlns="http://www.hikvision.com/ver20/XMLSchema">
+  <searchID>1</searchID>
+  <trackList>
+    <trackID>{track_id}</trackID>
+  </trackList>
+  <timeSpanList>
+    <timeSpan>
+      <startTime>{from}</startTime>
+      <endTime>{to}</endTime>
+    </timeSpan>
+  </timeSpanList>
+  <maxResults>40</maxResults>
+  <searchResultPostion>0</searchResultPostion>
+  <metadataList>
+    <metadataDescriptor>//recordType.meta.std-cgi.com</metadataDescriptor>
+  </metadataList>
+</CMSearchDescription>"#
+    )
+}
+
+fn isapi_diagnostics_request_template(
+    host: &str,
+    endpoint: &str,
+    reason: &str,
+    from: &str,
+    to: &str,
+    track_id: &str,
+) -> String {
+    let reference_xml = isapi_reference_search_request_xml(from, to, track_id);
+    format!(
+        "DIAG_REQUEST host={host} endpoint={endpoint} reason={reason}; приложите модель/прошивку NVR, полный XML ответа ResponseStatus, рабочий запрос из web UI (HAR/DevTools), timezone устройства, channel/stream и временной диапазон. REF_REQUEST(method=POST, content-type=application/xml; charset=UTF-8, body={reference_xml})"
     )
 }
 
@@ -2750,7 +2781,7 @@ async fn search_isapi_recordings(
                     ),
                 );
                 let diag_request =
-                    isapi_diagnostics_request_template(&clean_host, &endpoint, &reason);
+                    isapi_diagnostics_request_template(&clean_host, &endpoint, &reason, &from, &to, tid);
                 push_runtime_log(
                     &log_state,
                     format!("ISAPI search diagnostics request: {}", diag_request),
@@ -2789,6 +2820,9 @@ async fn search_isapi_recordings(
         &clean_host,
         &preferred_endpoint,
         "no_successful_search_response",
+        &from,
+        &to,
+        track_ids.first().map(String::as_str).unwrap_or("101"),
     );
     push_runtime_log(
         &log_state,
