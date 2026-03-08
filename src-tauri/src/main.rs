@@ -4165,8 +4165,6 @@ async fn download_isapi_via_http(
             .and_then(|h| h.to_str().ok())
             .map(|s| s.to_string());
 
-        let _ = resp.text().await;
-
         if let Some(www_auth) = www_auth {
             if let Ok(mut prompt) = digest_auth::parse(&www_auth) {
                 let digest_path = reqwest::Url::parse(uri)
