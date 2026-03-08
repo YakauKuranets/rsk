@@ -259,6 +259,46 @@ fn parse_archive_duration_from_uri(uri: &str) -> Option<u64> {
     Some((sec as u64).saturating_add(15).clamp(30, 1800))
 }
 
+fn clamp_isapi_item_window(
+    start_time: Option<String>,
+    end_time: Option<String>,
+    from: &str,
+    to: &str,
+) -> (Option<String>, Option<String>, bool) {
+    let parse = |v: &str| {
+        chrono::DateTime::parse_from_rfc3339(v)
+            .ok()
+            .map(|d| d.with_timezone(&chrono::Utc))
+    };
+    let from_dt = match parse(from) {
+        Some(v) => v,
+        None => return (start_time, end_time, true),
+    };
+    let to_dt = match parse(to) {
+        Some(v) => v,
+        None => return (start_time, end_time, true),
+    };
+
+    let item_start = start_time.as_deref().and_then(parse);
+    let item_end = end_time.as_deref().and_then(parse);
+
+    match (item_start, item_end) {
+        (Some(s), Some(e)) => {
+            let overlap_start = if s > from_dt { s } else { from_dt };
+            let overlap_end = if e < to_dt { e } else { to_dt };
+            if overlap_end <= overlap_start {
+                return (start_time, end_time, false);
+            }
+            (
+                Some(overlap_start.to_rfc3339_opts(chrono::SecondsFormat::Secs, true)),
+                Some(overlap_end.to_rfc3339_opts(chrono::SecondsFormat::Secs, true)),
+                true,
+            )
+        }
+        _ => (start_time, end_time, true),
+    }
+}
+
 fn clamp_isapi_playback_uri_window(uri: &str, from: &str, to: &str) -> String {
     if !(uri.to_ascii_lowercase().starts_with("rtsp://")
         || uri.to_ascii_lowercase().starts_with("rtsps://"))
@@ -3006,8 +3046,13 @@ async fn search_isapi_recordings(
 
                         let mut items = Vec::with_capacity(count);
                         for i in 0..count {
-                            let start_time = starts.get(i).cloned();
-                            let end_time = ends.get(i).cloned();
+                            let start_time_raw = starts.get(i).cloned();
+                            let end_time_raw = ends.get(i).cloned();
+                            let (start_time, end_time, overlaps_request) =
+                                clamp_isapi_item_window(start_time_raw, end_time_raw, &from, &to);
+                            if !overlaps_request {
+                                continue;
+                            }
                             let playback_uri = uris
                                 .get(i)
                                 .cloned()
@@ -3030,6 +3075,17 @@ async fn search_isapi_recordings(
                                 playable,
                                 confidence,
                             });
+                        }
+
+                        if items.is_empty() {
+                            push_runtime_log(
+                                &log_state,
+                                format!(
+                                    "ISAPI search[{run_id}] parsed items do not overlap requested window: endpoint={} tid={} variant={}",
+                                    endpoint, tid, variant_name
+                                ),
+                            );
+                            continue;
                         }
 
                         let downloadable_count = items.iter().filter(|x| x.downloadable).count();
