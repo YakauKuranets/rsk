@@ -2350,6 +2350,7 @@ async fn search_isapi_recordings(
 
     let from = from_time.unwrap_or_else(|| "2026-01-01T00:00:00Z".into());
     let to = to_time.unwrap_or_else(|| "2026-12-31T23:59:59Z".into());
+    let run_id = Utc::now().timestamp_millis();
 
     let preferred_endpoint = format!("http://{}:2019/ISAPI/ContentMgmt/search", clean_host);
     let fallback_endpoints = vec![
@@ -2370,7 +2371,7 @@ async fn search_isapi_recordings(
     push_runtime_log(
         &log_state,
         format!(
-            "ISAPI search started for {} [{} - {}]",
+            "ISAPI search[{run_id}] started for {} [{} - {}]",
             clean_host, from, to
         ),
     );
@@ -2578,7 +2579,7 @@ async fn search_isapi_recordings(
                     push_runtime_log(
                         &log_state,
                         format!(
-                            "ISAPI search try: endpoint={} tid={} variant={} content-type={}",
+                            "ISAPI search[{run_id}] try: endpoint={} tid={} variant={} content-type={}",
                             endpoint, tid, variant_name, content_type
                         ),
                     );
@@ -2670,7 +2671,7 @@ async fn search_isapi_recordings(
                                                     push_runtime_log(
                                                     &log_state,
                                                     format!(
-                                                        "ISAPI search Digest :2019 variant={} tid={} content-type={} → HTTP {} ({} chars) preview='{}'",
+                                                        "ISAPI search[{run_id}] Digest :2019 variant={} tid={} content-type={} → HTTP {} ({} chars) preview='{}'",
                                                         variant_name, tid, content_type, code, t.len(), body_preview(&t)
                                                     ),
                                                 );
@@ -2684,7 +2685,7 @@ async fn search_isapi_recordings(
                                                     push_runtime_log(
                                                     &log_state,
                                                     format!(
-                                                        "ISAPI search Digest error variant={} tid={} content-type={}: {}",
+                                                        "ISAPI search[{run_id}] Digest error variant={} tid={} content-type={}: {}",
                                                         variant_name, tid, content_type, e
                                                     ),
                                                 );
@@ -2740,7 +2741,7 @@ async fn search_isapi_recordings(
                                 push_runtime_log(
                                 &log_state,
                                 format!(
-                                    "ISAPI search :2019 variant={} tid={} content-type={} → HTTP {} ({} chars) preview='{}'",
+                                    "ISAPI search[{run_id}] :2019 variant={} tid={} content-type={} → HTTP {} ({} chars) preview='{}'",
                                     variant_name,
                                     tid,
                                     content_type,
@@ -2755,7 +2756,7 @@ async fn search_isapi_recordings(
                                 push_runtime_log(
                                 &log_state,
                                 format!(
-                                    "ISAPI search :2019 error variant={} tid={} content-type={}: {}",
+                                    "ISAPI search[{run_id}] :2019 error variant={} tid={} content-type={}: {}",
                                     variant_name, tid, content_type, e
                                 ),
                             );
@@ -2778,7 +2779,7 @@ async fn search_isapi_recordings(
                                 push_runtime_log(
                                 &log_state,
                                 format!(
-                                    "ISAPI search standard port variant={} tid={} content-type={} → HTTP {} ({} chars) preview='{}'",
+                                    "ISAPI search[{run_id}] standard port variant={} tid={} content-type={} → HTTP {} ({} chars) preview='{}'",
                                     variant_name, tid, content_type, code, t.len(), body_preview(&t)
                                 ),
                             );
@@ -2792,7 +2793,7 @@ async fn search_isapi_recordings(
                                 push_runtime_log(
                                 &log_state,
                                 format!(
-                                    "ISAPI search standard port error variant={} tid={} content-type={}: {}",
+                                    "ISAPI search[{run_id}] standard port error variant={} tid={} content-type={}: {}",
                                     variant_name, tid, content_type, e
                                 ),
                             );
@@ -2808,7 +2809,7 @@ async fn search_isapi_recordings(
                         push_runtime_log(
                             &log_state,
                             format!(
-                                "ISAPI search: устройство отклоняет XML-шаблон запроса на :2019 ({}). Останавливаю дальнейший перебор немедленно.",
+                                "ISAPI search[{run_id}]: устройство отклоняет XML-шаблон запроса на :2019 ({}). Останавливаю дальнейший перебор немедленно.",
                                 reason
                             ),
                         );
@@ -2822,7 +2823,7 @@ async fn search_isapi_recordings(
                         );
                         push_runtime_log(
                             &log_state,
-                            format!("ISAPI search diagnostics request: {}", diag_request),
+                            format!("ISAPI search[{run_id}] diagnostics request: {}", diag_request),
                         );
                         return Err(format!(
                             "ISAPI ContentMgmt/search отклонён устройством как invalid request ({}). {}",
@@ -2875,7 +2876,7 @@ async fn search_isapi_recordings(
                             push_runtime_log(
                             &log_state,
                             format!(
-                                "ISAPI search response accepted, but no items parsed: endpoint={} tid={} variant={}",
+                                "ISAPI search[{run_id}] response accepted, but no items parsed: endpoint={} tid={} variant={}",
                                 endpoint, tid, variant_name
                             ),
                         );
@@ -2914,7 +2915,7 @@ async fn search_isapi_recordings(
                         push_runtime_log(
                         &log_state,
                         format!(
-                            "ISAPI search finished for {} via {} | tid={} | variant={} | items={} | playable={} | downloadable={} | max_conf={}",
+                            "ISAPI search[{run_id}] finished for {} via {} | tid={} | variant={} | items={} | playable={} | downloadable={} | max_conf={}",
                             clean_host,
                             endpoint,
                             tid,
@@ -2941,7 +2942,7 @@ async fn search_isapi_recordings(
             push_runtime_log(
                 &log_state,
                 format!(
-                    "ISAPI search: порт 2019 доступен, но запросы отклоняются. Пропускаю медленный перебор fallback-портов. {}",
+                    "ISAPI search[{run_id}]: порт 2019 доступен, но запросы отклоняются. Пропускаю медленный перебор fallback-портов. {}",
                     reason
                 ),
             );
@@ -2954,7 +2955,7 @@ async fn search_isapi_recordings(
 
     push_runtime_log(
         &log_state,
-        format!("ISAPI search unavailable for {}", clean_host),
+        format!("ISAPI search[{run_id}] unavailable for {}", clean_host),
     );
     let diag_request = isapi_diagnostics_request_template(
         &clean_host,
@@ -2966,7 +2967,7 @@ async fn search_isapi_recordings(
     );
     push_runtime_log(
         &log_state,
-        format!("ISAPI search diagnostics request: {}", diag_request),
+        format!("ISAPI search[{run_id}] diagnostics request: {}", diag_request),
     );
     Err(format!(
         "ISAPI ContentMgmt/search недоступен или вернул неподдерживаемый ответ. {}",
