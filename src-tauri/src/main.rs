@@ -2292,22 +2292,27 @@ async fn extract_isapi_search_template_from_har(
             continue;
         }
 
-        let extract = |re: &Option<Regex>| {
+        let extract_from_body = |body: &str, re: &Option<Regex>| {
             re.as_ref().and_then(|r| {
-                r.captures(&request_body)
+                r.captures(body)
                     .and_then(|c| c.get(1).map(|m| m.as_str().trim().to_string()))
             })
         };
+
+        let search_id = extract_from_body(&request_body, &re_search_id);
+        let track_id = extract_from_body(&request_body, &re_track_id);
+        let start_time = extract_from_body(&request_body, &re_start);
+        let end_time = extract_from_body(&request_body, &re_end);
 
         let result = IsapiHarTemplateResult {
             endpoint: url.clone(),
             method,
             content_type,
             request_body,
-            search_id: extract(&re_search_id),
-            track_id: extract(&re_track_id),
-            start_time: extract(&re_start),
-            end_time: extract(&re_end),
+            search_id,
+            track_id,
+            start_time,
+            end_time,
         };
 
         push_runtime_log(
