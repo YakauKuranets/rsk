@@ -2207,8 +2207,15 @@ fn isapi_diagnostics_request_template(
     track_id: &str,
 ) -> String {
     let reference_xml = isapi_reference_search_request_xml(from, to, track_id);
+    let reason_compact = reason
+        .replace('\n', " ")
+        .replace('\r', " ")
+        .chars()
+        .take(220)
+        .collect::<String>();
+
     format!(
-        "DIAG_REQUEST host={host} endpoint={endpoint} reason={reason}; приложите модель/прошивку NVR, полный XML ответа ResponseStatus, рабочий запрос из web UI (HAR/DevTools), timezone устройства, channel/stream и временной диапазон. REF_REQUEST(method=POST, content-type=application/xml; charset=UTF-8, body={reference_xml})"
+        "DIAG_REQUEST host={host} endpoint={endpoint} reason={reason_compact}; приложите модель/прошивку NVR, полный XML ответа ResponseStatus, рабочий запрос из web UI (HAR/DevTools), timezone устройства, channel/stream и временной диапазон. NEXT=invoke('extract_isapi_search_template_from_har', {{ harJson, host }}). REF_REQUEST(method=POST, content-type=application/xml; charset=UTF-8, body={reference_xml})"
     )
 }
 
