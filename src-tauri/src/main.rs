@@ -131,7 +131,6 @@ struct IsapiHarTemplateResult {
     end_time: Option<String>,
 }
 
-
 fn classify_isapi_record(
     playback_uri: Option<&str>,
     start_time: Option<&str>,
@@ -953,6 +952,34 @@ fn inject_rtsp_credentials(uri: &str, login: &str, pass: &str) -> String {
     let encoded_pass = pass.replace('@', "%40").replace(':', "%3A");
 
     format!("{}{}:{}@{}", scheme, login, encoded_pass, host_and_path)
+}
+
+/// Строит HTTP(S) endpoint выгрузки архива из RTSP playbackURI:
+///   rtsp://host:2019/... -> http://host:2019/ISAPI/ContentMgmt/download?playbackURI=...
+fn build_isapi_download_endpoint_from_rtsp(playback_uri: &str) -> Option<String> {
+    let parsed = reqwest::Url::parse(playback_uri).ok()?;
+    let host = parsed.host_str()?;
+    let rtsp_port = parsed
+        .port_or_known_default()
+        .unwrap_or(if parsed.scheme() == "rtsps" { 322 } else { 554 });
+
+    let http_port = match rtsp_port {
+        554 => 80,
+        p => p,
+    };
+    let http_scheme = if http_port == 443 || parsed.scheme() == "rtsps" {
+        "https"
+    } else {
+        "http"
+    };
+
+    Some(format!(
+        "{}://{}:{}/ISAPI/ContentMgmt/download?playbackURI={}",
+        http_scheme,
+        host,
+        http_port,
+        urlencoding::encode(playback_uri)
+    ))
 }
 
 fn resolve_ftp_config(server_alias: &str) -> Result<FtpConfig, String> {
@@ -2174,7 +2201,6 @@ async fn fetch_onvif_device_info(
     Err("ONVIF device_service недоступен или не поддерживает GetDeviceInformation".into())
 }
 
-
 fn isapi_reference_search_request_xml(from: &str, to: &str, track_id: &str) -> String {
     format!(
         r#"<?xml version="1.0" encoding="UTF-8"?>
@@ -2218,7 +2244,6 @@ fn isapi_diagnostics_request_template(
         "DIAG_REQUEST host={host} endpoint={endpoint} reason={reason_compact}; приложите модель/прошивку NVR, полный XML ответа ResponseStatus, рабочий запрос из web UI (HAR/DevTools), timezone устройства, channel/stream и временной диапазон. NEXT=invoke('extract_isapi_search_template_from_har', {{ harJson, host }}). REF_REQUEST(method=POST, content-type=application/xml; charset=UTF-8, body={reference_xml})"
     )
 }
-
 
 #[tauri::command]
 async fn extract_isapi_search_template_from_har(
@@ -2389,7 +2414,8 @@ async fn search_isapi_recordings(
     let playback_uri_re =
         Regex::new(r"<playbackURI>([^<]+)</playbackURI>").map_err(|e| e.to_string())?;
     let url_re = Regex::new(r"<url>([^<]+)</url>").map_err(|e| e.to_string())?;
-    let status_code_re = Regex::new(r"<statusCode>([^<]+)</statusCode>").map_err(|e| e.to_string())?;
+    let status_code_re =
+        Regex::new(r"<statusCode>([^<]+)</statusCode>").map_err(|e| e.to_string())?;
     let status_string_re =
         Regex::new(r"<statusString>([^<]+)</statusString>").map_err(|e| e.to_string())?;
 
@@ -2677,15 +2703,20 @@ async fn search_isapi_recordings(
                                                         let parsed_status_code = status_code_re
                                                             .captures(&t)
                                                             .and_then(|c| {
-                                                                c.get(1).map(|m| m.as_str().trim().to_string())
+                                                                c.get(1).map(|m| {
+                                                                    m.as_str().trim().to_string()
+                                                                })
                                                             });
                                                         let parsed_status_string = status_string_re
                                                             .captures(&t)
                                                             .and_then(|c| {
-                                                                c.get(1).map(|m| m.as_str().trim().to_string())
+                                                                c.get(1).map(|m| {
+                                                                    m.as_str().trim().to_string()
+                                                                })
                                                             });
 
-                                                        if parsed_status_code.as_deref() == Some("6")
+                                                        if parsed_status_code.as_deref()
+                                                            == Some("6")
                                                             && parsed_status_string
                                                                 .as_deref()
                                                                 .unwrap_or_default()
@@ -2748,12 +2779,14 @@ async fn search_isapi_recordings(
                                 let t = r.text().await.unwrap_or_default();
                                 if code >= 400 {
                                     endpoint_client_error = true;
-                                    let parsed_status_code = status_code_re
-                                        .captures(&t)
-                                        .and_then(|c| c.get(1).map(|m| m.as_str().trim().to_string()));
-                                    let parsed_status_string = status_string_re
-                                        .captures(&t)
-                                        .and_then(|c| c.get(1).map(|m| m.as_str().trim().to_string()));
+                                    let parsed_status_code =
+                                        status_code_re.captures(&t).and_then(|c| {
+                                            c.get(1).map(|m| m.as_str().trim().to_string())
+                                        });
+                                    let parsed_status_string =
+                                        status_string_re.captures(&t).and_then(|c| {
+                                            c.get(1).map(|m| m.as_str().trim().to_string())
+                                        });
 
                                     if parsed_status_code.as_deref() == Some("6")
                                         && parsed_status_string
@@ -2858,7 +2891,10 @@ async fn search_isapi_recordings(
                         );
                         push_runtime_log(
                             &log_state,
-                            format!("ISAPI search[{run_id}] diagnostics request: {}", diag_request),
+                            format!(
+                                "ISAPI search[{run_id}] diagnostics request: {}",
+                                diag_request
+                            ),
                         );
                         return Err(format!(
                             "ISAPI ContentMgmt/search отклонён устройством как invalid request ({}). {}",
@@ -2966,7 +3002,6 @@ async fn search_isapi_recordings(
                     }
                 }
             }
-
         }
 
         if is_2019 && endpoint_reachable && endpoint_client_error {
@@ -3002,7 +3037,10 @@ async fn search_isapi_recordings(
     );
     push_runtime_log(
         &log_state,
-        format!("ISAPI search[{run_id}] diagnostics request: {}", diag_request),
+        format!(
+            "ISAPI search[{run_id}] diagnostics request: {}",
+            diag_request
+        ),
     );
     Err(format!(
         "ISAPI ContentMgmt/search недоступен или вернул неподдерживаемый ответ. {}",
@@ -3618,17 +3656,65 @@ async fn download_isapi_playback_uri(
                 task_key
             ),
         );
-        return download_isapi_via_rtsp(
+        let rtsp_result = download_isapi_via_rtsp(
             &uri,
             &login,
             &pass,
-            filename_hint,
+            filename_hint.clone(),
             &task_key,
             &log_state,
             &cancel_state,
             &ffmpeg_limiter,
         )
         .await;
+
+        if let Ok(report) = rtsp_result {
+            return Ok(report);
+        }
+
+        let rtsp_error = rtsp_result
+            .err()
+            .unwrap_or_else(|| "RTSP capture failed with unknown error".into());
+        push_runtime_log(
+            &log_state,
+            format!(
+                "ISAPI RTSP capture failed, trying HTTP download endpoint fallback [task:{}]",
+                task_key
+            ),
+        );
+
+        if let Some(http_download_uri) = build_isapi_download_endpoint_from_rtsp(&uri) {
+            match download_isapi_via_http(
+                &http_download_uri,
+                &login,
+                &pass,
+                filename_hint,
+                &task_key,
+                &log_state,
+                &cancel_state,
+            )
+            .await
+            {
+                Ok(report) => {
+                    push_runtime_log(
+                        &log_state,
+                        format!(
+                            "ISAPI fallback succeeded via {} [task:{}]",
+                            http_download_uri, task_key
+                        ),
+                    );
+                    return Ok(report);
+                }
+                Err(http_err) => {
+                    return Err(format!(
+                        "RTSP capture failed: {} ; HTTP fallback failed: {}",
+                        rtsp_error, http_err
+                    ));
+                }
+            }
+        }
+
+        return Err(rtsp_error);
     }
 
     if uri_lc.starts_with("http://") || uri_lc.starts_with("https://") {
