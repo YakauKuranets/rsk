@@ -1080,7 +1080,7 @@ async fn search_onvif(host: &str, login: &str, pass: &str, tx: &mpsc::Sender<Hyp
 async fn sand_download_isapi_stream(
     client: &reqwest::Client, url: &str, path: &str, login: &str, pass: &str,
     filename: &str, fpath: &std::path::Path, task_key: &str,
-    _session_client: &Option<reqwest::Client>,
+    session_client: &Option<reqwest::Client>,
     tx: &mpsc::Sender<HyperionEvent>,
 ) -> Result<String, String> {
     use futures_util::StreamExt;

@@ -1273,7 +1273,7 @@ fn ftp_connect_with_retry(
     max_retries: usize,
 ) -> Result<suppaftp::FtpStream, String> {
     let mut delay_ms: u64 = 2000; // Стартуем с 2 секунд
-    let mut last_err: Option<String> = None;
+    let mut last_err = String::new();
 
     for attempt in 1..=max_retries {
         println!(
@@ -1311,16 +1311,16 @@ fn ftp_connect_with_retry(
 }
 
 fn ftp_nlst_root_with_fallback(ftp: &mut FtpStream) -> Result<Vec<String>, String> {
-    let mut last_err: Option<String> = None;
+    let mut errors: Vec<String> = Vec::new();
 
     for candidate in [Some("/"), Some("."), None] {
         match ftp.nlst(candidate) {
             Ok(items) if !items.is_empty() => return Ok(items),
             Ok(_) => {
-                last_err = Some(format!("FTP nlst вернул пустой список для {:?}", candidate));
+                errors.push(format!("FTP nlst вернул пустой список для {:?}", candidate));
             }
             Err(e) => {
-                last_err = Some(format!("FTP nlst ошибка для {:?}: {}", candidate, e));
+                errors.push(format!("FTP nlst ошибка для {:?}: {}", candidate, e));
             }
         }
     }
@@ -1345,17 +1345,17 @@ fn ftp_nlst_root_with_fallback(ftp: &mut FtpStream) -> Result<Vec<String>, Strin
             if !items.is_empty() {
                 return Ok(items);
             }
-            last_err = Some("FTP list fallback вернул пустой список".into());
+            errors.push("FTP list fallback вернул пустой список".into());
         }
         Ok(_) => {
-            last_err = Some("FTP list fallback вернул пустой ответ".into());
+            errors.push("FTP list fallback вернул пустой ответ".into());
         }
         Err(e) => {
-            last_err = Some(format!("FTP list fallback ошибка: {}", e));
+            errors.push(format!("FTP list fallback ошибка: {}", e));
         }
     }
 
-    Err(last_err.unwrap_or_else(|| "FTP список недоступен".into()))
+    Err(if errors.is_empty() { "FTP список недоступен".into() } else { errors.join(" || ") })
 }
 
 #[tauri::command]
