@@ -93,6 +93,31 @@ export default function NemesisArchiveTerminal({ target, onClose }) {
     if (start && end && end > start) return Math.min(1800, Math.max(30, Math.floor((end - start) / 1000) + 15));
     return 120;
   };
+
+  const splitRecordIntoChunks = (item, chunkMinutes = 30) => {
+    if (!item || !item.playbackUri) return [item];
+    const chunkUris = splitPlaybackUriByMinutes(item.playbackUri, chunkMinutes);
+    if (chunkUris.length <= 1) return [item];
+
+    const extractUtcFromUri = (uri, key) => {
+      const m = String(uri || '').match(new RegExp(`[?&]${key}=([^&]+)`, 'i'));
+      if (!m?.[1]) return null;
+      const mm = String(m[1]).match(/^(\d{4})(\d{2})(\d{2})T(\d{2})(\d{2})(\d{2})Z?$/i);
+      if (!mm) return null;
+      const [, y, mo, d, h, mi, se] = mm;
+      return `${y}-${mo}-${d}T${h}:${mi}:${se}Z`;
+    };
+
+    return chunkUris.map((chunkUri, idx) => ({
+      ...item,
+      playbackUri: chunkUri,
+      startTime: extractUtcFromUri(chunkUri, 'starttime') || item.startTime,
+      endTime: extractUtcFromUri(chunkUri, 'endtime') || item.endTime,
+      chunkIndex: idx + 1,
+      chunkTotal: chunkUris.length,
+    }));
+  };
+
   const splitPlaybackUriByMinutes = (uri, chunkMinutes = 30) => {
     const clean = normalizePlaybackUri(uri);
     const startMatch = clean.match(/[?&]starttime=([^&]+)/i);
@@ -160,11 +185,14 @@ export default function NemesisArchiveTerminal({ target, onClose }) {
         streamType: 1,
       });
       const filtered = (items || []).filter(i => i.playbackUri || i.startTime);
-      const downloadableCount = filtered.filter(isDownloadableRecord).length;
-      const playableCount = filtered.filter(isPlayableRecord).length;
-      const maxConfidence = filtered.reduce((m, x) => Math.max(m, Number(x?.confidence ?? 0) || 0), 0);
-      setRecords(filtered); setPhase('ready'); setStatusText(`НАЙДЕНО: ${filtered.length}`);
-      log(`✅ Результат: ${filtered.length} записей | playable=${playableCount} | downloadable=${downloadableCount} | maxConf=${maxConfidence}`, 'ok');
+      const expanded = filtered.flatMap((item) => splitRecordIntoChunks(item, 30));
+      const downloadableCount = expanded.filter(isDownloadableRecord).length;
+      const playableCount = expanded.filter(isPlayableRecord).length;
+      const maxConfidence = expanded.reduce((m, x) => Math.max(m, Number(x?.confidence ?? 0) || 0), 0);
+      const splitExtra = Math.max(expanded.length - filtered.length, 0);
+      setRecords(expanded); setPhase('ready'); setStatusText(`НАЙДЕНО: ${expanded.length}`);
+      log(`✅ Результат: ${expanded.length} записей | playable=${playableCount} | downloadable=${downloadableCount} | maxConf=${maxConfidence}`, 'ok');
+      if (splitExtra > 0) log(`ℹ Длинные записи автоматически разбиты на 30-мин сегменты (+${splitExtra})`, 'sys');
       log(`ℹ Выбрано: 0 / ${downloadableCount} downloadable | осталось выбрать: ${downloadableCount}`, 'sys');
       log('ℹ Шаги: выбери дату/время → Поиск → отметь записи → Загрузка из сети (или CAPTURE).', 'sys');
     } catch (err) {
@@ -497,11 +525,12 @@ export default function NemesisArchiveTerminal({ target, onClose }) {
               {records.map((item,idx)=>{
                 const k=`dl_${idx}`;const ds=activeDownloads[k];
                 const fid=item.playbackUri?.match(/name=([^&]+)/)?.[1]||item.playbackUri?.match(/(\d{10,})/)?.[1]||`rec_${idx}`;
+                const chunkLabel = item.chunkTotal > 1 ? ` [${item.chunkIndex}/${item.chunkTotal}]` : '';
                 return (
                   <div key={idx} className="nr">
                     <div style={{ width:26 }}><input type="checkbox" disabled={hasActiveTransfers||!isDownloadableRecord(item)} title={hasActiveTransfers ? 'Недоступно: выполняется активная загрузка' : (isDownloadableRecord(item) ? 'Выбрать для загрузки' : 'Недоступно: non-downloadable')} checked={Boolean(selectedIndexes[idx])} onChange={(e)=>setSelectedIndexes((prev)=>({ ...prev, [idx]: e.target.checked }))} style={{ accentColor:'#00f0ff', opacity:(!hasActiveTransfers&&isDownloadableRecord(item))?1:.45, cursor:(!hasActiveTransfers&&isDownloadableRecord(item))?'pointer':'not-allowed' }}/></div>
                     <div style={{ width:32,color:'#444',fontSize:10,fontFamily:'monospace' }}>{idx+1}</div>
-                    <div style={{ flex:2,color:'#9fd7ff',fontSize:10,fontFamily:'monospace',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap' }} title={`transport=${item.transport||'-'} conf=${item.confidence??0} playable=${String(isPlayableRecord(item))} downloadable=${String(isDownloadableRecord(item))}`}>{fid}</div>
+                    <div style={{ flex:2,color:'#9fd7ff',fontSize:10,fontFamily:'monospace',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap' }} title={`transport=${item.transport||'-'} conf=${item.confidence??0} playable=${String(isPlayableRecord(item))} downloadable=${String(isDownloadableRecord(item))}`}>{`${fid}${chunkLabel}`}</div>
                     <div style={{ flex:1,color:'#7fa9cb',fontSize:10,fontFamily:'monospace' }}>{item.startTime?.replace('T',' ').replace('Z','')||'\u2014'}</div>
                     <div style={{ flex:1,color:'#7fa9cb',fontSize:10,fontFamily:'monospace' }}>{item.endTime?.replace('T',' ').replace('Z','')||'\u2014'}</div>
                     <div style={{ width:65,textAlign:'right',color:'#ff9900',fontSize:10,fontFamily:'monospace' }}>\u2014</div>
