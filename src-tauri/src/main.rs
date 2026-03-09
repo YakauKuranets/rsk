@@ -4885,6 +4885,23 @@ async fn download_isapi_via_http(
                 continue 'download_stream;
             }
 
+            if total_size > 0 {
+                let ratio = (bytes_written as f64) / (total_size as f64);
+                if ratio >= 0.95 {
+                    push_runtime_log(
+                        log_state,
+                        format!(
+                            "ISAPI HTTP stream ended with error after {:.1}% ({} / {} bytes), accepting as near-complete [task:{}]",
+                            ratio * 100.0,
+                            bytes_written,
+                            total_size,
+                            task_key
+                        ),
+                    );
+                    break;
+                }
+            }
+
             push_runtime_log(log_state, format!("ISAPI_HTTP_SLOT_RELEASED|{}", task_key));
             return Err(format!(
                 "ISAPI HTTP stream failed after {} bytes: {}",
