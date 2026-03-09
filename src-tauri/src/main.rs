@@ -4725,6 +4725,8 @@ async fn download_isapi_via_http(
     let mut next_progress_mark = progress_step;
     let mut resume_attempts: u8 = 0;
     let max_resume_attempts: u8 = 4;
+    let mut full_restart_attempts: u8 = 0;
+    let max_full_restart_attempts: u8 = 2;
 
     'download_stream: loop {
         let mut stream = resp.bytes_stream();
@@ -4783,7 +4785,10 @@ async fn download_isapi_via_http(
         if let Some(err_text) = stream_error {
             let err_lc = err_text.to_ascii_lowercase();
             let resumable = (err_lc.contains("end of file before message length reached")
-                || err_lc.contains("error reading a body from connection"))
+                || err_lc.contains("error reading a body from connection")
+                || err_lc.contains("connection closed before message completed")
+                || err_lc.contains("operation timed out")
+                || err_lc.contains("deadline has elapsed"))
                 && bytes_written > 0
                 && (total_size == 0 || bytes_written < total_size)
                 && resume_attempts < max_resume_attempts;
@@ -4857,6 +4862,38 @@ async fn download_isapi_via_http(
 
                 let status = resume_resp.status().as_u16();
                 if status != 206 && status != 200 {
+                    if status == 400 && full_restart_attempts < max_full_restart_attempts {
+                        full_restart_attempts += 1;
+                        resume_attempts = 0;
+                        push_runtime_log(
+                            log_state,
+                            format!(
+                                "ISAPI resume got HTTP 400 at {} bytes; trying full restart {}/{} on same endpoint [task:{}]",
+                                bytes_written,
+                                full_restart_attempts,
+                                max_full_restart_attempts,
+                                task_key
+                            ),
+                        );
+                        file.set_len(0).map_err(|e| e.to_string())?;
+                        std::io::Seek::seek(&mut file, std::io::SeekFrom::Start(0))
+                            .map_err(|e| e.to_string())?;
+                        bytes_written = 0;
+                        total_size = 0;
+                        next_progress_mark = progress_step;
+                        resp = send_isapi_http_get_with_retry(
+                            &client,
+                            uri,
+                            login,
+                            pass,
+                            task_key,
+                            log_state,
+                            None,
+                            None,
+                        )
+                        .await?;
+                        continue 'download_stream;
+                    }
                     return Err(format!(
                         "ISAPI download resume failed at {} bytes with HTTP {}",
                         bytes_written, status
