@@ -1034,7 +1034,7 @@ confidence(avg/max): ${avgConfidence}/${maxConfidence}`);
         playbackUri: normalizedUri,
         login: isapiSearchAuth.login || 'admin',
         pass: isapiSearchAuth.pass || '',
-        source_host: terminal.host || '',
+        sourceHost: terminal.host || '',
         filenameHint,
         taskId,
       });
