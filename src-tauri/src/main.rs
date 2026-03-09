@@ -4544,6 +4544,28 @@ async fn download_isapi_via_http(
         .build()
         .map_err(|e| e.to_string())?;
 
+    let expected_size_hint = reqwest::Url::parse(uri)
+        .ok()
+        .and_then(|u| {
+            u.query_pairs()
+                .find(|(k, _)| k.eq_ignore_ascii_case("playbackURI"))
+                .map(|(_, v)| v.into_owned())
+        })
+        .and_then(|encoded| {
+            urlencoding::decode(&encoded)
+                .ok()
+                .map(|v| v.into_owned())
+        })
+        .and_then(|playback_uri| {
+            reqwest::Url::parse(&playback_uri)
+                .ok()
+                .and_then(|u| {
+                    u.query_pairs()
+                        .find(|(k, _)| k.eq_ignore_ascii_case("size"))
+                        .and_then(|(_, v)| v.parse::<u64>().ok())
+                })
+        });
+
     let started = std::time::Instant::now();
     push_runtime_log(
         log_state,
@@ -4947,6 +4969,37 @@ async fn download_isapi_via_http(
         }
 
         break;
+    }
+
+    let expected_total = expected_size_hint.or_else(|| {
+        if total_size > 0 {
+            Some(total_size)
+        } else {
+            None
+        }
+    });
+    if let Some(expected) = expected_total {
+        if expected > 0 {
+            let min_reasonable = if expected < 20 * 1024 * 1024 {
+                expected / 2
+            } else {
+                (expected / 100).max(1024 * 1024)
+            };
+            if bytes_written < min_reasonable {
+                push_runtime_log(
+                    log_state,
+                    format!(
+                        "ISAPI download rejected as too small: got {} bytes, expected ~{} (threshold {}) [task:{}]",
+                        bytes_written, expected, min_reasonable, task_key
+                    ),
+                );
+                push_runtime_log(log_state, format!("ISAPI_HTTP_SLOT_RELEASED|{}", task_key));
+                return Err(format!(
+                    "ISAPI download too small: {} bytes (expected around {})",
+                    bytes_written, expected
+                ));
+            }
+        }
     }
 
     let duration_ms = started.elapsed().as_millis();
