@@ -1059,18 +1059,46 @@ fn inject_rtsp_credentials(uri: &str, login: &str, pass: &str) -> String {
 
 /// Строит HTTP(S) endpoint выгрузки архива из RTSP playbackURI:
 ///   rtsp://host:2019/... -> http://host:2019/ISAPI/ContentMgmt/download?playbackURI=...
-fn build_isapi_download_endpoints_from_rtsp(playback_uri: &str) -> Vec<String> {
+fn parse_host_port_hint(input: &str) -> Option<(String, Option<u16>)> {
+    let trimmed = input.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+
+    let normalized = if trimmed.contains("://") {
+        trimmed.to_string()
+    } else {
+        format!("http://{}", trimmed)
+    };
+
+    let parsed = reqwest::Url::parse(&normalized).ok()?;
+    let host = parsed.host_str()?.to_string();
+    Some((host, parsed.port()))
+}
+
+fn build_isapi_download_endpoints_from_rtsp(
+    playback_uri: &str,
+    source_host_hint: Option<&str>,
+) -> Vec<String> {
     let parsed = match reqwest::Url::parse(playback_uri) {
         Ok(v) => v,
         Err(_) => return Vec::new(),
     };
-    let host = match parsed.host_str() {
+    let rtsp_host = match parsed.host_str() {
         Some(v) => v,
         None => return Vec::new(),
     };
     let rtsp_port = parsed
         .port_or_known_default()
         .unwrap_or(if parsed.scheme() == "rtsps" { 322 } else { 554 });
+
+    let mut host_candidates: Vec<(String, Option<u16>)> = Vec::new();
+    if let Some(hint) = source_host_hint.and_then(parse_host_port_hint) {
+        host_candidates.push(hint);
+    }
+    if !host_candidates.iter().any(|(h, _)| h == rtsp_host) {
+        host_candidates.push((rtsp_host.to_string(), parsed.port()));
+    }
 
     let mut candidate_ports: Vec<u16> = Vec::new();
     candidate_ports.push(match rtsp_port {
@@ -1088,19 +1116,31 @@ fn build_isapi_download_endpoints_from_rtsp(playback_uri: &str) -> Vec<String> {
     }
 
     let mut out = Vec::new();
-    for p in candidate_ports {
-        let scheme = if p == 443 || parsed.scheme() == "rtsps" {
-            "https"
-        } else {
-            "http"
-        };
-        out.push(format!(
-            "{}://{}:{}/ISAPI/ContentMgmt/download?playbackURI={}",
-            scheme,
-            host,
-            p,
-            urlencoding::encode(playback_uri)
-        ));
+    for (host, hinted_port) in host_candidates {
+        let mut ports_for_host: Vec<u16> = Vec::new();
+        if let Some(port) = hinted_port {
+            ports_for_host.push(port);
+        }
+        for p in &candidate_ports {
+            if !ports_for_host.contains(p) {
+                ports_for_host.push(*p);
+            }
+        }
+
+        for p in ports_for_host {
+            let scheme = if p == 443 || parsed.scheme() == "rtsps" {
+                "https"
+            } else {
+                "http"
+            };
+            out.push(format!(
+                "{}://{}:{}/ISAPI/ContentMgmt/download?playbackURI={}",
+                scheme,
+                host,
+                p,
+                urlencoding::encode(playback_uri)
+            ));
+        }
     }
     out
 }
@@ -3762,6 +3802,7 @@ async fn download_isapi_playback_uri(
     playback_uri: String,
     login: String,
     pass: String,
+    source_host: Option<String>,
     filename_hint: Option<String>,
     task_id: Option<String>,
     log_state: State<'_, LogState>,
@@ -3826,7 +3867,7 @@ async fn download_isapi_playback_uri(
             ),
         );
 
-        let http_fallbacks = build_isapi_download_endpoints_from_rtsp(&uri);
+        let http_fallbacks = build_isapi_download_endpoints_from_rtsp(&uri, source_host.as_deref());
         let mut http_errors: Vec<String> = Vec::new();
 
         for http_download_uri in http_fallbacks {
@@ -3923,6 +3964,7 @@ async fn start_archive_export_job(
     playback_uri: String,
     login: String,
     pass: String,
+    source_host: Option<String>,
     filename_hint: Option<String>,
     task_id: Option<String>,
     log_state: State<'_, LogState>,
@@ -3946,6 +3988,7 @@ async fn start_archive_export_job(
         playback_uri.clone(),
         login.clone(),
         pass.clone(),
+        source_host.clone(),
         filename_hint.clone(),
         Some(task_key.clone()),
         log_state.clone(),
