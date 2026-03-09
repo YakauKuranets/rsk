@@ -173,7 +173,7 @@ export default function NemesisArchiveTerminal({ target, onClose }) {
         playbackUri: normalizedUri,
         login: target.login || 'admin',
         pass: target.password || '',
-        sourceHost: target.host || '',
+        source_host: target.host || '',
         filenameHint: `${target.host.replace(/\./g,'_')}_cam${camera}_${idx}.mp4`,
         taskId,
       });
