@@ -1076,6 +1076,25 @@ fn parse_host_port_hint(input: &str) -> Option<(String, Option<u16>)> {
     Some((host, parsed.port()))
 }
 
+fn extract_host_hint_from_filename_hint(filename_hint: Option<&str>) -> Option<String> {
+    let hint = filename_hint?.trim();
+    if hint.is_empty() {
+        return None;
+    }
+    let re = Regex::new(r"(?i)(\d{1,3})_(\d{1,3})_(\d{1,3})_(\d{1,3})_cam").ok()?;
+    let caps = re.captures(hint)?;
+    let octets = [caps.get(1)?, caps.get(2)?, caps.get(3)?, caps.get(4)?];
+    let mut parts: Vec<String> = Vec::with_capacity(4);
+    for m in octets {
+        let v: u16 = m.as_str().parse().ok()?;
+        if v > 255 {
+            return None;
+        }
+        parts.push(v.to_string());
+    }
+    Some(parts.join("."))
+}
+
 fn build_isapi_download_endpoints_from_rtsp(
     playback_uri: &str,
     source_host_hint: Option<&str>,
@@ -3867,7 +3886,26 @@ async fn download_isapi_playback_uri(
             ),
         );
 
-        let http_fallbacks = build_isapi_download_endpoints_from_rtsp(&uri, source_host.as_deref());
+        let source_host_effective = source_host
+            .as_deref()
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .map(str::to_string)
+            .or_else(|| extract_host_hint_from_filename_hint(filename_hint.as_deref()));
+
+        let http_fallbacks =
+            build_isapi_download_endpoints_from_rtsp(&uri, source_host_effective.as_deref());
+        if let Some(first) = http_fallbacks.first() {
+            push_runtime_log(
+                &log_state,
+                format!(
+                    "ISAPI fallback endpoints prepared (count={} first={}) [task:{}]",
+                    http_fallbacks.len(),
+                    first,
+                    task_key
+                ),
+            );
+        }
         let mut http_errors: Vec<String> = Vec::new();
 
         for http_download_uri in http_fallbacks {
