@@ -93,6 +93,44 @@ export default function NemesisArchiveTerminal({ target, onClose }) {
     if (start && end && end > start) return Math.min(1800, Math.max(30, Math.floor((end - start) / 1000) + 15));
     return 120;
   };
+  const splitPlaybackUriByMinutes = (uri, chunkMinutes = 30) => {
+    const clean = normalizePlaybackUri(uri);
+    const startMatch = clean.match(/[?&]starttime=([^&]+)/i);
+    const endMatch = clean.match(/[?&]endtime=([^&]+)/i);
+    if (!startMatch || !endMatch) return [clean];
+
+    const parseCompactUtc = (v) => {
+      const m = String(v || '').match(/^(\d{4})(\d{2})(\d{2})T(\d{2})(\d{2})(\d{2})Z?$/i);
+      if (!m) return null;
+      const [, y, mo, d, h, mi, s] = m;
+      const n = Date.UTC(Number(y), Number(mo) - 1, Number(d), Number(h), Number(mi), Number(s));
+      return Number.isFinite(n) ? n : null;
+    };
+    const fmtCompactUtc = (ms) => {
+      const d = new Date(ms);
+      const pad = (n) => String(n).padStart(2, '0');
+      return `${d.getUTCFullYear()}${pad(d.getUTCMonth() + 1)}${pad(d.getUTCDate())}T${pad(d.getUTCHours())}${pad(d.getUTCMinutes())}${pad(d.getUTCSeconds())}Z`;
+    };
+
+    const startMs = parseCompactUtc(startMatch[1]);
+    const endMs = parseCompactUtc(endMatch[1]);
+    if (!startMs || !endMs || endMs <= startMs) return [clean];
+
+    const chunkMs = Math.max(1, Number(chunkMinutes) || 30) * 60 * 1000;
+    if ((endMs - startMs) <= chunkMs) return [clean];
+
+    const chunks = [];
+    let cursor = startMs;
+    while (cursor < endMs) {
+      const next = Math.min(cursor + chunkMs, endMs);
+      const chunkUri = clean
+        .replace(/([?&]starttime=)[^&]*/i, `$1${fmtCompactUtc(cursor)}`)
+        .replace(/([?&]endtime=)[^&]*/i, `$1${fmtCompactUtc(next)}`);
+      chunks.push(chunkUri);
+      cursor = next;
+    }
+    return chunks.length ? chunks : [clean];
+  };
 
   const handleSearch = async () => {
     if (bulkRunning) {
@@ -169,21 +207,35 @@ export default function NemesisArchiveTerminal({ target, onClose }) {
     log(`⬇ ЗАГРУЗКА #${idx+1}...`, 'info');
     const taskId = `nem_${Date.now()}_${idx}`;
     try {
-      const job = await invoke('start_archive_export_job', {
-        playbackUri: normalizedUri,
-        login: target.login || 'admin',
-        pass: target.password || '',
-        sourceHost: target.host || '',
-        filenameHint: `${target.host.replace(/\./g,'_')}_cam${camera}_${idx}.mp4`,
-        taskId,
-      });
-      if (!job?.report) {
-        const reason = job?.finalReason || (job?.stages || []).filter((s) => !s.success).map((s) => `${s.stage}: ${s.reason || 'failed'}`).join(' || ');
-        throw new Error(reason || 'Archive export failed');
+      const chunkUris = splitPlaybackUriByMinutes(normalizedUri, 30);
+      if (chunkUris.length > 1) {
+        log(`ℹ long segment detected: split into ${chunkUris.length} × 30min chunks`, 'sys');
       }
-      const r = job.report;
+      let lastReport = null;
+      for (let i = 0; i < chunkUris.length; i += 1) {
+        const chunkTaskId = `${taskId}_p${i + 1}`;
+        const chunkNameSuffix = chunkUris.length > 1 ? `_p${String(i + 1).padStart(2, '0')}` : '';
+        const filenameHint = `${target.host.replace(/\./g, '_')}_cam${camera}_${idx}${chunkNameSuffix}.mp4`;
+        // eslint-disable-next-line no-await-in-loop
+        const job = await invoke('start_archive_export_job', {
+          playbackUri: chunkUris[i],
+          login: target.login || 'admin',
+          pass: target.password || '',
+          sourceHost: target.host || '',
+          filenameHint,
+          taskId: chunkTaskId,
+        });
+        if (!job?.report) {
+          const reason = job?.finalReason || (job?.stages || []).filter((s) => !s.success).map((s) => `${s.stage}: ${s.reason || 'failed'}`).join(' || ');
+          throw new Error(`chunk ${i + 1}/${chunkUris.length}: ${reason || 'Archive export failed'}`);
+        }
+        lastReport = job.report;
+        log(`✅ chunk ${i + 1}/${chunkUris.length}: ${job.report.filename} (${(job.report.bytesWritten / 1048576).toFixed(1)} MB)`, 'ok');
+      }
+
+      const r = lastReport;
       updateDownloadStatus(k, 'done');
-      log(`✅ ${r.filename} (${(r.bytesWritten/1048576).toFixed(1)} MB) [${job.selectedStage}] status=${job.finalStatus || 'done'} retries=${job.retryCount || 0}${job.fallbackDurationSeconds ? ` ffmpegT=${job.fallbackDurationSeconds}s` : ''}`, 'ok');
+      log(`✅ download complete: ${r.filename} (${(r.bytesWritten/1048576).toFixed(1)} MB)`, 'ok');
       return true;
     } catch (e) {
       updateDownloadStatus(k, 'error');
