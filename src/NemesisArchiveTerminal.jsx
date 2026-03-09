@@ -94,67 +94,111 @@ export default function NemesisArchiveTerminal({ target, onClose }) {
     return 120;
   };
 
-  const splitRecordIntoChunks = (item, chunkMinutes = 30) => {
-    if (!item || !item.playbackUri) return [item];
-    const chunkUris = splitPlaybackUriByMinutes(item.playbackUri, chunkMinutes);
-    if (chunkUris.length <= 1) return [item];
-
-    const extractUtcFromUri = (uri, key) => {
-      const m = String(uri || '').match(new RegExp(`[?&]${key}=([^&]+)`, 'i'));
-      if (!m?.[1]) return null;
-      const mm = String(m[1]).match(/^(\d{4})(\d{2})(\d{2})T(\d{2})(\d{2})(\d{2})Z?$/i);
-      if (!mm) return null;
-      const [, y, mo, d, h, mi, se] = mm;
-      return `${y}-${mo}-${d}T${h}:${mi}:${se}Z`;
-    };
-
-    return chunkUris.map((chunkUri, idx) => ({
-      ...item,
-      playbackUri: chunkUri,
-      startTime: extractUtcFromUri(chunkUri, 'starttime') || item.startTime,
-      endTime: extractUtcFromUri(chunkUri, 'endtime') || item.endTime,
-      chunkIndex: idx + 1,
-      chunkTotal: chunkUris.length,
-    }));
+  const parseTimeToUtcMs = (value) => {
+    const raw = String(value || '').trim();
+    if (!raw) return null;
+    const compact = raw.match(/^(\d{4})(\d{2})(\d{2})T(\d{2})(\d{2})(\d{2})Z?$/i);
+    if (compact) {
+      const [, y, mo, d, h, mi, s] = compact;
+      const ms = Date.UTC(Number(y), Number(mo) - 1, Number(d), Number(h), Number(mi), Number(s));
+      return Number.isFinite(ms) ? ms : null;
+    }
+    const normalized = /Z$/i.test(raw) ? raw : `${raw.replace(' ', 'T')}Z`;
+    const ms = new Date(normalized).getTime();
+    return Number.isFinite(ms) ? ms : null;
   };
 
-  const splitPlaybackUriByMinutes = (uri, chunkMinutes = 30) => {
+  const fmtCompactUtc = (ms) => {
+    const d = new Date(ms);
+    const pad = (n) => String(n).padStart(2, '0');
+    return `${d.getUTCFullYear()}${pad(d.getUTCMonth() + 1)}${pad(d.getUTCDate())}T${pad(d.getUTCHours())}${pad(d.getUTCMinutes())}${pad(d.getUTCSeconds())}Z`;
+  };
+
+  const fmtIsoUtc = (ms) => {
+    const d = new Date(ms);
+    const pad = (n) => String(n).padStart(2, '0');
+    return `${d.getUTCFullYear()}-${pad(d.getUTCMonth() + 1)}-${pad(d.getUTCDate())}T${pad(d.getUTCHours())}:${pad(d.getUTCMinutes())}:${pad(d.getUTCSeconds())}Z`;
+  };
+
+  const withPlaybackUriWindow = (uri, startMs, endMs) => {
+    const clean = normalizePlaybackUri(uri);
+    if (!clean) return clean;
+    const start = fmtCompactUtc(startMs);
+    const end = fmtCompactUtc(endMs);
+    const hasQuery = clean.includes('?');
+    const hasStart = /([?&]starttime=)[^&]*/i.test(clean);
+    const hasEnd = /([?&]endtime=)[^&]*/i.test(clean);
+    let next = clean;
+    if (hasStart) next = next.replace(/([?&]starttime=)[^&]*/i, `$1${start}`);
+    if (hasEnd) next = next.replace(/([?&]endtime=)[^&]*/i, `$1${end}`);
+    if (!hasStart) next += `${hasQuery ? '&' : '?'}starttime=${start}`;
+    if (!hasEnd) next += `${next.includes('?') ? '&' : '?'}endtime=${end}`;
+    return next;
+  };
+
+  const splitPlaybackUriByMinutes = (uri, chunkMinutes = 30, fallbackStartTime, fallbackEndTime) => {
     const clean = normalizePlaybackUri(uri);
     const startMatch = clean.match(/[?&]starttime=([^&]+)/i);
     const endMatch = clean.match(/[?&]endtime=([^&]+)/i);
-    if (!startMatch || !endMatch) return [clean];
-
-    const parseCompactUtc = (v) => {
-      const m = String(v || '').match(/^(\d{4})(\d{2})(\d{2})T(\d{2})(\d{2})(\d{2})Z?$/i);
-      if (!m) return null;
-      const [, y, mo, d, h, mi, s] = m;
-      const n = Date.UTC(Number(y), Number(mo) - 1, Number(d), Number(h), Number(mi), Number(s));
-      return Number.isFinite(n) ? n : null;
-    };
-    const fmtCompactUtc = (ms) => {
-      const d = new Date(ms);
-      const pad = (n) => String(n).padStart(2, '0');
-      return `${d.getUTCFullYear()}${pad(d.getUTCMonth() + 1)}${pad(d.getUTCDate())}T${pad(d.getUTCHours())}${pad(d.getUTCMinutes())}${pad(d.getUTCSeconds())}Z`;
-    };
-
-    const startMs = parseCompactUtc(startMatch[1]);
-    const endMs = parseCompactUtc(endMatch[1]);
-    if (!startMs || !endMs || endMs <= startMs) return [clean];
+    const startMs = parseTimeToUtcMs(startMatch?.[1] || fallbackStartTime);
+    const endMs = parseTimeToUtcMs(endMatch?.[1] || fallbackEndTime);
+    if (!clean || !startMs || !endMs || endMs <= startMs) return [clean];
 
     const chunkMs = Math.max(1, Number(chunkMinutes) || 30) * 60 * 1000;
-    if ((endMs - startMs) <= chunkMs) return [clean];
+    if ((endMs - startMs) <= chunkMs) return [withPlaybackUriWindow(clean, startMs, endMs)];
 
     const chunks = [];
     let cursor = startMs;
     while (cursor < endMs) {
       const next = Math.min(cursor + chunkMs, endMs);
-      const chunkUri = clean
-        .replace(/([?&]starttime=)[^&]*/i, `$1${fmtCompactUtc(cursor)}`)
-        .replace(/([?&]endtime=)[^&]*/i, `$1${fmtCompactUtc(next)}`);
-      chunks.push(chunkUri);
+      chunks.push(withPlaybackUriWindow(clean, cursor, next));
       cursor = next;
     }
-    return chunks.length ? chunks : [clean];
+    return chunks.length ? chunks : [withPlaybackUriWindow(clean, startMs, endMs)];
+  };
+
+  const splitRecordIntoChunks = (item, chunkMinutes = 30) => {
+    if (!item) return [item];
+    const baseUri = normalizePlaybackUri(item.playbackUri || '');
+    const startMs = parseTimeToUtcMs(item.startTime);
+    const endMs = parseTimeToUtcMs(item.endTime);
+    const fallbackStart = startMs ? fmtCompactUtc(startMs) : undefined;
+    const fallbackEnd = endMs ? fmtCompactUtc(endMs) : undefined;
+
+    const chunkUris = baseUri
+      ? splitPlaybackUriByMinutes(baseUri, chunkMinutes, fallbackStart, fallbackEnd)
+      : [baseUri];
+
+    if (chunkUris.length <= 1 && (!startMs || !endMs)) return [item];
+
+    const chunks = [];
+    const chunkMs = Math.max(1, Number(chunkMinutes) || 30) * 60 * 1000;
+    let ranges = [];
+    if (startMs && endMs && endMs > startMs) {
+      let cursor = startMs;
+      while (cursor < endMs) {
+        const next = Math.min(cursor + chunkMs, endMs);
+        ranges.push([cursor, next]);
+        cursor = next;
+      }
+    } else {
+      ranges = chunkUris.map(() => [startMs, endMs]);
+    }
+
+    const total = Math.max(chunkUris.length, ranges.length);
+    for (let i = 0; i < total; i += 1) {
+      const [rs, re] = ranges[i] || ranges[ranges.length - 1] || [startMs, endMs];
+      chunks.push({
+        ...item,
+        playbackUri: chunkUris[i] || chunkUris[chunkUris.length - 1] || item.playbackUri,
+        startTime: rs ? fmtIsoUtc(rs) : item.startTime,
+        endTime: re ? fmtIsoUtc(re) : item.endTime,
+        chunkIndex: i + 1,
+        chunkTotal: total,
+      });
+    }
+
+    return chunks.length ? chunks : [item];
   };
 
   const handleSearch = async () => {
@@ -235,18 +279,18 @@ export default function NemesisArchiveTerminal({ target, onClose }) {
     log(`⬇ ЗАГРУЗКА #${idx+1}...`, 'info');
     const taskId = `nem_${Date.now()}_${idx}`;
     try {
-      const chunkUris = splitPlaybackUriByMinutes(normalizedUri, 30);
-      if (chunkUris.length > 1) {
-        log(`ℹ long segment detected: split into ${chunkUris.length} × 30min chunks`, 'sys');
+      const chunkItems = splitRecordIntoChunks({ ...item, playbackUri: normalizedUri }, 30);
+      if (chunkItems.length > 1) {
+        log(`ℹ long segment detected: split into ${chunkItems.length} × 30min chunks`, 'sys');
       }
       let lastReport = null;
-      for (let i = 0; i < chunkUris.length; i += 1) {
+      for (let i = 0; i < chunkItems.length; i += 1) {
         const chunkTaskId = `${taskId}_p${i + 1}`;
-        const chunkNameSuffix = chunkUris.length > 1 ? `_p${String(i + 1).padStart(2, '0')}` : '';
+        const chunkNameSuffix = chunkItems.length > 1 ? `_p${String(i + 1).padStart(2, '0')}` : '';
         const filenameHint = `${target.host.replace(/\./g, '_')}_cam${camera}_${idx}${chunkNameSuffix}.mp4`;
         // eslint-disable-next-line no-await-in-loop
         const job = await invoke('start_archive_export_job', {
-          playbackUri: chunkUris[i],
+          playbackUri: chunkItems[i]?.playbackUri || normalizedUri,
           login: target.login || 'admin',
           pass: target.password || '',
           sourceHost: target.host || '',
@@ -255,10 +299,10 @@ export default function NemesisArchiveTerminal({ target, onClose }) {
         });
         if (!job?.report) {
           const reason = job?.finalReason || (job?.stages || []).filter((s) => !s.success).map((s) => `${s.stage}: ${s.reason || 'failed'}`).join(' || ');
-          throw new Error(`chunk ${i + 1}/${chunkUris.length}: ${reason || 'Archive export failed'}`);
+          throw new Error(`chunk ${i + 1}/${chunkItems.length}: ${reason || 'Archive export failed'}`);
         }
         lastReport = job.report;
-        log(`✅ chunk ${i + 1}/${chunkUris.length}: ${job.report.filename} (${(job.report.bytesWritten / 1048576).toFixed(1)} MB)`, 'ok');
+        log(`✅ chunk ${i + 1}/${chunkItems.length}: ${job.report.filename} (${(job.report.bytesWritten / 1048576).toFixed(1)} MB)`, 'ok');
       }
 
       const r = lastReport;
