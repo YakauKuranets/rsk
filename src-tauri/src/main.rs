@@ -3589,7 +3589,6 @@ async fn download_onvif_recording_token(
             .join(&filename);
         let _ = std::fs::create_dir_all(path.parent().unwrap());
 
-        let ffmpeg = get_ffmpeg_path();
         let output_path = path.to_string_lossy().to_string();
         let mut child = Command::new("ffmpeg")
             .args([
@@ -4223,7 +4222,6 @@ async fn download_isapi_via_rtsp(
         ),
     );
 
-    let ffmpeg = get_ffmpeg_path();
     let started = std::time::Instant::now();
 
     // Определяем длительность: если в URI есть starttime/endtime — не ограничиваем,
@@ -4231,12 +4229,12 @@ async fn download_isapi_via_rtsp(
     let has_time_range = uri.contains("starttime=") || uri.contains("endtime=");
     let duration_limit = if has_time_range { 600u64 } else { 120 }; // 10 мин для диапазона, 2 мин без
 
-    let mut child = Command::new(&ffmpeg)
+    let mut child = Command::new("ffmpeg")
         .args([
             "-y",
             "-rtsp_transport",
             "tcp",
-            "-timeout",
+            "-stimeout",
             "15000000",
             "-i",
             &authed_uri,
