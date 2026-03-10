@@ -18,5 +18,7 @@
 
 - Backend now resolves `Nemesis Vault` path dynamically on Linux: `~/.nemesis_vault/recon_db`.
 - FFmpeg launch now supports Linux (`ffmpeg` from vault path or from `PATH`) instead of hardcoded `ffmpeg.exe`.
-- For Kali install runtime dependencies before `npm run tauri dev`: `sudo apt install -y ffmpeg libwebkit2gtk-4.1-dev libgtk-3-dev libayatana-appindicator3-dev librsvg2-dev patchelf`.
+- For Kali install build/runtime dependencies before `npm run tauri dev`: `sudo apt install -y build-essential pkg-config libglib2.0-dev ffmpeg libwebkit2gtk-4.1-dev libgtk-3-dev libayatana-appindicator3-dev librsvg2-dev patchelf`.
 
+
+- Quick preflight for Kali: `./scripts/check-kali-compat.sh`.
