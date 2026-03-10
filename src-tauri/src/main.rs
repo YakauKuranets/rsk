@@ -398,11 +398,37 @@ fn normalize_host_for_scan(input: &str) -> String {
 }
 
 fn get_vault_path() -> PathBuf {
-    let path = PathBuf::from(r"D:\Nemesis_Vault\recon_db");
+    let path = if cfg!(target_os = "windows") {
+        PathBuf::from(r"D:\Nemesis_Vault\recon_db")
+    } else {
+        env::var("HOME")
+            .map(PathBuf::from)
+            .unwrap_or_else(|_| PathBuf::from("."))
+            .join(".nemesis_vault")
+            .join("recon_db")
+    };
+
     if !path.exists() {
         let _ = std::fs::create_dir_all(&path);
     }
+
     path
+}
+
+fn get_ffmpeg_path() -> PathBuf {
+    let bundled = get_vault_path().join(if cfg!(target_os = "windows") {
+        "ffmpeg.exe"
+    } else {
+        "ffmpeg"
+    });
+
+    if bundled.exists() {
+        bundled
+    } else if cfg!(target_os = "windows") {
+        PathBuf::from("ffmpeg.exe")
+    } else {
+        PathBuf::from("ffmpeg")
+    }
 }
 
 fn derive_hardware_key() -> [u8; 32] {
@@ -543,7 +569,7 @@ fn start_hub_stream(
         cookie
     );
 
-    let child = Command::new(get_vault_path().join("ffmpeg.exe"))
+    let child = Command::new(get_ffmpeg_path())
         .args([
             // --- ЗАГОЛОВКИ ---
             "-headers",
@@ -734,7 +760,7 @@ async fn probe_rtsp_path(host: String, login: String, pass: String) -> Result<St
         "/cam/realmonitor?channel=1&subtype=0",
         "/live/ch1",
     ];
-    let ffmpeg = get_vault_path().join("ffmpeg.exe");
+    let ffmpeg = get_ffmpeg_path();
     for sig in signatures {
         let url = format!(
             "rtsp://{}:{}@{}/{}",
@@ -825,7 +851,7 @@ fn start_stream(
     cleanup_hls_cache(&cache);
 
     let playlist = cache.join("stream.m3u8");
-    let ffmpeg = get_vault_path().join("ffmpeg.exe");
+    let ffmpeg = get_ffmpeg_path();
 
     push_runtime_log(
         &log_state,
@@ -3572,7 +3598,7 @@ async fn download_onvif_recording_token(
             .join(&filename);
         let _ = std::fs::create_dir_all(path.parent().unwrap());
 
-        let ffmpeg = get_vault_path().join("ffmpeg.exe");
+        let ffmpeg = get_ffmpeg_path();
         let output_path = path.to_string_lossy().to_string();
         let mut child = Command::new(&ffmpeg)
             .args([
@@ -4206,7 +4232,7 @@ async fn download_isapi_via_rtsp(
         ),
     );
 
-    let ffmpeg = get_vault_path().join("ffmpeg.exe");
+    let ffmpeg = get_ffmpeg_path();
     let started = std::time::Instant::now();
 
     // Определяем длительность: если в URI есть starttime/endtime — не ограничиваем,
@@ -5149,7 +5175,7 @@ async fn capture_archive_segment(
         ),
     );
 
-    let ffmpeg = get_vault_path().join("ffmpeg.exe");
+    let ffmpeg = get_ffmpeg_path();
     let output_path = path.to_string_lossy().to_string();
 
     // Собираем аргументы FFmpeg

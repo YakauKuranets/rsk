@@ -500,8 +500,27 @@ fn normalize_host(input: &str) -> String {
         .split('/').next().unwrap_or_default().split(':').next().unwrap_or_default().to_string()
 }
 fn get_vault_path() -> std::path::PathBuf {
-    let p = std::path::PathBuf::from(r"D:\Nemesis_Vault\recon_db");
-    if !p.exists() { let _ = std::fs::create_dir_all(&p); } p
+    let p = if cfg!(target_os = "windows") {
+        std::path::PathBuf::from(r"D:\Nemesis_Vault\recon_db")
+    } else {
+        std::env::var("HOME")
+            .map(std::path::PathBuf::from)
+            .unwrap_or_else(|_| std::path::PathBuf::from("."))
+            .join(".nemesis_vault")
+            .join("recon_db")
+    };
+    if !p.exists() { let _ = std::fs::create_dir_all(&p); }
+    p
+}
+fn get_ffmpeg_path() -> std::path::PathBuf {
+    let bundled = get_vault_path().join(if cfg!(target_os = "windows") { "ffmpeg.exe" } else { "ffmpeg" });
+    if bundled.exists() {
+        bundled
+    } else if cfg!(target_os = "windows") {
+        std::path::PathBuf::from("ffmpeg.exe")
+    } else {
+        std::path::PathBuf::from("ffmpeg")
+    }
 }
 fn sanitize_filename(input: &str) -> String {
     let mut o = String::with_capacity(input.len());
@@ -1151,7 +1170,7 @@ async fn sand_download_isapi(
 
         let fpath = dir.join(&filename);
 
-        let status = std::process::Command::new(get_vault_path().join("ffmpeg.exe"))
+        let status = std::process::Command::new(get_ffmpeg_path())
             .args([
                 "-y",
                 "-rtsp_transport", "tcp",
@@ -1373,7 +1392,7 @@ async fn sand_download_onvif(
     if filename.is_empty() { filename = format!("onvif_{}.mp4", Utc::now().timestamp()); }
     if !filename.contains('.') { filename.push_str(".mp4"); }
     let fpath = dir.join(&filename);
-    let ffmpeg = get_vault_path().join("ffmpeg.exe");
+    let ffmpeg = get_ffmpeg_path();
 
     let mut child = std::process::Command::new(&ffmpeg)
         .args(["-y","-rtsp_transport","tcp","-i",&replay_uri,"-t","120","-c","copy",&fpath.to_string_lossy()])
@@ -1544,7 +1563,7 @@ impl HyperionMaster {
                                     DownloadTask::RtspCapture { source_url, filename_hint, duration_seconds } => {
                                         let dir = get_vault_path().join("archives").join("nexus_rtsp"); let _ = std::fs::create_dir_all(&dir);
                                         let p = dir.join(&filename_hint);
-                                        match std::process::Command::new(get_vault_path().join("ffmpeg.exe"))
+                                        match std::process::Command::new(get_ffmpeg_path())
                                             .args(["-y","-rtsp_transport","tcp","-i",&source_url,"-t",&duration_seconds.to_string(),"-c","copy",&p.to_string_lossy()])
                                             .stdout(std::process::Stdio::null()).stderr(std::process::Stdio::null()).spawn()
                                         { Ok(mut c) => match c.wait() { Ok(s) if s.success() => Ok(p.to_string_lossy().to_string()), _ => Err("ffmpeg failed".into()) }, Err(e) => Err(format!("ffmpeg: {}",e)) }
