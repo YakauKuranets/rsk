@@ -398,20 +398,11 @@ fn normalize_host_for_scan(input: &str) -> String {
 }
 
 fn get_vault_path() -> PathBuf {
-    let path = if cfg!(target_os = "windows") {
-        PathBuf::from(r"D:\Nemesis_Vault\recon_db")
-    } else {
-        env::var("HOME")
-            .map(PathBuf::from)
-            .unwrap_or_else(|_| PathBuf::from("."))
-            .join(".nemesis_vault")
-            .join("recon_db")
-    };
-
+    // В Linux нет диска D:\, используем домашнюю директорию пользователя kali
+    let path = PathBuf::from("/home/kali/Nemesis_Vault");
     if !path.exists() {
         let _ = std::fs::create_dir_all(&path);
     }
-
     path
 }
 
@@ -569,7 +560,7 @@ fn start_hub_stream(
         cookie
     );
 
-    let child = Command::new(get_ffmpeg_path())
+    let child = Command::new("ffmpeg")
         .args([
             // --- ЗАГОЛОВКИ ---
             "-headers",
@@ -851,8 +842,6 @@ fn start_stream(
     cleanup_hls_cache(&cache);
 
     let playlist = cache.join("stream.m3u8");
-    let ffmpeg = get_ffmpeg_path();
-
     push_runtime_log(
         &log_state,
         format!("HLS target: {}", playlist.to_string_lossy()),
@@ -867,11 +856,13 @@ fn start_stream(
         }
     }
 
-    let mut child = Command::new(&ffmpeg)
+    let mut child = Command::new("ffmpeg")
         .args([
             "-y",
             "-rtsp_transport",
             "tcp",
+            "-stimeout",
+            "10000000",
             "-fflags",
             "+genpts",
             "-i",
@@ -3600,7 +3591,7 @@ async fn download_onvif_recording_token(
 
         let ffmpeg = get_ffmpeg_path();
         let output_path = path.to_string_lossy().to_string();
-        let mut child = Command::new(&ffmpeg)
+        let mut child = Command::new("ffmpeg")
             .args([
                 "-y",
                 "-rtsp_transport",
@@ -5175,7 +5166,6 @@ async fn capture_archive_segment(
         ),
     );
 
-    let ffmpeg = get_ffmpeg_path();
     let output_path = path.to_string_lossy().to_string();
 
     // Собираем аргументы FFmpeg
@@ -5187,7 +5177,7 @@ async fn capture_archive_segment(
         args.extend_from_slice(&[
             "-rtsp_transport".into(),
             "tcp".into(),
-            "-timeout".into(),
+            "-stimeout".into(),
             "10000000".into(),
         ]);
     }
@@ -5229,7 +5219,7 @@ async fn capture_archive_segment(
     // Выход
     args.push(output_path.clone());
 
-    let mut child = Command::new(&ffmpeg)
+    let mut child = Command::new("ffmpeg")
         .args(&args)
         .stdout(Stdio::null())
         .stderr(Stdio::piped())
@@ -5312,7 +5302,7 @@ async fn capture_archive_segment(
                         retry_args.insert(out_idx + 2, "-crf".into());
                         retry_args.insert(out_idx + 3, "23".into());
 
-                        let mut child2 = Command::new(&ffmpeg)
+                        let mut child2 = Command::new("ffmpeg")
                             .args(&retry_args)
                             .stdout(Stdio::null())
                             .stderr(Stdio::null())
