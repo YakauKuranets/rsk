@@ -855,6 +855,16 @@ fn start_stream(
 
     let cache = get_vault_path().join("hls_cache").join(&target_id);
     std::fs::create_dir_all(&cache).map_err(|e| e.to_string())?;
+    cleanup_hls_cache(&cache);
+
+    let playlist = cache.join("stream.m3u8");
+    let segment_path = cache.join("%03d.ts");
+
+    push_runtime_log(
+        &log_state,
+        format!("HLS target: {}", playlist.to_string_lossy()),
+    );
+    push_runtime_log(&log_state, format!("RTSP source: {}", rtsp_url));
 
     {
         let mut streams = state.active_streams.lock().unwrap();
@@ -864,33 +874,12 @@ fn start_stream(
         }
     }
 
-    cleanup_hls_cache(&cache);
-
-    let playlist = cache.join("stream.m3u8");
-    let ffmpeg_log = cache.join("ffmpeg.log");
-    let stderr_file = OpenOptions::new()
-        .create(true)
-        .write(true)
-        .truncate(true)
-        .open(&ffmpeg_log)
-        .map_err(|e| format!("Не удалось открыть ffmpeg log: {}", e))?;
-
-    push_runtime_log(
-        &log_state,
-        format!("HLS target: {}", playlist.to_string_lossy()),
-    );
-    push_runtime_log(&log_state, format!("RTSP source: {}", rtsp_url));
-
     let mut child = Command::new("ffmpeg")
         .args([
             "-y",
-            "-loglevel",
-            "warning",
             "-rtsp_transport",
             "tcp",
             "-stimeout",
-            "10000000",
-            "-rw_timeout",
             "10000000",
             "-fflags",
             "+genpts",
@@ -919,73 +908,49 @@ fn start_stream(
             "delete_segments+append_list+omit_endlist",
             "-hls_segment_type",
             "mpegts",
+            "-hls_segment_filename",
+            segment_path.to_str().unwrap(),
             playlist.to_str().unwrap(),
         ])
         .stdout(Stdio::null())
-        .stderr(Stdio::from(stderr_file))
+        .stderr(Stdio::null())
         .spawn()
         .map_err(|e| format!("FFmpeg start error: {}", e))?;
 
-    let started = std::time::Instant::now();
-    let wait_timeout = std::time::Duration::from_secs(12);
+    std::thread::sleep(std::time::Duration::from_secs(2));
 
-    loop {
-        if playlist.exists() {
-            let ready = std::fs::metadata(&playlist)
-                .map(|m| m.len() > 0)
-                .unwrap_or(false);
-            if ready {
-                push_runtime_log(
-                    &log_state,
-                    format!("HLS playlist ready: {}", playlist.to_string_lossy()),
-                );
-                state
-                    .active_streams
-                    .lock()
-                    .unwrap()
-                    .insert(target_id, child);
-                return Ok("Started".into());
-            }
+    match child.try_wait() {
+        Ok(Some(status)) => {
+            return Err(format!("FFmpeg завершился сразу после старта: {}", status));
         }
-
-        match child.try_wait() {
-            Ok(Some(status)) => {
-                let tail = read_last_log_lines(&ffmpeg_log, 8);
-                return Err(format!(
-                    "FFmpeg завершился сразу после старта: {}{}",
-                    status,
-                    if tail.is_empty() {
-                        String::new()
-                    } else {
-                        format!(" | log: {}", tail)
-                    }
-                ));
-            }
-            Ok(None) => {}
-            Err(e) => {
-                return Err(format!("Не удалось проверить статус FFmpeg: {}", e));
-            }
+        Ok(None) => {}
+        Err(e) => {
+            return Err(format!("Не удалось проверить статус FFmpeg: {}", e));
         }
-
-        if started.elapsed() > wait_timeout {
-            push_runtime_log(
-                &log_state,
-                format!(
-                    "FFmpeg жив, но playlist пока не появился: {} | см. {}",
-                    playlist.to_string_lossy(),
-                    ffmpeg_log.to_string_lossy()
-                ),
-            );
-            state
-                .active_streams
-                .lock()
-                .unwrap()
-                .insert(target_id, child);
-            return Ok("Started".into());
-        }
-
-        std::thread::sleep(std::time::Duration::from_millis(300));
     }
+
+    if playlist.exists() {
+        push_runtime_log(
+            &log_state,
+            format!("HLS playlist ready: {}", playlist.to_string_lossy()),
+        );
+    } else {
+        push_runtime_log(
+            &log_state,
+            format!(
+                "FFmpeg жив, но playlist пока не появился: {}",
+                playlist.to_string_lossy()
+            ),
+        );
+    }
+
+    state
+        .active_streams
+        .lock()
+        .unwrap()
+        .insert(target_id, child);
+
+    Ok("Started".into())
 }
 
 
@@ -4275,10 +4240,7 @@ async fn download_isapi_via_rtsp(
         .map_err(|e| format!("FFmpeg semaphore acquire failed: {}", e))?;
     push_runtime_log(log_state, format!("FFMPEG_SLOT_ACQUIRED|{}|rtsp", task_key));
 
-    // Инжектим кредентиалы в RTSP URI если их там нет
-    // rtsp://host/path → rtsp://login:pass@host/path
     let authed_uri = inject_rtsp_credentials(uri, login, pass);
-
     let mut filename = filename_hint
         .map(|s| sanitize_filename_component(&s))
         .filter(|s| !s.is_empty())
@@ -4287,29 +4249,12 @@ async fn download_isapi_via_rtsp(
         filename.push_str(".mp4");
     }
 
-    let path = get_vault_path()
-        .join("archives")
-        .join("isapi")
-        .join(&filename);
+    let path = get_vault_path().join("archives").join("isapi").join(&filename);
     let _ = std::fs::create_dir_all(path.parent().unwrap());
-    let output_path = path.to_string_lossy().to_string();
-
-    push_runtime_log(
-        log_state,
-        format!(
-            "RTSP capture: {} → {} [task:{}]",
-            &authed_uri.chars().take(80).collect::<String>(),
-            filename,
-            task_key
-        ),
-    );
 
     let started = std::time::Instant::now();
-
-    // Определяем длительность: если в URI есть starttime/endtime — не ограничиваем,
-    // иначе ставим 120с как предел
     let has_time_range = uri.contains("starttime=") || uri.contains("endtime=");
-    let duration_limit = if has_time_range { 600u64 } else { 120 }; // 10 мин для диапазона, 2 мин без
+    let duration_limit = if has_time_range { 600u64 } else { 120 };
 
     let mut child = Command::new("ffmpeg")
         .args([
@@ -4317,8 +4262,6 @@ async fn download_isapi_via_rtsp(
             "-rtsp_transport",
             "tcp",
             "-stimeout",
-            "15000000",
-            "-rw_timeout",
             "15000000",
             "-i",
             &authed_uri,
@@ -4328,10 +4271,10 @@ async fn download_isapi_via_rtsp(
             "copy",
             "-movflags",
             "+faststart",
-            &output_path,
+            path.to_str().unwrap(),
         ])
         .stdout(Stdio::null())
-        .stderr(Stdio::piped())
+        .stderr(Stdio::null())
         .spawn()
         .map_err(|e| format!("Не удалось запустить FFmpeg для RTSP: {}", e))?;
 
@@ -4339,7 +4282,6 @@ async fn download_isapi_via_rtsp(
     let timeout = Duration::from_secs(duration_limit + 60);
 
     loop {
-        // Проверяем отмену
         if cancel_state
             .cancelled_tasks
             .lock()
@@ -4352,96 +4294,43 @@ async fn download_isapi_via_rtsp(
             if let Ok(mut cancelled) = cancel_state.cancelled_tasks.lock() {
                 cancelled.remove(task_key);
             }
-            push_runtime_log(
-                log_state,
-                format!("DOWNLOAD_CANCELLED|{}|{}", task_key, filename),
-            );
+            drop(permit);
             return Err(format!("Захват RTSP отменён [task:{}]", task_key));
         }
 
         match child.try_wait() {
             Ok(Some(status)) => {
                 if !status.success() {
-                    let stderr_text = if let Some(mut stderr) = child.stderr.take() {
-                        use std::io::Read;
-                        let mut buf = String::new();
-                        let _ = stderr.read_to_string(&mut buf);
-                        buf.lines()
-                            .rev()
-                            .take(5)
-                            .collect::<Vec<_>>()
-                            .into_iter()
-                            .rev()
-                            .collect::<Vec<_>>()
-                            .join(" | ")
-                    } else {
-                        String::new()
-                    };
-
-                    push_runtime_log(
-                        log_state,
-                        format!(
-                            "RTSP capture FFmpeg error: {} [task:{}]",
-                            stderr_text, task_key
-                        ),
-                    );
-
-                    // На ошибке FFmpeg всегда уходим в fallback, partial-файл удаляем
-                    let file_size = std::fs::metadata(&path).map(|m| m.len()).unwrap_or(0);
-                    if file_size > 1024 {
-                        push_runtime_log(
-                            log_state,
-                            format!(
-                                "RTSP capture: FFmpeg error, deleting partial {}B and switching to fallback: {}",
-                                file_size, filename
-                            ),
-                        );
-                    }
                     let _ = std::fs::remove_file(&path);
-                    return Err(format!("FFmpeg RTSP capture failed: {}", stderr_text));
+                    drop(permit);
+                    return Err(format!("FFmpeg RTSP capture failed with status: {}", status));
                 }
                 break;
             }
             Ok(None) => {
-                // Ещё работает — отправляем прогресс
                 if let Ok(m) = std::fs::metadata(&path) {
                     let sz = m.len();
                     if sz > last_size + 1024 * 1024 {
-                        push_runtime_log(
-                            log_state,
-                            format!("DOWNLOAD_PROGRESS|{}|{}|0", task_key, sz),
-                        );
+                        push_runtime_log(log_state, format!("DOWNLOAD_PROGRESS|{}|{}|0", task_key, sz));
                         last_size = sz;
                     }
                 }
                 if started.elapsed() > timeout {
                     let _ = child.kill();
                     let _ = child.wait();
-                    break; // Не ошибка — просто таймаут, файл мог быть записан
+                    break;
                 }
                 std::thread::sleep(std::time::Duration::from_millis(500));
             }
-            Err(e) => return Err(format!("Ошибка FFmpeg: {}", e)),
+            Err(e) => {
+                drop(permit);
+                return Err(format!("Ошибка FFmpeg: {}", e));
+            }
         }
     }
 
     let file_size = std::fs::metadata(&path).map(|m| m.len()).unwrap_or(0);
-    let duration_ms = started.elapsed().as_millis();
-
-    push_runtime_log(
-        log_state,
-        format!(
-            "RTSP capture finished: {} ({} bytes, {} ms) [task:{}]",
-            filename, file_size, duration_ms, task_key
-        ),
-    );
-
-    if let Ok(mut cancelled) = cancel_state.cancelled_tasks.lock() {
-        cancelled.remove(task_key);
-    }
-
     drop(permit);
-    push_runtime_log(log_state, format!("FFMPEG_SLOT_RELEASED|{}|rtsp", task_key));
 
     Ok(DownloadReport {
         server_alias: "isapi_rtsp".into(),
@@ -4449,11 +4338,12 @@ async fn download_isapi_via_rtsp(
         save_path: path.to_string_lossy().to_string(),
         bytes_written: file_size,
         total_bytes: file_size,
-        duration_ms,
+        duration_ms: started.elapsed().as_millis(),
         resumed: false,
         skipped_as_complete: false,
     })
 }
+
 
 async fn try_isapi_download_post_xml(
     client: &reqwest::Client,
@@ -4829,8 +4719,8 @@ async fn capture_archive_segment(
     duration_seconds: Option<u64>,
     extra_headers: Option<String>,
     task_id: Option<String>,
-    login: Option<String>,
-    pass: Option<String>,
+    _login: Option<String>,
+    _pass: Option<String>,
     log_state: State<'_, LogState>,
     cancel_state: State<'_, DownloadCancelState>,
     ffmpeg_limiter: State<'_, FfmpegLimiterState>,
@@ -4856,7 +4746,7 @@ async fn capture_archive_segment(
         format!("FFMPEG_SLOT_ACQUIRED|{}|capture", task_key),
     );
 
-    let duration = duration_seconds.unwrap_or(60); // По умолчанию 60 секунд
+    let duration = duration_seconds.unwrap_or(60);
     let mut filename = filename_hint
         .map(|s| sanitize_filename_component(&s))
         .filter(|s| !s.is_empty())
@@ -4879,42 +4769,19 @@ async fn capture_archive_segment(
         ),
     );
 
-    let source_lc = source_url.to_lowercase();
-    let final_url = if source_lc.starts_with("rtsp://") {
-        match (login.as_deref(), pass.as_deref()) {
-            (Some(l), Some(p)) if !l.trim().is_empty() => inject_rtsp_credentials(&source_url, l, p),
-            _ => source_url.clone(),
-        }
-    } else {
-        source_url.clone()
-    };
-
-    push_runtime_log(
-        &log_state,
-        format!(
-            "FFmpeg capture URL: {}",
-            final_url.chars().take(120).collect::<String>()
-        ),
-    );
-
     let output_path = path.to_string_lossy().to_string();
-
-    // Собираем аргументы FFmpeg
     let mut args: Vec<String> = Vec::new();
+    let source_lc = source_url.to_lowercase();
 
-    // Если RTSP — добавляем транспорт
     if source_lc.starts_with("rtsp://") {
         args.extend_from_slice(&[
             "-rtsp_transport".into(),
             "tcp".into(),
             "-stimeout".into(),
-            "15000000".into(),
-            "-rw_timeout".into(),
-            "15000000".into(),
+            "10000000".into(),
         ]);
     }
 
-    // Если HTTP(S) — добавляем реконнект и хедеры
     if source_lc.starts_with("http://") || source_lc.starts_with("https://") {
         args.extend_from_slice(&[
             "-reconnect".into(),
@@ -4934,27 +4801,20 @@ async fn capture_archive_segment(
         }
     }
 
-    // Ввод
-    args.extend_from_slice(&["-y".into(), "-i".into(), final_url]);
-
-    // Лимит по времени
+    args.extend_from_slice(&["-y".into(), "-i".into(), source_url.clone()]);
     args.extend_from_slice(&["-t".into(), duration.to_string()]);
-
-    // Кодирование — copy если источник уже H.264, иначе перекодируем
     args.extend_from_slice(&[
         "-c".into(),
-        "copy".into(), // Пробуем copy (быстро)
+        "copy".into(),
         "-movflags".into(),
-        "+faststart".into(), // Метаданные в начало файла
+        "+faststart".into(),
     ]);
-
-    // Выход
     args.push(output_path.clone());
 
     let mut child = Command::new("ffmpeg")
         .args(&args)
         .stdout(Stdio::null())
-        .stderr(Stdio::null())
+        .stderr(Stdio::piped())
         .spawn()
         .map_err(|e| format!("Не удалось запустить FFmpeg: {}", e))?;
 
@@ -4963,7 +4823,6 @@ async fn capture_archive_segment(
     let mut last_size: u64 = 0;
 
     loop {
-        // Проверяем отмену
         if cancel_state
             .cancelled_tasks
             .lock()
@@ -4976,45 +4835,86 @@ async fn capture_archive_segment(
             if let Ok(mut cancelled) = cancel_state.cancelled_tasks.lock() {
                 cancelled.remove(&task_key);
             }
-            push_runtime_log(
-                &log_state,
-                format!("DOWNLOAD_CANCELLED|{}|{}", task_key, filename),
-            );
+            drop(permit);
             return Err(format!("Захват отменён [task:{}]", task_key));
         }
 
-        // Проверяем: завершился ли FFmpeg?
         match child.try_wait() {
             Ok(Some(status)) => {
                 if !status.success() {
-                    push_runtime_log(
-                        &log_state,
-                        format!("FFmpeg exit with error status: {}", status),
-                    );
-                    if std::fs::metadata(&path).map(|m| m.len()).unwrap_or(0) > 1024 {
+                    let stderr_text = if let Some(mut stderr) = child.stderr.take() {
+                        use std::io::Read;
+                        let mut buf = String::new();
+                        let _ = stderr.read_to_string(&mut buf);
+                        buf.lines()
+                            .rev()
+                            .take(3)
+                            .collect::<Vec<_>>()
+                            .into_iter()
+                            .rev()
+                            .collect::<Vec<_>>()
+                            .join(" | ")
+                    } else {
+                        String::new()
+                    };
+
+                    if stderr_text.contains("Invalid data")
+                        || stderr_text.contains("codec not currently supported")
+                    {
                         push_runtime_log(
                             &log_state,
-                            format!(
-                                "Archive capture finished with error, but file {} exists.",
-                                filename
-                            ),
+                            format!("FFmpeg copy failed, retrying with re-encode: {}", stderr_text),
                         );
+                        let mut retry_args: Vec<String> = args
+                            .iter()
+                            .map(|a| if a == "copy" { "libx264".to_string() } else { a.clone() })
+                            .collect();
+                        let out_idx = retry_args.len() - 1;
+                        retry_args.insert(out_idx, "-preset".into());
+                        retry_args.insert(out_idx + 1, "fast".into());
+                        retry_args.insert(out_idx + 2, "-crf".into());
+                        retry_args.insert(out_idx + 3, "23".into());
+
+                        let mut child2 = Command::new("ffmpeg")
+                            .args(&retry_args)
+                            .stdout(Stdio::null())
+                            .stderr(Stdio::null())
+                            .spawn()
+                            .map_err(|e| format!("FFmpeg re-encode failed: {}", e))?;
+
+                        let timeout_secs = duration + 30;
+                        loop {
+                            match child2.try_wait() {
+                                Ok(Some(_)) => break,
+                                Ok(None) => {}
+                                Err(e) => {
+                                    drop(permit);
+                                    return Err(format!("Ошибка FFmpeg: {}", e));
+                                }
+                            }
+                            if started.elapsed() > std::time::Duration::from_secs(timeout_secs) {
+                                let _ = child2.kill();
+                                drop(permit);
+                                return Err("Таймаут захвата архива".into());
+                            }
+                            std::thread::sleep(std::time::Duration::from_millis(500));
+                        }
                     } else {
-                        let _ = std::fs::remove_file(&path);
-                        return Err(format!("FFmpeg failed with status: {}", status));
+                        drop(permit);
+                        return Err(format!("FFmpeg error: {}", stderr_text));
                     }
                 }
                 break;
             }
             Ok(None) => {}
-            Err(e) => return Err(format!("Ошибка ожидания FFmpeg: {}", e)),
+            Err(e) => {
+                drop(permit);
+                return Err(format!("Ошибка ожидания FFmpeg: {}", e));
+            }
         }
 
-        // Прогресс
         if last_progress.elapsed() >= std::time::Duration::from_secs(2) {
-            let current_size = std::fs::metadata(&path)
-                .map(|m| m.len())
-                .unwrap_or(last_size);
+            let current_size = std::fs::metadata(&path).map(|m| m.len()).unwrap_or(last_size);
             if current_size > last_size {
                 push_runtime_log(
                     &log_state,
@@ -5025,18 +4925,12 @@ async fn capture_archive_segment(
             last_progress = std::time::Instant::now();
         }
 
-        // Общий таймаут: duration + 30 секунд на запас
         if started.elapsed() > std::time::Duration::from_secs(duration + 30) {
             let _ = child.kill();
             let _ = child.wait();
-            push_runtime_log(
-                &log_state,
-                format!("Archive capture timeout for {}", filename),
-            );
-            break; // Не ошибка — может быть частичная запись
+            break;
         }
-
-        tokio::time::sleep(Duration::from_millis(500)).await;
+        std::thread::sleep(std::time::Duration::from_millis(500));
     }
 
     let bytes_written = std::fs::metadata(&path).map(|m| m.len()).unwrap_or(0);
@@ -5044,34 +4938,16 @@ async fn capture_archive_segment(
 
     push_runtime_log(
         &log_state,
-        format!(
-            "DOWNLOAD_PROGRESS|{}|{}|{}",
-            task_key, bytes_written, bytes_written
-        ),
+        format!("DOWNLOAD_PROGRESS|{}|{}|{}", task_key, bytes_written, bytes_written),
     );
-    push_runtime_log(
-        &log_state,
-        format!(
-            "Archive capture finished: {} ({} bytes, {}ms) [task:{}]",
-            filename, bytes_written, duration_ms, task_key
-        ),
-    );
-
     if let Ok(mut cancelled) = cancel_state.cancelled_tasks.lock() {
         cancelled.remove(&task_key);
     }
-
     drop(permit);
-    push_runtime_log(
-        &log_state,
-        format!("FFMPEG_SLOT_RELEASED|{}|capture", task_key),
-    );
 
     if bytes_written == 0 {
         let _ = std::fs::remove_file(&path);
-        return Err(
-            "Захват не получил данных — источник недоступен или формат не поддерживается".into(),
-        );
+        return Err("Захват не получил данных — источник недоступен или формат не поддерживается".into());
     }
 
     Ok(DownloadReport {
