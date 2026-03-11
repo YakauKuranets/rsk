@@ -4567,187 +4567,17 @@ async fn download_isapi_via_http(
     cancel_state: &State<'_, DownloadCancelState>,
 ) -> Result<DownloadReport, String> {
     let client = reqwest::Client::builder()
-        .connect_timeout(Duration::from_secs(10))
-        .timeout(Duration::from_secs(600))
+        .timeout(Duration::from_secs(60))
         .danger_accept_invalid_certs(true)
+        .user_agent("Mozilla/5.0 (X11; Linux x86_64; rv:140.0) Gecko/20100101 Firefox/140.0")
         .build()
         .map_err(|e| e.to_string())?;
-
-    let expected_size_hint = reqwest::Url::parse(uri)
-        .ok()
-        .and_then(|u| {
-            u.query_pairs()
-                .find(|(k, _)| k.eq_ignore_ascii_case("playbackURI"))
-                .map(|(_, v)| v.into_owned())
-        })
-        .and_then(|encoded| {
-            urlencoding::decode(&encoded)
-                .ok()
-                .map(|v| v.into_owned())
-        })
-        .and_then(|playback_uri| {
-            reqwest::Url::parse(&playback_uri)
-                .ok()
-                .and_then(|u| {
-                    u.query_pairs()
-                        .find(|(k, _)| k.eq_ignore_ascii_case("size"))
-                        .and_then(|(_, v)| v.parse::<u64>().ok())
-                })
-        });
 
     let started = std::time::Instant::now();
     push_runtime_log(
         log_state,
-        format!("ISAPI HTTP download started: {} [task:{}]", uri, task_key),
+        format!("ISAPI HTTP GET download started: {} [task:{}]", uri, task_key),
     );
-
-    push_runtime_log(log_state, format!("ISAPI_HTTP_SLOT_WAIT|{}", task_key));
-    let http_slot = isapi_http_download_semaphore()
-        .acquire_owned()
-        .await
-        .map_err(|e| format!("ISAPI HTTP semaphore acquire failed: {}", e))?;
-    push_runtime_log(log_state, format!("ISAPI_HTTP_SLOT_ACQUIRED|{}", task_key));
-
-    let mut resp =
-        send_isapi_http_get_with_retry(&client, uri, login, pass, task_key, log_state, None, None)
-            .await?;
-
-    if resp.status().as_u16() == 401 {
-        let www_auth = resp
-            .headers()
-            .get(reqwest::header::WWW_AUTHENTICATE)
-            .and_then(|h| h.to_str().ok())
-            .map(|s| s.to_string());
-
-        if let Some(www_auth) = www_auth {
-            if let Ok(mut prompt) = digest_auth::parse(&www_auth) {
-                let digest_path = reqwest::Url::parse(uri)
-                    .ok()
-                    .map(|u| {
-                        let mut p = u.path().to_string();
-                        if let Some(q) = u.query() {
-                            p.push('?');
-                            p.push_str(q);
-                        }
-                        p
-                    })
-                    .unwrap_or_else(|| "/ISAPI/ContentMgmt/download".to_string());
-
-                let mut ctx =
-                    digest_auth::AuthContext::new(login.to_string(), pass.to_string(), digest_path);
-                ctx.method = digest_auth::HttpMethod::GET;
-
-                if let Ok(answer) = prompt.respond(&ctx) {
-                    push_runtime_log(
-                        log_state,
-                        format!(
-                            "ISAPI HTTP download got 401, retrying with Digest auth [task:{}]",
-                            task_key
-                        ),
-                    );
-                    resp = send_isapi_http_get_with_retry(
-                        &client,
-                        uri,
-                        login,
-                        pass,
-                        task_key,
-                        log_state,
-                        None,
-                        Some(answer.to_string()),
-                    )
-                    .await?;
-                }
-            }
-        }
-    }
-
-    if !resp.status().is_success() {
-        let code = resp.status().as_u16();
-        let body = resp.text().await.unwrap_or_default();
-        let preview = body
-            .split_whitespace()
-            .take(40)
-            .collect::<Vec<_>>()
-            .join(" ");
-        push_runtime_log(
-            log_state,
-            format!(
-                "ISAPI HTTP initial GET failed: status={} preview='{}' [task:{}]",
-                code, preview, task_key
-            ),
-        );
-
-        if code == 400
-            && preview.to_ascii_lowercase().contains("badxmlcontent")
-            && uri.contains("/ISAPI/ContentMgmt/download?playbackURI=")
-        {
-            if let Ok(url) = reqwest::Url::parse(uri) {
-                if let Some(encoded_playback_uri) = url
-                    .query_pairs()
-                    .find(|(k, _)| k.eq_ignore_ascii_case("playbackURI"))
-                    .map(|(_, v)| v.into_owned())
-                {
-                    let endpoint = format!(
-                        "{}://{}:{}/ISAPI/ContentMgmt/download",
-                        url.scheme(),
-                        url.host_str().unwrap_or_default(),
-                        url.port_or_known_default().unwrap_or(80)
-                    );
-                    push_runtime_log(
-                        log_state,
-                        format!(
-                            "ISAPI HTTP GET fallback returned badXmlContent, trying POST XML download [task:{}]",
-                            task_key
-                        ),
-                    );
-                    match try_isapi_download_post_xml(
-                        &client,
-                        &endpoint,
-                        &encoded_playback_uri,
-                        login,
-                        pass,
-                        task_key,
-                        log_state,
-                    )
-                    .await
-                    {
-                        Ok(post_resp) => {
-                            resp = post_resp;
-                        }
-                        Err(post_err) => {
-                            push_runtime_log(
-                                log_state,
-                                format!("ISAPI_HTTP_SLOT_RELEASED|{}", task_key),
-                            );
-                            return Err(format!(
-                                "ISAPI download failed with HTTP {} preview='{}'; POST fallback failed: {}",
-                                code, preview, post_err
-                            ));
-                        }
-                    }
-                } else {
-                    push_runtime_log(log_state, format!("ISAPI_HTTP_SLOT_RELEASED|{}", task_key));
-                    return Err(format!(
-                        "ISAPI download failed with HTTP {} preview='{}'",
-                        code, preview
-                    ));
-                }
-            } else {
-                push_runtime_log(log_state, format!("ISAPI_HTTP_SLOT_RELEASED|{}", task_key));
-                return Err(format!(
-                    "ISAPI download failed with HTTP {} preview='{}'",
-                    code, preview
-                ));
-            }
-        } else {
-            return Err(format!(
-                "ISAPI download failed with HTTP {} preview='{}'",
-                code, preview
-            ));
-        }
-    }
-
-    let total_size = resp.content_length().unwrap_or(0);
 
     let mut filename = filename_hint
         .map(|s| sanitize_filename_component(&s))
@@ -4757,11 +4587,30 @@ async fn download_isapi_via_http(
         filename.push_str(".mp4");
     }
 
-    let path = get_vault_path()
-        .join("archives")
-        .join("isapi")
-        .join(&filename);
+    let path = get_vault_path().join("archives").join("isapi").join(&filename);
     let _ = std::fs::create_dir_all(path.parent().unwrap());
+
+    let parsed_uri = reqwest::Url::parse(uri).map_err(|e| e.to_string())?;
+    let host = parsed_uri
+        .host_str()
+        .ok_or_else(|| "ISAPI URI без host".to_string())?;
+    let port = parsed_uri.port_or_known_default().unwrap_or(80);
+
+    let mut request_url = reqwest::Url::parse(&format!(
+        "http://{}:{}/ISAPI/ContentMgmt/download",
+        host, port
+    ))
+    .map_err(|e| e.to_string())?;
+
+    let clean_uri = uri.replace("&amp;", "&");
+    request_url
+        .query_pairs_mut()
+        .append_pair("playbackURI", &clean_uri);
+
+    let mut current_offset = 0u64;
+    let mut total_size = 0u64;
+    let mut retries = 0u8;
+    let mut digest_cache: Option<String> = None;
 
     let mut file = OpenOptions::new()
         .create(true)
@@ -4770,360 +4619,139 @@ async fn download_isapi_via_http(
         .open(&path)
         .map_err(|e| e.to_string())?;
 
-    let mut bytes_written: u64 = 0;
-    let mut total_size = total_size;
     let progress_step = 2 * 1024 * 1024u64;
-    let mut next_progress_mark = progress_step;
-    let mut resume_attempts: u8 = 0;
-    let max_resume_attempts: u8 = 4;
-    let mut full_restart_attempts: u8 = 0;
-    let max_full_restart_attempts: u8 = 2;
+    let mut next_mark = progress_step;
 
-    'download_stream: loop {
-        let mut stream = resp.bytes_stream();
-        let mut stream_error: Option<String> = None;
-
-        while let Some(chunk) = stream.next().await {
-            if cancel_state
-                .cancelled_tasks
-                .lock()
-                .map(|set| set.contains(task_key))
-                .unwrap_or(false)
-            {
-                let _ = std::fs::remove_file(&path);
-                drop(http_slot);
-                push_runtime_log(log_state, format!("ISAPI_HTTP_SLOT_RELEASED|{}", task_key));
-
-                if let Ok(mut cancelled) = cancel_state.cancelled_tasks.lock() {
-                    cancelled.remove(task_key);
-                }
-                push_runtime_log(
-                    log_state,
-                    format!("DOWNLOAD_CANCELLED|{}|{}", task_key, filename),
-                );
-                push_runtime_log(log_state, format!("ISAPI_HTTP_SLOT_RELEASED|{}", task_key));
-                return Err(format!(
-                    "Загрузка отменена пользователем [task:{}]",
-                    task_key
-                ));
-            }
-
-            match chunk {
-                Ok(data) => {
-                    std::io::Write::write_all(&mut file, &data).map_err(|e| e.to_string())?;
-                    bytes_written += data.len() as u64;
-
-                    if bytes_written >= next_progress_mark {
-                        push_runtime_log(
-                            log_state,
-                            format!(
-                                "DOWNLOAD_PROGRESS|{}|{}|{}",
-                                task_key,
-                                bytes_written,
-                                total_size.max(bytes_written)
-                            ),
-                        );
-                        next_progress_mark += progress_step;
-                    }
-                }
-                Err(e) => {
-                    stream_error = Some(e.to_string());
-                    break;
-                }
-            }
+    loop {
+        if cancel_state
+            .cancelled_tasks
+            .lock()
+            .map(|set| set.contains(task_key))
+            .unwrap_or(false)
+        {
+            let _ = std::fs::remove_file(&path);
+            return Err("Отменено".into());
         }
 
-        if let Some(err_text) = stream_error {
-            let err_lc = err_text.to_ascii_lowercase();
-            let resumable = (err_lc.contains("end of file before message length reached")
-                || err_lc.contains("error reading a body from connection")
-                || err_lc.contains("connection closed before message completed")
-                || err_lc.contains("operation timed out")
-                || err_lc.contains("deadline has elapsed"))
-                && bytes_written > 0
-                && (total_size == 0 || bytes_written < total_size)
-                && resume_attempts < max_resume_attempts;
+        let mut req = client.get(request_url.clone());
 
-            if resumable {
-                resume_attempts += 1;
-                push_runtime_log(
-                    log_state,
-                    format!(
-                        "ISAPI HTTP stream interrupted at {} bytes, trying resume {}/{} [task:{}]",
-                        bytes_written, resume_attempts, max_resume_attempts, task_key
-                    ),
+        if current_offset > 0 {
+            req = req.header("Range", format!("bytes={}-", current_offset));
+        }
+
+        if let Some(ref auth) = digest_cache {
+            if let Ok(mut prompt) = digest_auth::parse(auth) {
+                let mut ctx = digest_auth::AuthContext::new(
+                    login.to_string(),
+                    pass.to_string(),
+                    request_url.path().to_string(),
                 );
+                ctx.method = digest_auth::HttpMethod::GET;
+                if let Ok(answer) = prompt.respond(&ctx) {
+                    req = req.header("Authorization", answer.to_string());
+                }
+            }
+        } else {
+            req = req.basic_auth(login, Some(pass));
+        }
 
-                let mut resume_resp = send_isapi_http_get_with_retry(
-                    &client,
-                    uri,
-                    login,
-                    pass,
-                    task_key,
-                    log_state,
-                    Some(bytes_written),
-                    None,
-                )
-                .await?;
+        match req.send().await {
+            Ok(resp) => {
+                let status = resp.status().as_u16();
 
-                if resume_resp.status().as_u16() == 401 {
-                    let www_auth = resume_resp
+                if status == 401 && digest_cache.is_none() {
+                    if let Some(auth) = resp
                         .headers()
-                        .get(reqwest::header::WWW_AUTHENTICATE)
+                        .get("WWW-Authenticate")
                         .and_then(|h| h.to_str().ok())
-                        .map(|s| s.to_string());
+                    {
+                        digest_cache = Some(auth.to_string());
+                        continue;
+                    }
+                }
 
-                    if let Some(www_auth) = www_auth {
-                        if let Ok(mut prompt) = digest_auth::parse(&www_auth) {
-                            let digest_path = reqwest::Url::parse(uri)
-                                .ok()
-                                .map(|u| {
-                                    let mut p = u.path().to_string();
-                                    if let Some(q) = u.query() {
-                                        p.push('?');
-                                        p.push_str(q);
-                                    }
-                                    p
-                                })
-                                .unwrap_or_else(|| "/ISAPI/ContentMgmt/download".to_string());
+                if !resp.status().is_success() {
+                    if retries > 3 {
+                        return Err(format!("NVR error HTTP {}", status));
+                    }
+                    retries += 1;
+                    tokio::time::sleep(Duration::from_secs(3)).await;
+                    continue;
+                }
 
-                            let mut ctx = digest_auth::AuthContext::new(
-                                login.to_string(),
-                                pass.to_string(),
-                                digest_path,
-                            );
-                            ctx.method = digest_auth::HttpMethod::GET;
+                retries = 0;
+                if total_size == 0 {
+                    total_size = resp.content_length().unwrap_or(0) + current_offset;
+                }
 
-                            if let Ok(answer) = prompt.respond(&ctx) {
-                                resume_resp = send_isapi_http_get_with_retry(
-                                    &client,
-                                    uri,
-                                    login,
-                                    pass,
-                                    task_key,
+                let mut stream = resp.bytes_stream();
+                while let Some(chunk) = stream.next().await {
+                    if cancel_state
+                        .cancelled_tasks
+                        .lock()
+                        .map(|set| set.contains(task_key))
+                        .unwrap_or(false)
+                    {
+                        let _ = std::fs::remove_file(&path);
+                        return Err("Отменено".into());
+                    }
+
+                    match chunk {
+                        Ok(data) => {
+                            std::io::Write::write_all(&mut file, &data)
+                                .map_err(|e| e.to_string())?;
+                            current_offset += data.len() as u64;
+
+                            if current_offset >= next_mark {
+                                push_runtime_log(
                                     log_state,
-                                    Some(bytes_written),
-                                    Some(answer.to_string()),
-                                )
-                                .await?;
+                                    format!(
+                                        "DOWNLOAD_PROGRESS|{}|{}|{}",
+                                        task_key,
+                                        current_offset,
+                                        total_size.max(current_offset)
+                                    ),
+                                );
+                                next_mark = current_offset + progress_step;
                             }
+                        }
+                        Err(_) => {
+                            break;
                         }
                     }
                 }
 
-                let status = resume_resp.status().as_u16();
-                if status != 206 && status != 200 {
-                    if status == 400 && full_restart_attempts < max_full_restart_attempts {
-                        full_restart_attempts += 1;
-                        resume_attempts = 0;
-                        push_runtime_log(
-                            log_state,
-                            format!(
-                                "ISAPI resume got HTTP 400 at {} bytes; trying full restart {}/{} on same endpoint [task:{}]",
-                                bytes_written,
-                                full_restart_attempts,
-                                max_full_restart_attempts,
-                                task_key
-                            ),
-                        );
-                        file.set_len(0).map_err(|e| e.to_string())?;
-                        std::io::Seek::seek(&mut file, std::io::SeekFrom::Start(0))
-                            .map_err(|e| e.to_string())?;
-                        bytes_written = 0;
-                        total_size = 0;
-                        next_progress_mark = progress_step;
-                        resp = send_isapi_http_get_with_retry(
-                            &client,
-                            uri,
-                            login,
-                            pass,
-                            task_key,
-                            log_state,
-                            None,
-                            None,
-                        )
-                        .await?;
-                        continue 'download_stream;
-                    }
-                    return Err(format!(
-                        "ISAPI download resume failed at {} bytes with HTTP {}",
-                        bytes_written, status
-                    ));
-                }
-
-                if status == 200 && bytes_written > 0 {
-                    push_runtime_log(
-                        log_state,
-                        format!(
-                            "ISAPI resume server ignored Range (HTTP 200), restarting from zero [task:{}]",
-                            task_key
-                        ),
-                    );
-                    file.set_len(0).map_err(|e| e.to_string())?;
-                    std::io::Seek::seek(&mut file, std::io::SeekFrom::Start(0))
-                        .map_err(|e| e.to_string())?;
-                    bytes_written = 0;
-                    next_progress_mark = progress_step;
-                } else if total_size == 0 {
-                    total_size =
-                        bytes_written.saturating_add(resume_resp.content_length().unwrap_or(0));
-                }
-
-                resp = resume_resp;
-                continue 'download_stream;
-            }
-
-            if total_size > 0 {
-                let ratio = (bytes_written as f64) / (total_size as f64);
-                if ratio >= 0.95 {
-                    push_runtime_log(
-                        log_state,
-                        format!(
-                            "ISAPI HTTP stream ended with error after {:.1}% ({} / {} bytes), accepting as near-complete [task:{}]",
-                            ratio * 100.0,
-                            bytes_written,
-                            total_size,
-                            task_key
-                        ),
-                    );
+                if current_offset >= total_size && total_size > 0 {
                     break;
                 }
             }
-
-            push_runtime_log(log_state, format!("ISAPI_HTTP_SLOT_RELEASED|{}", task_key));
-            return Err(format!(
-                "ISAPI HTTP stream failed after {} bytes: {}",
-                bytes_written, err_text
-            ));
-        }
-
-        break;
-    }
-
-    let expected_total = expected_size_hint.or_else(|| {
-        if total_size > 0 {
-            Some(total_size)
-        } else {
-            None
-        }
-    });
-    if let Some(expected) = expected_total {
-        if expected > 0 {
-            let min_reasonable = if expected < 20 * 1024 * 1024 {
-                expected / 2
-            } else {
-                (expected / 100).max(1024 * 1024)
-            };
-            if bytes_written < min_reasonable {
-                push_runtime_log(
-                    log_state,
-                    format!(
-                        "ISAPI download rejected as too small: got {} bytes, expected ~{} (threshold {}) [task:{}]",
-                        bytes_written, expected, min_reasonable, task_key
-                    ),
-                );
-                push_runtime_log(log_state, format!("ISAPI_HTTP_SLOT_RELEASED|{}", task_key));
-                return Err(format!(
-                    "ISAPI download too small: {} bytes (expected around {})",
-                    bytes_written, expected
-                ));
+            Err(e) => {
+                if retries > 3 {
+                    return Err(format!("Connection failed: {}", e));
+                }
+                retries += 1;
+                tokio::time::sleep(Duration::from_secs(3)).await;
             }
         }
     }
 
-    let duration_ms = started.elapsed().as_millis();
     push_runtime_log(
         log_state,
-        format!(
-            "ISAPI download finished: {} ({} bytes, {} ms) [task:{}]",
-            filename, bytes_written, duration_ms, task_key
-        ),
+        format!("ISAPI HTTP download finished: {} bytes", current_offset),
     );
 
-    if let Ok(mut cancelled) = cancel_state.cancelled_tasks.lock() {
-        cancelled.remove(task_key);
-    }
-
     Ok(DownloadReport {
-        server_alias: "isapi".into(),
+        server_alias: "isapi_http".into(),
         filename,
         save_path: path.to_string_lossy().to_string(),
-        bytes_written,
-        total_bytes: total_size.max(bytes_written),
-        duration_ms,
+        bytes_written: current_offset,
+        total_bytes: total_size.max(current_offset),
+        duration_ms: started.elapsed().as_millis(),
         resumed: false,
         skipped_as_complete: false,
     })
 }
 
-#[tauri::command]
-fn get_implementation_status() -> Result<ImplementationStatus, String> {
-    let items = vec![
-        RoadmapItem {
-            name: "Vault encryption + sled storage".into(),
-            status: "completed".into(),
-        },
-        RoadmapItem {
-            name: "Live stream engine (RTSP/MJPEG -> HLS)".into(),
-            status: "completed".into(),
-        },
-        RoadmapItem {
-            name: "Hub/Shodan/Videodvor discovery".into(),
-            status: "completed".into(),
-        },
-        RoadmapItem {
-            name: "FTP resilience (banner/retry/resume)".into(),
-            status: "completed".into(),
-        },
-        RoadmapItem {
-            name: "Automatic host service/port scanner".into(),
-            status: "completed".into(),
-        },
-        RoadmapItem {
-            name: "ISAPI/ONVIF archive extraction".into(),
-            status: "completed".into(),
-        },
-        RoadmapItem {
-            name: "Download manager UX (queue/cancel/persist)".into(),
-            status: "completed".into(),
-        },
-        RoadmapItem {
-            name: "Map filtering for >100 targets".into(),
-            status: "completed".into(),
-        },
-        RoadmapItem {
-            name: "Embedded runtime logs terminal".into(),
-            status: "completed".into(),
-        },
-    ];
-
-    let total = items.len();
-    let completed = items.iter().filter(|i| i.status == "completed").count();
-    let in_progress = items.iter().filter(|i| i.status == "in_progress").count();
-    let pending = items.iter().filter(|i| i.status == "pending").count();
-
-    Ok(ImplementationStatus {
-        total,
-        completed,
-        in_progress,
-        pending,
-        left: total.saturating_sub(completed),
-        items,
-    })
-}
-
-// 1. ВСТАВЛЯЕШЬ ФУНКЦИИ ЗДЕСЬ (до функции main)
-
-// =============================================================================
-// УНИВЕРСАЛЬНАЯ ВЫГРУЗКА АРХИВА (замена мёртвому FTP)
-// =============================================================================
-
-/// Захват архивного сегмента через FFmpeg (RTSP/HTTP/MJPEG → MP4)
-/// Работает для любого источника, который FFmpeg может открыть:
-///  - RTSP: rtsp://login:pass@host/Streaming/tracks/101?starttime=...
-///  - HTTP: http://host/ISAPI/ContentMgmt/download?playbackURI=...
-///  - HUB:  https://videodvor.by/stream/rtsp2mjpeg.php?...
-#[tauri::command]
 async fn capture_archive_segment(
     source_url: String,
     filename_hint: Option<String>,
