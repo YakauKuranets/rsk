@@ -384,7 +384,14 @@ export default function NemesisArchiveTerminal({ target, onClose }) {
       const captureDurationSeconds = getIsapiCaptureDurationSeconds(item);
       const captureHint = getIsapiFilenameHint(normalizedUri, `capture_${Date.now()}.mp4`);
       log(`ℹ capture policy: duration=${captureDurationSeconds}s file=${captureHint}`, 'sys');
-      const r = await invoke('capture_archive_segment', { sourceUrl: normalizedUri, filenameHint: captureHint, durationSeconds: captureDurationSeconds, taskId: `cap_${Date.now()}` });
+      const r = await invoke('capture_archive_segment', {
+        sourceUrl: normalizedUri,
+        filenameHint: captureHint,
+        durationSeconds: captureDurationSeconds,
+        taskId: `cap_${Date.now()}`,
+        login: target.login || 'admin',
+        pass: target.password || '',
+      });
       if (k) updateDownloadStatus(k, 'done');
       log(`✅ ${r.filename} (${(r.bytesWritten/1048576).toFixed(1)} MB)`, 'ok');
       return true;

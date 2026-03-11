@@ -839,14 +839,6 @@ fn start_stream(
 
     let cache = get_vault_path().join("hls_cache").join(&target_id);
     std::fs::create_dir_all(&cache).map_err(|e| e.to_string())?;
-    cleanup_hls_cache(&cache);
-
-    let playlist = cache.join("stream.m3u8");
-    push_runtime_log(
-        &log_state,
-        format!("HLS target: {}", playlist.to_string_lossy()),
-    );
-    push_runtime_log(&log_state, format!("RTSP source: {}", rtsp_url));
 
     {
         let mut streams = state.active_streams.lock().unwrap();
@@ -856,15 +848,34 @@ fn start_stream(
         }
     }
 
+    // В Linux сначала гарантированно останавливаем старый ffmpeg,
+    // затем чистим HLS-кэш, чтобы не оставались блокировки/хвосты файлов.
+    cleanup_hls_cache(&cache);
+
+    let playlist = cache.join("stream.m3u8");
+    push_runtime_log(
+        &log_state,
+        format!("HLS target: {}", playlist.to_string_lossy()),
+    );
+    push_runtime_log(&log_state, format!("RTSP source: {}", rtsp_url));
+
     let mut child = Command::new("ffmpeg")
         .args([
             "-y",
             "-rtsp_transport",
             "tcp",
             "-stimeout",
-            "10000000",
+            "15000000",
             "-rw_timeout",
-            "10000000",
+            "15000000",
+            "-reconnect",
+            "1",
+            "-reconnect_at_eof",
+            "1",
+            "-reconnect_streamed",
+            "1",
+            "-reconnect_delay_max",
+            "5",
             "-fflags",
             "+genpts",
             "-i",
@@ -4107,6 +4118,8 @@ async fn start_archive_export_job(
         fallback_duration,
         None,
         Some(task_key.clone()),
+        Some(login.clone()),
+        Some(pass.clone()),
         log_state.clone(),
         cancel_state.clone(),
         ffmpeg_limiter.clone(),
@@ -5120,6 +5133,8 @@ async fn capture_archive_segment(
     duration_seconds: Option<u64>,
     extra_headers: Option<String>,
     task_id: Option<String>,
+    login: Option<String>,
+    pass: Option<String>,
     log_state: State<'_, LogState>,
     cancel_state: State<'_, DownloadCancelState>,
     ffmpeg_limiter: State<'_, FfmpegLimiterState>,
@@ -5168,21 +5183,38 @@ async fn capture_archive_segment(
         ),
     );
 
+    let source_lc = source_url.to_lowercase();
+    let final_url = if source_lc.starts_with("rtsp://") {
+        match (login.as_deref(), pass.as_deref()) {
+            (Some(l), Some(p)) if !l.trim().is_empty() => inject_rtsp_credentials(&source_url, l, p),
+            _ => source_url.clone(),
+        }
+    } else {
+        source_url.clone()
+    };
+
+    push_runtime_log(
+        &log_state,
+        format!(
+            "FFmpeg capture URL: {}",
+            final_url.chars().take(120).collect::<String>()
+        ),
+    );
+
     let output_path = path.to_string_lossy().to_string();
 
     // Собираем аргументы FFmpeg
     let mut args: Vec<String> = Vec::new();
 
     // Если RTSP — добавляем транспорт
-    let source_lc = source_url.to_lowercase();
     if source_lc.starts_with("rtsp://") {
         args.extend_from_slice(&[
             "-rtsp_transport".into(),
             "tcp".into(),
             "-stimeout".into(),
-            "10000000".into(),
+            "15000000".into(),
             "-rw_timeout".into(),
-            "10000000".into(),
+            "15000000".into(),
         ]);
     }
 
@@ -5207,7 +5239,7 @@ async fn capture_archive_segment(
     }
 
     // Ввод
-    args.extend_from_slice(&["-y".into(), "-i".into(), source_url.clone()]);
+    args.extend_from_slice(&["-y".into(), "-i".into(), final_url]);
 
     // Лимит по времени
     args.extend_from_slice(&["-t".into(), duration.to_string()]);

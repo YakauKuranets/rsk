@@ -711,6 +711,8 @@ export default function App() {
   const handleCaptureArchive = async (sourceUrl, filenameHint, durationSec = 60, extraHeaders = null) => {
     const taskId = `capture_${Date.now()}`;
     const displayName = filenameHint || sourceUrl.split('/').pop() || 'capture.mp4';
+    const currentLogin = isapiSearchAuth.login || streamTerminal?.login || 'admin';
+    const currentPass = isapiSearchAuth.pass || streamTerminal?.password || '';
 
     setDownloadTasks(prev => ([
       {
@@ -734,6 +736,8 @@ export default function App() {
         durationSeconds: durationSec,
         extraHeaders,
         taskId,
+        login: currentLogin,
+        pass: currentPass,
       });
 
       const durationMs = Math.max((report.durationMs || 0) / 1000, 0.001);
