@@ -3889,181 +3889,209 @@ async fn download_isapi_playback_uri(
     playback_uri: String,
     login: String,
     pass: String,
-    source_host: Option<String>,
+    _source_host: Option<String>,
     filename_hint: Option<String>,
     task_id: Option<String>,
     log_state: State<'_, LogState>,
     cancel_state: State<'_, DownloadCancelState>,
-    ffmpeg_limiter: State<'_, FfmpegLimiterState>,
+    _ffmpeg_limiter: State<'_, FfmpegLimiterState>,
 ) -> Result<DownloadReport, String> {
     if playback_uri.trim().is_empty() {
         return Err("Пустой playback_uri".into());
     }
 
-    // === НОРМАЛИЗАЦИЯ URI ===
-    // Камера может вернуть XML-экранированные символы: &amp; → &
-    let uri = playback_uri.replace("&amp;", "&");
-
     let task_key = make_unique_task_key(task_id, "isapi");
+    let started = std::time::Instant::now();
+
+    if let Ok(mut cancelled) = cancel_state.cancelled_tasks.lock() {
+        cancelled.remove(&task_key);
+    }
+
+    let mut filename = filename_hint
+        .map(|s| sanitize_filename_component(&s))
+        .filter(|s| !s.is_empty())
+        .unwrap_or_else(|| format!("isapi_record_{}.mp4", Utc::now().timestamp()));
+    if !filename.contains('.') {
+        filename.push_str(".mp4");
+    }
+
+    let path = get_vault_path().join("archives").join("isapi").join(&filename);
+    let _ = std::fs::create_dir_all(path.parent().unwrap());
+
     push_runtime_log(
         &log_state,
-        format!("ISAPI download requested: {} [task:{}]", uri, task_key),
+        format!("ISAPI SMART GET: {} [task:{}]", filename, task_key),
+    );
+
+    let client = reqwest::Client::builder()
+        .timeout(Duration::from_secs(60))
+        .danger_accept_invalid_certs(true)
+        .user_agent("Mozilla/5.0 (X11; Linux x86_64; rv:140.0) Gecko/20100101 Firefox/140.0")
+        .build()
+        .map_err(|e| e.to_string())?;
+
+    let parsed = reqwest::Url::parse(&playback_uri).map_err(|e| format!("Bad URI: {}", e))?;
+    let host = parsed
+        .host_str()
+        .ok_or_else(|| "Bad URI: empty host".to_string())?;
+    let port = parsed.port_or_known_default().unwrap_or(80);
+
+    let mut request_url = reqwest::Url::parse(&format!(
+        "http://{}:{}/ISAPI/ContentMgmt/download",
+        host, port
+    ))
+    .map_err(|e| e.to_string())?;
+
+    let clean_uri = playback_uri.replace("&amp;", "&");
+    request_url
+        .query_pairs_mut()
+        .append_pair("playbackURI", &clean_uri);
+
+    let mut current_offset = 0u64;
+    let mut total_size = 0u64;
+    let mut retries: u8 = 0;
+    let mut digest_cache: Option<String> = None;
+
+    let mut file = OpenOptions::new()
+        .create(true)
+        .write(true)
+        .truncate(true)
+        .open(&path)
+        .map_err(|e| e.to_string())?;
+
+    let progress_step = 2 * 1024 * 1024u64;
+    let mut next_mark = progress_step;
+
+    loop {
+        if cancel_state
+            .cancelled_tasks
+            .lock()
+            .map(|set| set.contains(&task_key))
+            .unwrap_or(false)
+        {
+            let _ = std::fs::remove_file(&path);
+            return Err("Отменено".into());
+        }
+
+        let mut req = client.get(request_url.clone());
+
+        if current_offset > 0 {
+            req = req.header("Range", format!("bytes={}-", current_offset));
+        }
+
+        if let Some(ref auth) = digest_cache {
+            if let Ok(mut prompt) = digest_auth::parse(auth) {
+                let mut ctx = digest_auth::AuthContext::new(
+                    login.clone(),
+                    pass.clone(),
+                    request_url.path().to_string(),
+                );
+                ctx.method = digest_auth::HttpMethod::GET;
+                if let Ok(answer) = prompt.respond(&ctx) {
+                    req = req.header("Authorization", answer.to_string());
+                }
+            }
+        } else {
+            req = req.basic_auth(&login, Some(&pass));
+        }
+
+        match req.send().await {
+            Ok(resp) => {
+                let status = resp.status().as_u16();
+
+                if status == 401 && digest_cache.is_none() {
+                    if let Some(auth) = resp
+                        .headers()
+                        .get("WWW-Authenticate")
+                        .and_then(|h| h.to_str().ok())
+                    {
+                        digest_cache = Some(auth.to_string());
+                        continue;
+                    }
+                }
+
+                if !resp.status().is_success() {
+                    if retries > 3 {
+                        return Err(format!("NVR HTTP Error {}", status));
+                    }
+                    retries += 1;
+                    tokio::time::sleep(Duration::from_secs(3)).await;
+                    continue;
+                }
+
+                retries = 0;
+                if total_size == 0 {
+                    total_size = resp.content_length().unwrap_or(0) + current_offset;
+                }
+
+                let mut stream = resp.bytes_stream();
+                while let Some(chunk) = stream.next().await {
+                    if cancel_state
+                        .cancelled_tasks
+                        .lock()
+                        .map(|set| set.contains(&task_key))
+                        .unwrap_or(false)
+                    {
+                        let _ = std::fs::remove_file(&path);
+                        return Err("Отменено".into());
+                    }
+
+                    if let Ok(data) = chunk {
+                        std::io::Write::write_all(&mut file, &data).map_err(|e| e.to_string())?;
+                        current_offset += data.len() as u64;
+
+                        if current_offset >= next_mark {
+                            push_runtime_log(
+                                &log_state,
+                                format!(
+                                    "DOWNLOAD_PROGRESS|{}|{}|{}",
+                                    task_key,
+                                    current_offset,
+                                    total_size.max(current_offset)
+                                ),
+                            );
+                            next_mark = current_offset + progress_step;
+                        }
+                    } else {
+                        break;
+                    }
+                }
+
+                if current_offset >= total_size && total_size > 0 {
+                    break;
+                }
+            }
+            Err(e) => {
+                if retries > 3 {
+                    return Err(format!("Сбой сети: {}", e));
+                }
+                retries += 1;
+                tokio::time::sleep(Duration::from_secs(3)).await;
+            }
+        }
+    }
+
+    push_runtime_log(
+        &log_state,
+        format!("ISAPI DOWNLOAD FINISHED: {} bytes", current_offset),
     );
 
     if let Ok(mut cancelled) = cancel_state.cancelled_tasks.lock() {
         cancelled.remove(&task_key);
     }
 
-    // === TRANSPORT RESOLVER ===
-    // Определяем тип транспорта по схеме URI
-    let uri_lc = uri.to_lowercase();
-
-    if uri_lc.starts_with("rtsp://") || uri_lc.starts_with("rtsps://") {
-        // === ВЕТКА RTSP: FFmpeg capture ===
-        push_runtime_log(
-            &log_state,
-            format!(
-                "ISAPI transport: RTSP detected → FFmpeg capture [task:{}]",
-                task_key
-            ),
-        );
-        let rtsp_result = download_isapi_via_rtsp(
-            &uri,
-            &login,
-            &pass,
-            filename_hint.clone(),
-            &task_key,
-            &log_state,
-            &cancel_state,
-            &ffmpeg_limiter,
-        )
-        .await;
-
-        if let Ok(report) = rtsp_result {
-            return Ok(report);
-        }
-
-        let rtsp_error = rtsp_result
-            .err()
-            .unwrap_or_else(|| "RTSP capture failed with unknown error".into());
-        push_runtime_log(
-            &log_state,
-            format!(
-                "ISAPI RTSP capture failed, trying HTTP download endpoint fallback [task:{}]",
-                task_key
-            ),
-        );
-
-        let source_host_effective = source_host
-            .as_deref()
-            .map(str::trim)
-            .filter(|s| !s.is_empty())
-            .map(str::to_string)
-            .or_else(|| extract_host_hint_from_filename_hint(filename_hint.as_deref()));
-
-        let http_fallbacks =
-            build_isapi_download_endpoints_from_rtsp(&uri, source_host_effective.as_deref());
-        if let Some(first) = http_fallbacks.first() {
-            push_runtime_log(
-                &log_state,
-                format!(
-                    "ISAPI fallback endpoints prepared (count={} first={}) [task:{}]",
-                    http_fallbacks.len(),
-                    first,
-                    task_key
-                ),
-            );
-        }
-        let mut http_errors: Vec<String> = Vec::new();
-
-        for http_download_uri in http_fallbacks {
-            match download_isapi_via_http(
-                &http_download_uri,
-                &login,
-                &pass,
-                filename_hint.clone(),
-                &task_key,
-                &log_state,
-                &cancel_state,
-            )
-            .await
-            {
-                Ok(report) => {
-                    push_runtime_log(
-                        &log_state,
-                        format!(
-                            "ISAPI fallback succeeded via {} [task:{}]",
-                            http_download_uri, task_key
-                        ),
-                    );
-                    return Ok(report);
-                }
-                Err(http_err) => {
-                    push_runtime_log(
-                        &log_state,
-                        format!(
-                            "ISAPI fallback via {} failed: {} [task:{}]",
-                            http_download_uri, http_err, task_key
-                        ),
-                    );
-                    http_errors.push(format!("{} -> {}", http_download_uri, http_err));
-                }
-            }
-        }
-
-        if http_errors.is_empty() {
-            return Err(rtsp_error);
-        }
-        return Err(format!(
-            "RTSP capture failed: {} ; HTTP fallbacks failed: {}",
-            rtsp_error,
-            http_errors.join(" || ")
-        ));
-    }
-
-    if uri_lc.starts_with("http://") || uri_lc.starts_with("https://") {
-        // === ВЕТКА HTTP: reqwest download ===
-        push_runtime_log(
-            &log_state,
-            format!(
-                "ISAPI transport: HTTP detected → reqwest download [task:{}]",
-                task_key
-            ),
-        );
-        return download_isapi_via_http(
-            &uri,
-            &login,
-            &pass,
-            filename_hint,
-            &task_key,
-            &log_state,
-            &cancel_state,
-        )
-        .await;
-    }
-
-    // === ВЕТКА UNKNOWN ===
-    // Если URI не распознан — попробуем через FFmpeg (он поддерживает много протоколов)
-    push_runtime_log(
-        &log_state,
-        format!(
-            "ISAPI transport: unknown scheme '{}' → trying FFmpeg [task:{}]",
-            uri.chars().take(30).collect::<String>(),
-            task_key
-        ),
-    );
-    download_isapi_via_rtsp(
-        &uri,
-        &login,
-        &pass,
-        filename_hint,
-        &task_key,
-        &log_state,
-        &cancel_state,
-        &ffmpeg_limiter,
-    )
-    .await
+    Ok(DownloadReport {
+        server_alias: "isapi_http".into(),
+        filename,
+        save_path: path.to_string_lossy().to_string(),
+        bytes_written: current_offset,
+        total_bytes: total_size.max(current_offset),
+        duration_ms: started.elapsed().as_millis(),
+        resumed: false,
+        skipped_as_complete: false,
+    })
 }
+
 
 #[tauri::command]
 async fn start_archive_export_job(
