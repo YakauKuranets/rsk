@@ -237,7 +237,7 @@ export default function NemesisArchiveTerminal({ target, onClose }) {
       setRecords(expanded); setPhase('ready'); setStatusText(`НАЙДЕНО: ${expanded.length}`);
       log(`✅ Результат: ${expanded.length} записей | playable=${playableCount} | downloadable=${downloadableCount} | maxConf=${maxConfidence}`, 'ok');
       if (splitExtra > 0) log(`ℹ Длинные записи автоматически разбиты на 30-мин сегменты (+${splitExtra})`, 'sys');
-      log(`ℹ Выбрано: 0 / ${downloadableCount} downloadable | осталось выбрать: ${downloadableCount}`, 'sys');
+      log(`ℹ Выбрано: 0 / ${playableCount} playable | осталось выбрать: ${playableCount}`, 'sys');
       log('ℹ Шаги: выбери дату/время → Поиск → отметь записи → Загрузка из сети (или CAPTURE).', 'sys');
     } catch (err) {
       setPhase('ready'); setStatusText('\u041e\u0428\u0418\u0411\u041a\u0410'); log(`\u274c ${err}`, 'err');
@@ -245,7 +245,7 @@ export default function NemesisArchiveTerminal({ target, onClose }) {
   };
 
   const logBulkProgressSnapshot = (downloadsState) => {
-    const scopeIndexes = effectiveDownloadIndexes.length ? effectiveDownloadIndexes : downloadableIndexes;
+    const scopeIndexes = effectiveActionIndexes.length ? effectiveActionIndexes : actionableIndexes;
     const inScope = scopeIndexes.length;
     const done = scopeIndexes.filter((i) => downloadsState[`dl_${i}`] === 'done').length;
     const err = scopeIndexes.filter((i) => downloadsState[`dl_${i}`] === 'error').length;
@@ -328,7 +328,10 @@ export default function NemesisArchiveTerminal({ target, onClose }) {
         log(`ℹ BULK STEP ${pos + 1}/${queue.length}: запись #${idx + 1}`, 'sys');
         // Последовательная очередь снижает пиковую нагрузку на NVR/канал.
         // eslint-disable-next-line no-await-in-loop
-        const success = await handleDownload(records[idx], idx);
+        const record = records[idx];
+        const success = isDownloadableRecord(record)
+          ? await handleDownload(record, idx)
+          : await handleCapture(record, idx);
         if (success) okCount += 1; else errCount += 1;
       }
       log(`✅ BULK FINISH: очередь завершена | ok=${okCount} err=${errCount}`, 'ok');
@@ -339,7 +342,7 @@ export default function NemesisArchiveTerminal({ target, onClose }) {
   };
 
   const handleBulkDownload = async () => {
-    const scopeIndexes = [...effectiveDownloadIndexes];
+    const scopeIndexes = [...effectiveActionIndexes];
     const queue = scopeIndexes.filter((idx) => {
       const st = activeDownloads[`dl_${idx}`];
       return st !== 'working' && st !== 'done';
@@ -352,14 +355,14 @@ export default function NemesisArchiveTerminal({ target, onClose }) {
     if (skippedDoneCount > 0) {
       log(`ℹ BULK SKIP: пропущено уже завершённых/активных записей: ${skippedDoneCount}`, 'sys');
     }
-    const summary = await runBulkQueue(queue, hasAnySelection ? 'только выбранные' : 'все downloadable');
+    const summary = await runBulkQueue(queue, hasAnySelection ? 'только выбранные' : 'все playable');
     if (summary?.errCount) {
       log(`ℹ Для повтора ошибок используй ↻ Retry ERR (${summary.errCount})`, 'sys');
     }
   };
 
   const handleRetryErrors = async () => {
-    const errorQueue = effectiveDownloadIndexes.filter((idx) => activeDownloads[`dl_${idx}`] === 'error');
+    const errorQueue = effectiveActionIndexes.filter((idx) => activeDownloads[`dl_${idx}`] === 'error');
     if (!errorQueue.length) {
       log('⚠ Нет ошибочных записей для повтора', 'warn');
       return;
@@ -371,8 +374,10 @@ export default function NemesisArchiveTerminal({ target, onClose }) {
     }
   };
 
-  const handleCapture = async (item) => {
-    log('\ud83c\udfaf \u0417\u0410\u0425\u0412\u0410\u0422 \u0421\u0415\u0413\u041c\u0415\u041d\u0422\u0410...', 'info');
+  const handleCapture = async (item, idx = null) => {
+    const k = idx !== null ? `dl_${idx}` : null;
+    if (k) updateDownloadStatus(k, 'working');
+    log('🎯 ЗАХВАТ СЕГМЕНТА...', 'info');
     try {
       const normalizedUri = normalizePlaybackUri(item.playbackUri);
       if (!normalizedUri) throw new Error('Некорректный playback URI для capture');
@@ -380,34 +385,41 @@ export default function NemesisArchiveTerminal({ target, onClose }) {
       const captureHint = getIsapiFilenameHint(normalizedUri, `capture_${Date.now()}.mp4`);
       log(`ℹ capture policy: duration=${captureDurationSeconds}s file=${captureHint}`, 'sys');
       const r = await invoke('capture_archive_segment', { sourceUrl: normalizedUri, filenameHint: captureHint, durationSeconds: captureDurationSeconds, taskId: `cap_${Date.now()}` });
-      log(`\u2705 ${r.filename} (${(r.bytesWritten/1048576).toFixed(1)} MB)`, 'ok');
-    } catch (e) { log(`\u274c ${e}`, 'err'); }
+      if (k) updateDownloadStatus(k, 'done');
+      log(`✅ ${r.filename} (${(r.bytesWritten/1048576).toFixed(1)} MB)`, 'ok');
+      return true;
+    } catch (e) {
+      if (k) updateDownloadStatus(k, 'error');
+      log(`❌ ${e}`, 'err');
+      return false;
+    }
   };
+
 
   const chOpts = target.channels?.length
     ? target.channels.map(c => ({ v: String(c.index ?? c.id ?? '101'), l: c.name||`\u041a\u0430\u043d\u0430\u043b ${c.index ?? c.id}` }))
     : [{v:'101',l:'[A1] pod 1'},{v:'201',l:'[A2] pod 2'},{v:'301',l:'[A3] pod 3'},{v:'401',l:'[A4] pod 4'}];
 
   const pc = phase==='ready'?'#00ff9c':phase==='scanning'?'#00f0ff':phase==='error'?'#ff003c':'#ff9900';
-  const downloadableIndexes = records
-    .map((record, index) => (isDownloadableRecord(record) ? index : -1))
+  const actionableIndexes = records
+    .map((record, index) => (isPlayableRecord(record) ? index : -1))
     .filter((index) => index >= 0);
-  const selectedDownloadableIndexes = downloadableIndexes.filter((idx) => Boolean(selectedIndexes[idx]));
-  const hasAnySelection = selectedDownloadableIndexes.length > 0;
-  const effectiveDownloadIndexes = hasAnySelection ? selectedDownloadableIndexes : downloadableIndexes;
-  const areAllDownloadableSelected = downloadableIndexes.length > 0 && selectedDownloadableIndexes.length === downloadableIndexes.length;
-  const remainingDownloadableCount = Math.max(downloadableIndexes.length - selectedDownloadableIndexes.length, 0);
-  const bulkModeLabel = hasAnySelection ? 'режим: только выбранные' : 'режим: все downloadable';
-  const downloadedInScopeCount = effectiveDownloadIndexes.filter((idx) => activeDownloads[`dl_${idx}`] === 'done').length;
-  const failedInScopeCount = effectiveDownloadIndexes.filter((idx) => activeDownloads[`dl_${idx}`] === 'error').length;
-  const workingInScopeCount = effectiveDownloadIndexes.filter((idx) => activeDownloads[`dl_${idx}`] === 'working').length;
+  const selectedActionableIndexes = actionableIndexes.filter((idx) => Boolean(selectedIndexes[idx]));
+  const hasAnySelection = selectedActionableIndexes.length > 0;
+  const effectiveActionIndexes = hasAnySelection ? selectedActionableIndexes : actionableIndexes;
+  const areAllActionableSelected = actionableIndexes.length > 0 && selectedActionableIndexes.length === actionableIndexes.length;
+  const remainingActionableCount = Math.max(actionableIndexes.length - selectedActionableIndexes.length, 0);
+  const bulkModeLabel = hasAnySelection ? 'режим: только выбранные' : 'режим: все playable';
+  const downloadedInScopeCount = effectiveActionIndexes.filter((idx) => activeDownloads[`dl_${idx}`] === 'done').length;
+  const failedInScopeCount = effectiveActionIndexes.filter((idx) => activeDownloads[`dl_${idx}`] === 'error').length;
+  const workingInScopeCount = effectiveActionIndexes.filter((idx) => activeDownloads[`dl_${idx}`] === 'working').length;
   const activeWorkingCount = Object.values(activeDownloads).filter((st) => st === 'working').length;
   const hasActiveTransfers = bulkRunning || activeWorkingCount > 0;
-  const failedIndexesInScope = effectiveDownloadIndexes.filter((idx) => activeDownloads[`dl_${idx}`] === 'error');
-  const toggleAllDownloadableSelection = (checked) => {
+  const failedIndexesInScope = effectiveActionIndexes.filter((idx) => activeDownloads[`dl_${idx}`] === 'error');
+  const toggleAllActionableSelection = (checked) => {
     setSelectedIndexes(() => {
       const next = {};
-      downloadableIndexes.forEach((idx) => {
+      actionableIndexes.forEach((idx) => {
         next[idx] = checked;
       });
       return next;
@@ -519,12 +531,12 @@ export default function NemesisArchiveTerminal({ target, onClose }) {
             <div style={{ display:'flex',alignItems:'center',justifyContent:'space-between',padding:'6px 14px',borderBottom:'1px solid #151518',background:'#0a0a0e' }}>
               <span style={{ color:'#555',fontSize:10,fontFamily:'monospace',letterSpacing:1 }}>СПИСОК ФАЙЛОВ</span>
               <div style={{ display:'flex',gap:6,alignItems:'center' }}>
-                <button onClick={handleBulkDownload} disabled={!effectiveDownloadIndexes.length || hasActiveTransfers}
-                  style={{ background:'#0a1a0a',color:'#00ff9c',border:'1px solid #00ff9c55',padding:'4px 12px',fontSize:10,fontFamily:'monospace',cursor:(!effectiveDownloadIndexes.length || hasActiveTransfers)?'not-allowed':'pointer',transition:'all .15s',opacity:(!effectiveDownloadIndexes.length || hasActiveTransfers)?.6:1 }}
-                  onMouseEnter={e=>{if (!hasActiveTransfers && effectiveDownloadIndexes.length) { e.target.style.background='#00ff9c';e.target.style.color='#000'; }}}
+                <button onClick={handleBulkDownload} disabled={!effectiveActionIndexes.length || hasActiveTransfers}
+                  style={{ background:'#0a1a0a',color:'#00ff9c',border:'1px solid #00ff9c55',padding:'4px 12px',fontSize:10,fontFamily:'monospace',cursor:(!effectiveActionIndexes.length || hasActiveTransfers)?'not-allowed':'pointer',transition:'all .15s',opacity:(!effectiveActionIndexes.length || hasActiveTransfers)?.6:1 }}
+                  onMouseEnter={e=>{if (!hasActiveTransfers && effectiveActionIndexes.length) { e.target.style.background='#00ff9c';e.target.style.color='#000'; }}}
                   onMouseLeave={e=>{e.target.style.background='#0a1a0a';e.target.style.color='#00ff9c'}}
-                  title={hasActiveTransfers ? 'Недоступно: есть активные передачи' : (hasAnySelection ? 'Скачать только выбранные downloadable записи (последовательно)' : 'Скачать все downloadable записи (последовательно)')}
-                >{hasActiveTransfers ? '⏳ DOWNLOAD ACTIVE...' : `⬇ Загрузка из сети${hasAnySelection ? ` (${selectedDownloadableIndexes.length} из выбранных)` : ''}`}</button>
+                  title={hasActiveTransfers ? 'Недоступно: есть активные передачи' : (hasAnySelection ? 'Скачать только выбранные playable записи (RTSP будет через CAPTURE)' : 'Скачать все playable записи (RTSP будет через CAPTURE)')}
+                >{hasActiveTransfers ? '⏳ DOWNLOAD ACTIVE...' : `⬇ Загрузка из сети${hasAnySelection ? ` (${selectedActionableIndexes.length} из выбранных)` : ''}`}</button>
                 <button onClick={handleRetryErrors} disabled={hasActiveTransfers||!failedIndexesInScope.length}
                   style={{ background:'#2a1200',color:'#ffb266',border:'1px solid #ff990055',padding:'4px 10px',fontSize:10,fontFamily:'monospace',cursor:(hasActiveTransfers||!failedIndexesInScope.length)?'not-allowed':'pointer',transition:'all .15s',opacity:(hasActiveTransfers||!failedIndexesInScope.length)?.6:1 }}
                   title={hasActiveTransfers ? 'Недоступно: есть активные передачи' : 'Повторить только записи со статусом ERR'}
@@ -537,13 +549,13 @@ export default function NemesisArchiveTerminal({ target, onClose }) {
             <div style={{ padding:'6px 14px',borderBottom:'1px solid #121216',background:'#09090d',color:'#4e6475',fontSize:9,fontFamily:'monospace',lineHeight:1.5 }}>
               HYPERION ARCHIVE FLOW: 1) выбери дату/время 2) Поиск 3) отметь записи 4) загрузи выбранные (обычно до ~1050MB) или используй CAPTURE.
             </div>
-            <div style={{ padding:'4px 14px',borderBottom:'1px solid #111',background:'#08080c',color:'#3f5566',fontSize:9,fontFamily:'monospace' }}>Чекбокс в заголовке отмечает/снимает все downloadable записи текущего списка.</div>
-            <div style={{ padding:'3px 14px',borderBottom:'1px solid #111',background:'#07070b',color:'#4d6779',fontSize:9,fontFamily:'monospace' }}>SELECTED DOWNLOADABLE: {selectedDownloadableIndexes.length}/{downloadableIndexes.length} | ОСТАЛОСЬ: {remainingDownloadableCount} | СКАЧАНО: {downloadedInScopeCount}/{effectiveDownloadIndexes.length || downloadableIndexes.length} | WORKING(scope/all): {workingInScopeCount}/{activeWorkingCount} | ERR: {failedInScopeCount}</div>
+            <div style={{ padding:'4px 14px',borderBottom:'1px solid #111',background:'#08080c',color:'#3f5566',fontSize:9,fontFamily:'monospace' }}>Чекбокс в заголовке отмечает/снимает все playable записи текущего списка.</div>
+            <div style={{ padding:'3px 14px',borderBottom:'1px solid #111',background:'#07070b',color:'#4d6779',fontSize:9,fontFamily:'monospace' }}>SELECTED PLAYABLE: {selectedActionableIndexes.length}/{actionableIndexes.length} | ОСТАЛОСЬ: {remainingActionableCount} | СКАЧАНО: {downloadedInScopeCount}/{effectiveActionIndexes.length || actionableIndexes.length} | WORKING(scope/all): {workingInScopeCount}/{activeWorkingCount} | ERR: {failedInScopeCount}</div>
             <div style={{ padding:'2px 14px',borderBottom:'1px solid #111',background:'#06060a',color:'#3e5567',fontSize:9,fontFamily:'monospace' }}>{bulkModeLabel}</div>
 
             {/* col headers */}
             <div style={{ display:'flex',alignItems:'center',padding:'5px 14px',borderBottom:'1px solid #1a1a1e',background:'#0c0c10',fontSize:9,fontFamily:'monospace',color:'#555',letterSpacing:1,flexShrink:0 }}>
-              <div style={{ width:26 }}><input type="checkbox" disabled={hasActiveTransfers} checked={areAllDownloadableSelected} onChange={(e)=>toggleAllDownloadableSelection(e.target.checked)} style={{ accentColor:'#00f0ff' }} title="Выбрать все downloadable" /></div>
+              <div style={{ width:26 }}><input type="checkbox" disabled={hasActiveTransfers} checked={areAllActionableSelected} onChange={(e)=>toggleAllActionableSelection(e.target.checked)} style={{ accentColor:'#00f0ff' }} title="Выбрать все playable" /></div>
               <div style={{ width:32 }}>№</div>
               <div style={{ flex:2 }}>Имя файла</div>
               <div style={{ flex:1 }}>Время начала</div>
@@ -572,7 +584,7 @@ export default function NemesisArchiveTerminal({ target, onClose }) {
                 const chunkLabel = item.chunkTotal > 1 ? ` [${item.chunkIndex}/${item.chunkTotal}]` : '';
                 return (
                   <div key={idx} className="nr">
-                    <div style={{ width:26 }}><input type="checkbox" disabled={hasActiveTransfers||!isDownloadableRecord(item)} title={hasActiveTransfers ? 'Недоступно: выполняется активная загрузка' : (isDownloadableRecord(item) ? 'Выбрать для загрузки' : 'Недоступно: non-downloadable')} checked={Boolean(selectedIndexes[idx])} onChange={(e)=>setSelectedIndexes((prev)=>({ ...prev, [idx]: e.target.checked }))} style={{ accentColor:'#00f0ff', opacity:(!hasActiveTransfers&&isDownloadableRecord(item))?1:.45, cursor:(!hasActiveTransfers&&isDownloadableRecord(item))?'pointer':'not-allowed' }}/></div>
+                    <div style={{ width:26 }}><input type="checkbox" disabled={hasActiveTransfers||!isPlayableRecord(item)} title={hasActiveTransfers ? 'Недоступно: выполняется активная загрузка' : (isPlayableRecord(item) ? 'Выбрать для загрузки/capture' : 'Недоступно: нет playback URI')} checked={Boolean(selectedIndexes[idx])} onChange={(e)=>setSelectedIndexes((prev)=>({ ...prev, [idx]: e.target.checked }))} style={{ accentColor:'#00f0ff', opacity:(!hasActiveTransfers&&isPlayableRecord(item))?1:.45, cursor:(!hasActiveTransfers&&isPlayableRecord(item))?'pointer':'not-allowed' }}/></div>
                     <div style={{ width:32,color:'#444',fontSize:10,fontFamily:'monospace' }}>{idx+1}</div>
                     <div style={{ flex:2,color:'#9fd7ff',fontSize:10,fontFamily:'monospace',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap' }} title={`transport=${item.transport||'-'} conf=${item.confidence??0} playable=${String(isPlayableRecord(item))} downloadable=${String(isDownloadableRecord(item))}`}>{`${fid}${chunkLabel}`}</div>
                     <div style={{ flex:1,color:'#7fa9cb',fontSize:10,fontFamily:'monospace' }}>{item.startTime?.replace('T',' ').replace('Z','')||'\u2014'}</div>
@@ -582,7 +594,7 @@ export default function NemesisArchiveTerminal({ target, onClose }) {
                       {ds==='done'?<span style={{color:'#00ff9c',fontSize:9,fontFamily:'monospace'}}>{'\u2713'} OK</span>
                        :ds==='error'?<span style={{color:'#ff003c',fontSize:9,fontFamily:'monospace'}}>{'\u2716'} ERR</span>
                        :ds==='working'?<span style={{color:'#00f0ff',fontSize:9,fontFamily:'monospace',animation:'nemP .6s infinite'}}>{'\u25cc'} ...</span>
-                       :item.playbackUri?<>{isDownloadableRecord(item)?<button className="nb" disabled={hasActiveTransfers} onClick={()=>handleDownload(item,idx)}>{'\u2b07'}</button>:<span style={{color:'#6a4a3f',fontSize:8,fontFamily:'monospace'}}>NO-DL</span>}<button className="nc" disabled={hasActiveTransfers} onClick={()=>handleCapture(item)}>{'\u25c9'}</button></>
+                       :item.playbackUri?<>{isDownloadableRecord(item)?<button className="nb" disabled={hasActiveTransfers} onClick={()=>handleDownload(item,idx)}>{'\u2b07'}</button>:<span style={{color:'#6a4a3f',fontSize:8,fontFamily:'monospace'}}>NO-DL</span>}<button className="nc" disabled={hasActiveTransfers} onClick={()=>handleCapture(item,idx)}>{'\u25c9'}</button></>
                        :<span style={{color:'#222',fontSize:9,fontFamily:'monospace'}}>\u2014</span>}
                     </div>
                   </div>

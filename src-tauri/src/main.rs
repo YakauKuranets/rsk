@@ -863,6 +863,8 @@ fn start_stream(
             "tcp",
             "-stimeout",
             "10000000",
+            "-rw_timeout",
+            "10000000",
             "-fflags",
             "+genpts",
             "-i",
@@ -4236,6 +4238,8 @@ async fn download_isapi_via_rtsp(
             "tcp",
             "-stimeout",
             "15000000",
+            "-rw_timeout",
+            "15000000",
             "-i",
             &authed_uri,
             "-t",
@@ -5176,6 +5180,8 @@ async fn capture_archive_segment(
             "-rtsp_transport".into(),
             "tcp".into(),
             "-stimeout".into(),
+            "10000000".into(),
+            "-rw_timeout".into(),
             "10000000".into(),
         ]);
     }
