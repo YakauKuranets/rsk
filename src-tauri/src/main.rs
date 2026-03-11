@@ -813,6 +813,22 @@ fn generate_nvr_channels(_vendor: String, channel_count: u32) -> Result<Vec<Valu
 }
 
 /// Очистка старых HLS-файлов перед запуском нового стрима
+
+fn read_last_log_lines(path: &std::path::Path, lines: usize) -> String {
+    let Ok(content) = std::fs::read_to_string(path) else {
+        return String::new();
+    };
+    content
+        .lines()
+        .rev()
+        .take(lines)
+        .collect::<Vec<_>>()
+        .into_iter()
+        .rev()
+        .collect::<Vec<_>>()
+        .join(" | ")
+}
+
 fn cleanup_hls_cache(cache_dir: &std::path::Path) {
     if cache_dir.exists() {
         if let Ok(entries) = std::fs::read_dir(cache_dir) {
@@ -848,11 +864,17 @@ fn start_stream(
         }
     }
 
-    // В Linux сначала гарантированно останавливаем старый ffmpeg,
-    // затем чистим HLS-кэш, чтобы не оставались блокировки/хвосты файлов.
     cleanup_hls_cache(&cache);
 
     let playlist = cache.join("stream.m3u8");
+    let ffmpeg_log = cache.join("ffmpeg.log");
+    let stderr_file = OpenOptions::new()
+        .create(true)
+        .write(true)
+        .truncate(true)
+        .open(&ffmpeg_log)
+        .map_err(|e| format!("Не удалось открыть ffmpeg log: {}", e))?;
+
     push_runtime_log(
         &log_state,
         format!("HLS target: {}", playlist.to_string_lossy()),
@@ -862,9 +884,13 @@ fn start_stream(
     let mut child = Command::new("ffmpeg")
         .args([
             "-y",
+            "-loglevel",
+            "warning",
             "-rtsp_transport",
             "tcp",
             "-stimeout",
+            "10000000",
+            "-rw_timeout",
             "10000000",
             "-fflags",
             "+genpts",
@@ -896,91 +922,72 @@ fn start_stream(
             playlist.to_str().unwrap(),
         ])
         .stdout(Stdio::null())
-        .stderr(Stdio::null())
+        .stderr(Stdio::from(stderr_file))
         .spawn()
         .map_err(|e| format!("FFmpeg start error: {}", e))?;
 
-    std::thread::sleep(std::time::Duration::from_secs(2));
+    let started = std::time::Instant::now();
+    let wait_timeout = std::time::Duration::from_secs(12);
 
-    match child.try_wait() {
-        Ok(Some(status)) => {
-            return Err(format!("FFmpeg завершился сразу после старта: {}", status));
-        }
-        Ok(None) => {}
-        Err(e) => {
-            return Err(format!("Не удалось проверить статус FFmpeg: {}", e));
-        }
-    }
-
-    if playlist.exists() {
-        push_runtime_log(
-            &log_state,
-            format!("HLS playlist ready: {}", playlist.to_string_lossy()),
-        );
-    } else {
-        push_runtime_log(
-            &log_state,
-            format!(
-                "FFmpeg жив, но playlist пока не появился: {}",
-                playlist.to_string_lossy()
-            ),
-        );
-    }
-
-    state
-        .active_streams
-        .lock()
-        .unwrap()
-        .insert(target_id, child);
-
-    Ok("Started".into())
-}
-
-/// Проверка: жив ли FFmpeg процесс для данного стрима
-#[tauri::command]
-fn check_stream_alive(target_id: String, state: State<'_, StreamState>) -> Result<bool, String> {
-    let mut streams = state.active_streams.lock().unwrap();
-    if let Some(child) = streams.get_mut(&target_id) {
-        match child.try_wait() {
-            Ok(Some(_status)) => {
-                // Процесс завершился — стрим мёртв
-                streams.remove(&target_id);
-                Ok(false)
+    loop {
+        if playlist.exists() {
+            let ready = std::fs::metadata(&playlist)
+                .map(|m| m.len() > 0)
+                .unwrap_or(false);
+            if ready {
+                push_runtime_log(
+                    &log_state,
+                    format!("HLS playlist ready: {}", playlist.to_string_lossy()),
+                );
+                state
+                    .active_streams
+                    .lock()
+                    .unwrap()
+                    .insert(target_id, child);
+                return Ok("Started".into());
             }
-            Ok(None) => Ok(true), // Ещё работает
-            Err(_) => Ok(false),
         }
-    } else {
-        Ok(false)
+
+        match child.try_wait() {
+            Ok(Some(status)) => {
+                let tail = read_last_log_lines(&ffmpeg_log, 8);
+                return Err(format!(
+                    "FFmpeg завершился сразу после старта: {}{}",
+                    status,
+                    if tail.is_empty() {
+                        String::new()
+                    } else {
+                        format!(" | log: {}", tail)
+                    }
+                ));
+            }
+            Ok(None) => {}
+            Err(e) => {
+                return Err(format!("Не удалось проверить статус FFmpeg: {}", e));
+            }
+        }
+
+        if started.elapsed() > wait_timeout {
+            push_runtime_log(
+                &log_state,
+                format!(
+                    "FFmpeg жив, но playlist пока не появился: {} | см. {}",
+                    playlist.to_string_lossy(),
+                    ffmpeg_log.to_string_lossy()
+                ),
+            );
+            state
+                .active_streams
+                .lock()
+                .unwrap()
+                .insert(target_id, child);
+            return Ok("Started".into());
+        }
+
+        std::thread::sleep(std::time::Duration::from_millis(300));
     }
 }
 
-/// Перезапуск стрима: kill → cleanup → start заново
-#[tauri::command]
-fn restart_stream(
-    target_id: String,
-    rtsp_url: String,
-    state: State<'_, StreamState>,
-    log_state: State<'_, LogState>,
-) -> Result<String, String> {
-    push_runtime_log(&log_state, format!("Restart stream: {}", target_id));
-
-    // 1. Убиваем старый процесс
-    {
-        let mut streams = state.active_streams.lock().unwrap();
-        if let Some(mut old) = streams.remove(&target_id) {
-            let _ = old.kill();
-            let _ = old.wait();
-        }
-    }
-
-    // 2. Чистим HLS-кэш
-    let cache = get_vault_path().join("hls_cache").join(&target_id);
-    cleanup_hls_cache(&cache);
-
-    // 3. Запускаем заново (делегируем в start_stream)
-    start_stream(target_id, rtsp_url, state, log_state)
-}
 
 #[tauri::command]
 fn stop_stream(
