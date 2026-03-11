@@ -865,17 +865,7 @@ fn start_stream(
             "-rtsp_transport",
             "tcp",
             "-stimeout",
-            "15000000",
-            "-rw_timeout",
-            "15000000",
-            "-reconnect",
-            "1",
-            "-reconnect_at_eof",
-            "1",
-            "-reconnect_streamed",
-            "1",
-            "-reconnect_delay_max",
-            "5",
+            "10000000",
             "-fflags",
             "+genpts",
             "-i",
@@ -5258,7 +5248,7 @@ async fn capture_archive_segment(
     let mut child = Command::new("ffmpeg")
         .args(&args)
         .stdout(Stdio::null())
-        .stderr(Stdio::piped())
+        .stderr(Stdio::null())
         .spawn()
         .map_err(|e| format!("Не удалось запустить FFmpeg: {}", e))?;
 
@@ -5291,81 +5281,26 @@ async fn capture_archive_segment(
         match child.try_wait() {
             Ok(Some(status)) => {
                 if !status.success() {
-                    // FFmpeg завершился с ошибкой — пробуем перекодировать
-                    let stderr_text = if let Some(mut stderr) = child.stderr.take() {
-                        use std::io::Read;
-                        let mut buf = String::new();
-                        let _ = stderr.read_to_string(&mut buf);
-                        buf.lines()
-                            .rev()
-                            .take(3)
-                            .collect::<Vec<_>>()
-                            .into_iter()
-                            .rev()
-                            .collect::<Vec<_>>()
-                            .join(" | ")
-                    } else {
-                        String::new()
-                    };
-
-                    // Если copy не сработал — fallback на re-encode
-                    if stderr_text.contains("Invalid data")
-                        || stderr_text.contains("codec not currently supported")
-                    {
+                    push_runtime_log(
+                        &log_state,
+                        format!("FFmpeg exit with error status: {}", status),
+                    );
+                    if std::fs::metadata(&path).map(|m| m.len()).unwrap_or(0) > 1024 {
                         push_runtime_log(
                             &log_state,
                             format!(
-                                "FFmpeg copy failed, retrying with re-encode: {}",
-                                stderr_text
+                                "Archive capture finished with error, but file {} exists.",
+                                filename
                             ),
                         );
-
-                        // Заменяем -c copy на -c:v libx264
-                        let mut retry_args: Vec<String> = args
-                            .iter()
-                            .map(|a| {
-                                if a == "copy" {
-                                    "libx264".to_string()
-                                } else {
-                                    a.clone()
-                                }
-                            })
-                            .collect();
-                        // Добавляем параметры перекодировки перед output
-                        let out_idx = retry_args.len() - 1;
-                        retry_args.insert(out_idx, "-preset".into());
-                        retry_args.insert(out_idx + 1, "fast".into());
-                        retry_args.insert(out_idx + 2, "-crf".into());
-                        retry_args.insert(out_idx + 3, "23".into());
-
-                        let mut child2 = Command::new("ffmpeg")
-                            .args(&retry_args)
-                            .stdout(Stdio::null())
-                            .stderr(Stdio::null())
-                            .spawn()
-                            .map_err(|e| format!("FFmpeg re-encode failed: {}", e))?;
-
-                        // Ждём завершения
-                        let timeout_secs = duration + 30;
-                        loop {
-                            match child2.try_wait() {
-                                Ok(Some(_)) => break,
-                                Ok(None) => {}
-                                Err(e) => return Err(format!("Ошибка FFmpeg: {}", e)),
-                            }
-                            if started.elapsed() > std::time::Duration::from_secs(timeout_secs) {
-                                let _ = child2.kill();
-                                return Err("Таймаут захвата архива".into());
-                            }
-                            std::thread::sleep(std::time::Duration::from_millis(500));
-                        }
                     } else {
-                        return Err(format!("FFmpeg error: {}", stderr_text));
+                        let _ = std::fs::remove_file(&path);
+                        return Err(format!("FFmpeg failed with status: {}", status));
                     }
                 }
                 break;
             }
-            Ok(None) => {} // Ещё работает
+            Ok(None) => {}
             Err(e) => return Err(format!("Ошибка ожидания FFmpeg: {}", e)),
         }
 
@@ -5395,7 +5330,7 @@ async fn capture_archive_segment(
             break; // Не ошибка — может быть частичная запись
         }
 
-        std::thread::sleep(std::time::Duration::from_millis(500));
+        tokio::time::sleep(Duration::from_millis(500)).await;
     }
 
     let bytes_written = std::fs::metadata(&path).map(|m| m.len()).unwrap_or(0);
