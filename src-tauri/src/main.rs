@@ -990,6 +990,48 @@ fn start_stream(
 
 
 #[tauri::command]
+fn check_stream_alive(target_id: String, state: State<'_, StreamState>) -> Result<bool, String> {
+    let mut streams = state.active_streams.lock().unwrap();
+    if let Some(child) = streams.get_mut(&target_id) {
+        match child.try_wait() {
+            Ok(Some(_)) => {
+                streams.remove(&target_id);
+                Ok(false)
+            }
+            Ok(None) => Ok(true),
+            Err(_) => Ok(false),
+        }
+    } else {
+        Ok(false)
+    }
+}
+
+/// Перезапуск стрима: kill -> cleanup -> start заново
+#[tauri::command]
+fn restart_stream(
+    target_id: String,
+    rtsp_url: String,
+    state: State<'_, StreamState>,
+    log_state: State<'_, LogState>,
+) -> Result<String, String> {
+    push_runtime_log(&log_state, format!("Restart stream: {}", target_id));
+
+    {
+        let mut streams = state.active_streams.lock().unwrap();
+        if let Some(mut old) = streams.remove(&target_id) {
+            let _ = old.kill();
+            let _ = old.wait();
+        }
+    }
+
+    let cache = get_vault_path().join("hls_cache").join(&target_id);
+    cleanup_hls_cache(&cache);
+
+    start_stream(target_id, rtsp_url, state, log_state)
+}
+
+
+#[tauri::command]
 fn stop_stream(
     target_id: String,
     state: State<'_, StreamState>,
@@ -4752,6 +4794,7 @@ async fn download_isapi_via_http(
     })
 }
 
+#[tauri::command]
 async fn capture_archive_segment(
     source_url: String,
     filename_hint: Option<String>,
@@ -5014,6 +5057,37 @@ async fn capture_archive_segment(
         skipped_as_complete: false,
     })
 }
+
+
+#[tauri::command]
+fn get_implementation_status() -> Result<ImplementationStatus, String> {
+    let items = vec![
+        RoadmapItem { name: "Vault encryption + sled storage".into(), status: "completed".into() },
+        RoadmapItem { name: "Live stream engine (RTSP/MJPEG -> HLS)".into(), status: "completed".into() },
+        RoadmapItem { name: "Hub/Shodan/Videodvor discovery".into(), status: "completed".into() },
+        RoadmapItem { name: "FTP resilience (banner/retry/resume)".into(), status: "completed".into() },
+        RoadmapItem { name: "Automatic host service/port scanner".into(), status: "completed".into() },
+        RoadmapItem { name: "ISAPI/ONVIF archive extraction".into(), status: "completed".into() },
+        RoadmapItem { name: "Download manager UX (queue/cancel/persist)".into(), status: "completed".into() },
+        RoadmapItem { name: "Map filtering for >100 targets".into(), status: "completed".into() },
+        RoadmapItem { name: "Embedded runtime logs terminal".into(), status: "completed".into() },
+    ];
+
+    let total = items.len();
+    let completed = items.iter().filter(|i| i.status == "completed").count();
+    let in_progress = items.iter().filter(|i| i.status == "in_progress").count();
+    let pending = items.iter().filter(|i| i.status == "pending").count();
+
+    Ok(ImplementationStatus {
+        total,
+        completed,
+        in_progress,
+        pending,
+        left: total.saturating_sub(completed),
+        items,
+    })
+}
+
 
 /// HTTP-скачивание файла по прямой ссылке с прогрессом
 /// Универсальный метод для ISAPI playback URI, HUB download links и любых HTTP-источников
