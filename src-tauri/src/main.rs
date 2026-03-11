@@ -861,8 +861,6 @@ fn start_stream(
     let segment_path = cache.join("%03d.ts");
     let log_file_path = cache.join("ffmpeg_stream.log");
 
-    push_runtime_log(&log_state, format!("HLS target: {}", playlist.to_string_lossy()));
-
     {
         let mut streams = state.active_streams.lock().unwrap();
         if let Some(mut old) = streams.remove(&target_id) {
@@ -877,7 +875,7 @@ fn start_stream(
         .args([
             "-y",
             "-rtsp_transport", "tcp",
-            "-stimeout", "10000000",
+            "-stimeout", "15000000",
             "-fflags", "+genpts",
             "-i", &rtsp_url,
             "-an",
@@ -900,31 +898,22 @@ fn start_stream(
         .spawn()
         .map_err(|e| format!("FFmpeg start error: {}", e))?;
 
-    std::thread::sleep(std::time::Duration::from_secs(2));
+    std::thread::sleep(std::time::Duration::from_millis(2500));
 
     match child.try_wait() {
-        Ok(Some(status)) => {
+        Ok(Some(_status)) => {
             let err_log = std::fs::read_to_string(&log_file_path).unwrap_or_default();
-            let last_lines = err_log
-                .lines()
-                .rev()
-                .take(4)
-                .collect::<Vec<_>>()
-                .into_iter()
-                .rev()
-                .collect::<Vec<_>>()
-                .join(" | ");
-            return Err(format!("FFmpeg упал ({status}): {last_lines}"));
+            let last_lines = err_log.lines().rev().take(6).collect::<Vec<_>>().into_iter().rev().collect::<Vec<_>>().join(" | ");
+            push_runtime_log(&log_state, format!("❌ FFMPEG STREAM FAILED: {}", last_lines));
+            return Err(format!("Сбой стрима. Причина: {}", last_lines));
         }
         Ok(None) => {}
         Err(e) => return Err(format!("Не удалось проверить статус FFmpeg: {}", e)),
     }
 
-    if playlist.exists() {
-        push_runtime_log(&log_state, "HLS playlist готов".to_string());
-    }
-
+    push_runtime_log(&log_state, "✅ FFmpeg успешно запущен, ожидание генерации HLS...".to_string());
     state.active_streams.lock().unwrap().insert(target_id, child);
+
     Ok("Started".into())
 }
 
@@ -3836,100 +3825,58 @@ async fn download_isapi_playback_uri(
     cancel_state: State<'_, DownloadCancelState>,
     _ffmpeg_limiter: State<'_, FfmpegLimiterState>,
 ) -> Result<DownloadReport, String> {
-    if playback_uri.trim().is_empty() {
-        return Err("Пустой playback_uri".into());
-    }
-
-    let task_key = make_unique_task_key(task_id, "isapi");
+    let task_key = task_id.unwrap_or_else(|| format!("isapi_{}", Utc::now().timestamp_millis()));
     let started = std::time::Instant::now();
 
-    if let Ok(mut cancelled) = cancel_state.cancelled_tasks.lock() {
-        cancelled.remove(&task_key);
-    }
+    if let Ok(mut cancelled) = cancel_state.cancelled_tasks.lock() { cancelled.remove(&task_key); }
 
-    let mut filename = filename_hint
-        .map(|s| sanitize_filename_component(&s))
-        .filter(|s| !s.is_empty())
-        .unwrap_or_else(|| format!("isapi_record_{}.mp4", Utc::now().timestamp()));
-    if !filename.contains('.') {
-        filename.push_str(".mp4");
-    }
-
+    let mut filename = filename_hint.unwrap_or_else(|| format!("isapi_record_{}.mp4", Utc::now().timestamp()));
+    if !filename.contains('.') { filename.push_str(".mp4"); }
     let path = get_vault_path().join("archives").join("isapi").join(&filename);
     let _ = std::fs::create_dir_all(path.parent().unwrap());
 
-    push_runtime_log(
-        &log_state,
-        format!("ISAPI SMART GET: {} [task:{}]", filename, task_key),
-    );
+    push_runtime_log(&log_state, format!("ISAPI GET (PROXY BYPASS): {} [task:{}]", filename, task_key));
 
     let client = reqwest::Client::builder()
         .timeout(Duration::from_secs(60))
         .danger_accept_invalid_certs(true)
-        .user_agent("Mozilla/5.0 (X11; Linux x86_64; rv:140.0) Gecko/20100101 Firefox/140.0")
         .build()
         .map_err(|e| e.to_string())?;
 
-    let parsed = reqwest::Url::parse(&playback_uri).map_err(|e| format!("Bad URI: {}", e))?;
-    let host = parsed
-        .host_str()
-        .ok_or_else(|| "Bad URI: empty host".to_string())?;
+    let parsed = reqwest::Url::parse(&playback_uri).map_err(|e| e.to_string())?;
+    let host = parsed.host_str().unwrap_or_default();
     let port = parsed.port_or_known_default().unwrap_or(80);
 
-    let mut request_url = reqwest::Url::parse(&format!(
-        "http://{}:{}/ISAPI/ContentMgmt/download",
-        host, port
-    ))
-    .map_err(|e| e.to_string())?;
-
     let clean_uri = playback_uri.replace("&amp;", "&");
-    request_url
-        .query_pairs_mut()
-        .append_pair("playbackURI", &clean_uri);
+    let raw_url = format!("http://{}:{}/ISAPI/ContentMgmt/download?playbackURI={}", host, port, clean_uri);
 
     let mut current_offset = 0u64;
     let mut total_size = 0u64;
-    let mut retries: u8 = 0;
+    let mut retries = 0;
     let mut digest_cache: Option<String> = None;
 
-    let mut file = OpenOptions::new()
-        .create(true)
-        .write(true)
-        .truncate(true)
-        .open(&path)
-        .map_err(|e| e.to_string())?;
-
+    let mut file = std::fs::OpenOptions::new().create(true).write(true).truncate(true).open(&path).map_err(|e| e.to_string())?;
     let progress_step = 2 * 1024 * 1024u64;
     let mut next_mark = progress_step;
 
     loop {
-        if cancel_state
-            .cancelled_tasks
-            .lock()
-            .map(|set| set.contains(&task_key))
-            .unwrap_or(false)
-        {
-            let _ = std::fs::remove_file(&path);
-            return Err("Отменено".into());
+        if cancel_state.cancelled_tasks.lock().unwrap().contains(&task_key) {
+            let _ = std::fs::remove_file(&path); return Err("Отменено".into());
         }
 
-        let mut req = client.get(request_url.clone());
+        let mut req = client.get(&raw_url)
+            .header("User-Agent", "Mozilla/5.0 (X11; Linux x86_64; rv:140.0) Gecko/20100101 Firefox/140.0")
+            .header("Accept", "*/*")
+            .header("X-Requested-With", "XMLHttpRequest")
+            .header("Referer", format!("http://{}:{}/doc/page/download.asp?fileType=record", host, port));
 
-        if current_offset > 0 {
-            req = req.header("Range", format!("bytes={}-", current_offset));
-        }
+        if current_offset > 0 { req = req.header("Range", format!("bytes={}-", current_offset)); }
 
         if let Some(ref auth) = digest_cache {
             if let Ok(mut prompt) = digest_auth::parse(auth) {
-                let mut ctx = digest_auth::AuthContext::new(
-                    login.clone(),
-                    pass.clone(),
-                    request_url.path().to_string(),
-                );
+                let mut ctx = digest_auth::AuthContext::new(login.clone(), pass.clone(), "/ISAPI/ContentMgmt/download".to_string());
                 ctx.method = digest_auth::HttpMethod::GET;
-                if let Ok(answer) = prompt.respond(&ctx) {
-                    req = req.header("Authorization", answer.to_string());
-                }
+                if let Ok(answer) = prompt.respond(&ctx) { req = req.header("Authorization", answer.to_string()); }
             }
         } else {
             req = req.basic_auth(&login, Some(&pass));
@@ -3938,98 +3885,43 @@ async fn download_isapi_playback_uri(
         match req.send().await {
             Ok(resp) => {
                 let status = resp.status().as_u16();
-
                 if status == 401 && digest_cache.is_none() {
-                    if let Some(auth) = resp
-                        .headers()
-                        .get("WWW-Authenticate")
-                        .and_then(|h| h.to_str().ok())
-                    {
-                        digest_cache = Some(auth.to_string());
-                        continue;
+                    if let Some(auth) = resp.headers().get("WWW-Authenticate").and_then(|h| h.to_str().ok()) {
+                        digest_cache = Some(auth.to_string()); continue;
                     }
                 }
-
                 if !resp.status().is_success() {
-                    if retries > 3 {
-                        return Err(format!("NVR HTTP Error {}", status));
-                    }
-                    retries += 1;
-                    tokio::time::sleep(Duration::from_secs(3)).await;
-                    continue;
+                    if retries > 3 { return Err(format!("Proxy/NVR HTTP Error {}", status)); }
+                    retries += 1; tokio::time::sleep(Duration::from_secs(3)).await; continue;
                 }
-
                 retries = 0;
-                if total_size == 0 {
-                    total_size = resp.content_length().unwrap_or(0) + current_offset;
-                }
+                if total_size == 0 { total_size = resp.content_length().unwrap_or(0) + current_offset; }
 
+                use futures_util::StreamExt;
                 let mut stream = resp.bytes_stream();
                 while let Some(chunk) = stream.next().await {
-                    if cancel_state
-                        .cancelled_tasks
-                        .lock()
-                        .map(|set| set.contains(&task_key))
-                        .unwrap_or(false)
-                    {
-                        let _ = std::fs::remove_file(&path);
-                        return Err("Отменено".into());
+                    if cancel_state.cancelled_tasks.lock().unwrap().contains(&task_key) {
+                        let _ = std::fs::remove_file(&path); return Err("Отменено".into());
                     }
-
                     if let Ok(data) = chunk {
                         std::io::Write::write_all(&mut file, &data).map_err(|e| e.to_string())?;
                         current_offset += data.len() as u64;
-
                         if current_offset >= next_mark {
-                            push_runtime_log(
-                                &log_state,
-                                format!(
-                                    "DOWNLOAD_PROGRESS|{}|{}|{}",
-                                    task_key,
-                                    current_offset,
-                                    total_size.max(current_offset)
-                                ),
-                            );
-                            next_mark = current_offset + progress_step;
+                            push_runtime_log(&log_state, format!("DOWNLOAD_PROGRESS|{}|{}|{}", task_key, current_offset, total_size.max(current_offset)));
+                            next_mark += progress_step;
                         }
-                    } else {
-                        break;
-                    }
+                    } else { break; }
                 }
-
-                if current_offset >= total_size && total_size > 0 {
-                    break;
-                }
-            }
+                if current_offset >= total_size && total_size > 0 { break; }
+            },
             Err(e) => {
-                if retries > 3 {
-                    return Err(format!("Сбой сети: {}", e));
-                }
-                retries += 1;
-                tokio::time::sleep(Duration::from_secs(3)).await;
+                if retries > 3 { return Err(format!("Network Error: {}", e)); }
+                retries += 1; tokio::time::sleep(Duration::from_secs(3)).await;
             }
         }
     }
-
-    push_runtime_log(
-        &log_state,
-        format!("ISAPI DOWNLOAD FINISHED: {} bytes", current_offset),
-    );
-
-    if let Ok(mut cancelled) = cancel_state.cancelled_tasks.lock() {
-        cancelled.remove(&task_key);
-    }
-
-    Ok(DownloadReport {
-        server_alias: "isapi_http".into(),
-        filename,
-        save_path: path.to_string_lossy().to_string(),
-        bytes_written: current_offset,
-        total_bytes: total_size.max(current_offset),
-        duration_ms: started.elapsed().as_millis(),
-        resumed: false,
-        skipped_as_complete: false,
-    })
+    push_runtime_log(&log_state, format!("ISAPI DOWNLOAD FINISHED: {} bytes", current_offset));
+    Ok(DownloadReport { server_alias: "isapi_http".into(), filename, save_path: path.to_string_lossy().to_string(), bytes_written: current_offset, total_bytes: total_size.max(current_offset), duration_ms: started.elapsed().as_millis(), resumed: false, skipped_as_complete: false })
 }
 
 
