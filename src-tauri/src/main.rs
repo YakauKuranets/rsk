@@ -875,7 +875,6 @@ fn start_stream(
         .args([
             "-y",
             "-rtsp_transport", "tcp",
-            "-stimeout", "15000000",
             "-fflags", "+genpts",
             "-i", &rtsp_url,
             "-an",
@@ -3835,7 +3834,7 @@ async fn download_isapi_playback_uri(
     let path = get_vault_path().join("archives").join("isapi").join(&filename);
     let _ = std::fs::create_dir_all(path.parent().unwrap());
 
-    push_runtime_log(&log_state, format!("ISAPI GET (PROXY BYPASS): {} [task:{}]", filename, task_key));
+    push_runtime_log(&log_state, format!("ISAPI GET (SAFE): {} [task:{}]", filename, task_key));
 
     let client = reqwest::Client::builder()
         .timeout(Duration::from_secs(60))
@@ -4128,8 +4127,6 @@ async fn download_isapi_via_rtsp(
             "-y",
             "-rtsp_transport",
             "tcp",
-            "-stimeout",
-            "15000000",
             "-i",
             &authed_uri,
             "-t",
@@ -4610,7 +4607,7 @@ async fn capture_archive_segment(
     let mut args: Vec<String> = Vec::new();
     let source_lc = source_url.to_lowercase();
     if source_lc.starts_with("rtsp://") {
-        args.extend_from_slice(&["-rtsp_transport".into(), "tcp".into(), "-stimeout".into(), "10000000".into()]);
+        args.extend_from_slice(&["-rtsp_transport".into(), "tcp".into()]);
     } else {
         args.extend_from_slice(&["-reconnect".into(), "1".into(), "-reconnect_at_eof".into(), "1".into(), "-reconnect_streamed".into(), "1".into(), "-reconnect_delay_max".into(), "5".into()]);
         if let Some(ref h) = extra_headers { args.extend_from_slice(&["-headers".into(), h.clone()]); }
