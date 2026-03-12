@@ -3852,7 +3852,7 @@ async fn download_isapi_playback_uri(
                 .host_str()
                 .ok_or_else(|| "Bad source_host: empty host".to_string())?
                 .to_string();
-            let p = src_url.port_or_known_default().unwrap_or(2019);
+            let p = src_url.port().unwrap_or(2019);
             (h, p)
         } else {
             let mut parts = src.split(':');
@@ -3914,7 +3914,7 @@ async fn download_isapi_playback_uri(
 
     // Камеры часто принимают только «сырой» playbackURI без %-кодирования: повторяем поведение web-ui.
     let request_url = format!(
-        "http://{}:{}{}?playbackURI={}",
+        "http://{}:{}{}?playbackURI={}&onlyVerification=true",
         host, port, request_path, clean_uri
     );
 
