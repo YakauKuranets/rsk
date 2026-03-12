@@ -27,6 +27,7 @@ export default function NemesisArchiveTerminal({ target, onClose }) {
   const [logs, setLogs] = useState([]);
   const logRef = useRef(null);
   const bootRef = useRef(false);
+  const timersRef = useRef({});
 
   const log = (msg, type = 'info') => {
     const ts = new Date().toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
@@ -34,6 +35,11 @@ export default function NemesisArchiveTerminal({ target, onClose }) {
   };
 
   useEffect(() => { if (logRef.current) logRef.current.scrollTop = logRef.current.scrollHeight; }, [logs]);
+
+  useEffect(() => () => {
+    Object.values(timersRef.current).forEach((id) => clearInterval(id));
+    timersRef.current = {};
+  }, []);
 
   useEffect(() => {
     const now = new Date();
@@ -211,7 +217,7 @@ export default function NemesisArchiveTerminal({ target, onClose }) {
       log('⚠ Дождитесь завершения активных загрузок перед новым поиском', 'warn');
       return;
     }
-    setScanning(true); setRecords([]); setSelectedIndexes({}); setActiveDownloads({}); setPhase('scanning'); setStatusText('СКАНИРОВАНИЕ...');
+    setScanning(true); setRecords([]); setSelectedIndexes({}); setActiveDownloads({}); setProgressMap({}); setPhase('scanning'); setStatusText('СКАНИРОВАНИЕ...');
     const from = timeFrom.replace(' ', 'T') + (timeFrom.includes('Z') ? '' : 'Z');
     const to = timeTo.replace(' ', 'T') + (timeTo.includes('Z') ? '' : 'Z');
     log(`🔎 ПОИСК: ${timeFrom} → ${timeTo} | cam:${camera}`, 'info');
@@ -272,27 +278,29 @@ export default function NemesisArchiveTerminal({ target, onClose }) {
     }
     const normalizedUri = normalizePlaybackUri(item.playbackUri);
     if (!normalizedUri) {
-      updateDownloadStatus(`dl_${idx}`, 'error'); return false;
+      updateDownloadStatus(`dl_${idx}`, 'error');
+      return false;
     }
 
     const k = `dl_${idx}`;
     updateDownloadStatus(k, 'working');
 
-    // 🔥 ЗАПУСК ЖИВОГО СЧЕТЧИКА ПРОГРЕССА
-    setProgressMap(p => ({ ...p, [k]: 1 }));
-    const expectedSize = Number((item.playbackUri || '').match(/size=(\d+)/i)?.[1] || 500000000);
-    let simulatedBytes = 0;
+    // 🔥 ЧЕСТНЫЙ СЕКУНДОМЕР ВРЕМЕНИ ОПЕРАЦИИ
+    if (timersRef.current[k]) {
+      clearInterval(timersRef.current[k]);
+      delete timersRef.current[k];
+    }
+    const startTime = Date.now();
+    setProgressMap((p) => ({ ...p, [k]: '00:00' }));
 
-    const progressTimer = setInterval(() => {
-      // Имитируем скачкообразную работу сети
-      const chunk = Math.floor(Math.random() * 4000000) + 1500000;
-      simulatedBytes += chunk;
-      let pct = Math.floor((simulatedBytes / expectedSize) * 100);
-      if (pct >= 99) pct = 99;
-      setProgressMap(p => ({ ...p, [k]: pct }));
+    timersRef.current[k] = setInterval(() => {
+      const elapsedSec = Math.floor((Date.now() - startTime) / 1000);
+      const m = Math.floor(elapsedSec / 60).toString().padStart(2, '0');
+      const s = (elapsedSec % 60).toString().padStart(2, '0');
+      setProgressMap((p) => ({ ...p, [k]: `${m}:${s}` }));
     }, 1000);
 
-    log(`⬇ ЗАГРУЗКА БЛОКА #${idx+1}...`, 'info');
+    log(`⬇ ЗАГРУЗКА БЛОКА #${idx + 1}...`, 'info');
     const taskId = `nem_${Date.now()}_${idx}`;
     try {
       const chunkItems = [{ ...item, playbackUri: normalizedUri }];
@@ -301,7 +309,8 @@ export default function NemesisArchiveTerminal({ target, onClose }) {
         // eslint-disable-next-line no-await-in-loop
         const job = await invoke('start_archive_export_job', {
           playbackUri: chunkItems[i]?.playbackUri || normalizedUri,
-          login: target.login || 'admin', pass: target.password || '',
+          login: target.login || 'admin',
+          pass: target.password || '',
           sourceHost: target.host || '',
           filenameHint: `${target.host.replace(/\./g, '_')}_cam${camera}_${idx}.mp4`,
           taskId: `${taskId}_p${i + 1}`,
@@ -310,14 +319,20 @@ export default function NemesisArchiveTerminal({ target, onClose }) {
         lastReport = job.report;
       }
 
-      clearInterval(progressTimer);
-      setProgressMap(p => ({ ...p, [k]: 100 }));
+      if (timersRef.current[k]) {
+        clearInterval(timersRef.current[k]);
+        delete timersRef.current[k];
+      }
+      setProgressMap((p) => ({ ...p, [k]: 'ГОТОВО' }));
       updateDownloadStatus(k, 'done');
       log(`✅ ФАЙЛ СКАЧАН: ${lastReport.filename}`, 'ok');
       return true;
     } catch (e) {
-      clearInterval(progressTimer);
-      setProgressMap(p => ({ ...p, [k]: -1 }));
+      if (timersRef.current[k]) {
+        clearInterval(timersRef.current[k]);
+        delete timersRef.current[k];
+      }
+      setProgressMap((p) => ({ ...p, [k]: 'ОШИБКА' }));
       updateDownloadStatus(k, 'error');
       log(`❌ Ошибка: ${e}`, 'err');
       return false;
@@ -627,16 +642,16 @@ export default function NemesisArchiveTerminal({ target, onClose }) {
                     <div style={{ width:150,display:'flex',justifyContent:'flex-end' }}>
                       {activeDownloads[`dl_${idx}`] === 'working' ? (
                         <div style={{ display:'flex',flexDirection:'column',alignItems:'flex-end',gap:4 }}>
-                          <span style={{ color:'#60a5fa',fontFamily:'monospace',fontSize:10,fontWeight:'bold',letterSpacing:1,animation:'nemP .8s infinite' }}>
-                            {progressMap[`dl_${idx}`] ? `СКАЧИВАНИЕ [ ${progressMap[`dl_${idx}`]}% ]` : 'СВЯЗЬ...'}
+                          <span style={{ color:'#67e8f9',fontFamily:'monospace',fontSize:10,fontWeight:'bold',letterSpacing:1,animation:'nemP .8s infinite' }}>
+                            АКТИВНО [ {progressMap[`dl_${idx}`] || '00:00'} ]
                           </span>
-                          <div style={{ width:96,height:6,background:'#1f2937',borderRadius:4,overflow:'hidden',boxShadow:'inset 0 0 6px #000' }}>
-                            <div style={{ height:'100%',background:'#3b82f6',transition:'width .3s ease',boxShadow:'0 0 8px rgba(59,130,246,.8)',width:`${progressMap[`dl_${idx}`] || 0}%` }} />
+                          <div style={{ width:96,height:6,background:'#1f2937',borderRadius:4,overflow:'hidden',boxShadow:'inset 0 0 6px #000',position:'relative' }}>
+                            <div style={{ position:'absolute',inset:0,background:'linear-gradient(90deg, transparent, #22d3ee, transparent)',width:'200%',animation:'slide 1.5s linear infinite' }} />
                           </div>
                         </div>
                       ) : activeDownloads[`dl_${idx}`] === 'done' ? (
                         <span style={{ color:'#4ade80',fontFamily:'monospace',fontSize:10,fontWeight:'bold',letterSpacing:1,display:'flex',alignItems:'center' }}>
-                          <span style={{ color:'#22c55e',marginRight:4 }}>✔</span> ЗАВЕРШЕНО
+                          <span style={{ color:'#22c55e',marginRight:4 }}>✔</span> {progressMap[`dl_${idx}`] || 'ЗАВЕРШЕНО'}
                         </span>
                       ) : (
                         <div style={{ display:'flex',justifyContent:'flex-end',gap:6 }}>
