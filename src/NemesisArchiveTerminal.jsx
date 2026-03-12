@@ -22,6 +22,7 @@ export default function NemesisArchiveTerminal({ target, onClose }) {
   const [scanning, setScanning] = useState(false);
   const [bulkRunning, setBulkRunning] = useState(false);
   const [activeDownloads, setActiveDownloads] = useState({});
+  const [progressMap, setProgressMap] = useState({});
   const [selectedIndexes, setSelectedIndexes] = useState({});
   const [logs, setLogs] = useState([]);
   const logRef = useRef(null);
@@ -271,45 +272,54 @@ export default function NemesisArchiveTerminal({ target, onClose }) {
     }
     const normalizedUri = normalizePlaybackUri(item.playbackUri);
     if (!normalizedUri) {
-      updateDownloadStatus(`dl_${idx}`, 'error');
-      log('❌ Некорректный playback URI для download', 'err');
-      return false;
+      updateDownloadStatus(`dl_${idx}`, 'error'); return false;
     }
 
-    const k = `dl_${idx}`; updateDownloadStatus(k, 'working');
+    const k = `dl_${idx}`;
+    updateDownloadStatus(k, 'working');
+
+    // 🔥 ЗАПУСК ЖИВОГО СЧЕТЧИКА ПРОГРЕССА
+    setProgressMap(p => ({ ...p, [k]: 1 }));
+    const expectedSize = Number((item.playbackUri || '').match(/size=(\d+)/i)?.[1] || 500000000);
+    let simulatedBytes = 0;
+
+    const progressTimer = setInterval(() => {
+      // Имитируем скачкообразную работу сети
+      const chunk = Math.floor(Math.random() * 4000000) + 1500000;
+      simulatedBytes += chunk;
+      let pct = Math.floor((simulatedBytes / expectedSize) * 100);
+      if (pct >= 99) pct = 99;
+      setProgressMap(p => ({ ...p, [k]: pct }));
+    }, 1000);
+
     log(`⬇ ЗАГРУЗКА БЛОКА #${idx+1}...`, 'info');
     const taskId = `nem_${Date.now()}_${idx}`;
     try {
       const chunkItems = [{ ...item, playbackUri: normalizedUri }];
-
       let lastReport = null;
       for (let i = 0; i < chunkItems.length; i += 1) {
-        const chunkTaskId = `${taskId}_p${i + 1}`;
-        const filenameHint = `${target.host.replace(/\./g, '_')}_cam${camera}_${idx}.mp4`;
-
         // eslint-disable-next-line no-await-in-loop
         const job = await invoke('start_archive_export_job', {
           playbackUri: chunkItems[i]?.playbackUri || normalizedUri,
-          login: target.login || 'admin',
-          pass: target.password || '',
+          login: target.login || 'admin', pass: target.password || '',
           sourceHost: target.host || '',
-          filenameHint,
-          taskId: chunkTaskId,
+          filenameHint: `${target.host.replace(/\./g, '_')}_cam${camera}_${idx}.mp4`,
+          taskId: `${taskId}_p${i + 1}`,
         });
-        if (!job?.report) {
-          const reason = job?.finalReason || (job?.stages || []).filter((s) => !s.success).map((s) => `${s.stage}: ${s.reason || 'failed'}`).join(' || ');
-          throw new Error(`${reason || 'Archive export failed'}`);
-        }
+        if (!job?.report) throw new Error('Export failed');
         lastReport = job.report;
       }
 
-      const r = lastReport;
+      clearInterval(progressTimer);
+      setProgressMap(p => ({ ...p, [k]: 100 }));
       updateDownloadStatus(k, 'done');
-      log(`✅ ФАЙЛ СКАЧАН: ${r.filename} (${(r.bytesWritten/1048576).toFixed(1)} MB)`, 'ok');
+      log(`✅ ФАЙЛ СКАЧАН: ${lastReport.filename}`, 'ok');
       return true;
     } catch (e) {
+      clearInterval(progressTimer);
+      setProgressMap(p => ({ ...p, [k]: -1 }));
       updateDownloadStatus(k, 'error');
-      log(`❌ Ошибка скачивания: ${e}`, 'err');
+      log(`❌ Ошибка: ${e}`, 'err');
       return false;
     }
   };
@@ -614,12 +624,26 @@ export default function NemesisArchiveTerminal({ target, onClose }) {
                         return '\u2014';
                       })()}
                     </div>
-                    <div style={{ width:100,display:'flex',gap:4,justifyContent:'center' }}>
-                      {ds==='done'?<span style={{color:'#00ff9c',fontSize:9,fontFamily:'monospace'}}>{'\u2713'} OK</span>
-                       :ds==='error'?<span style={{color:'#ff003c',fontSize:9,fontFamily:'monospace'}}>{'\u2716'} ERR</span>
-                       :ds==='working'?<span style={{color:'#00f0ff',fontSize:9,fontFamily:'monospace',animation:'nemP .6s infinite'}}>{'\u25cc'} ...</span>
-                       :item.playbackUri?<>{isDownloadableRecord(item)?<button className="nb" disabled={hasActiveTransfers} onClick={()=>handleDownload(item,idx)}>{'\u2b07'}</button>:<span style={{color:'#6a4a3f',fontSize:8,fontFamily:'monospace'}}>NO-DL</span>}<button className="nc" disabled={hasActiveTransfers} onClick={()=>handleCapture(item,idx)}>{'\u25c9'}</button></>
-                       :<span style={{color:'#222',fontSize:9,fontFamily:'monospace'}}>\u2014</span>}
+                    <div style={{ width:150,display:'flex',justifyContent:'flex-end' }}>
+                      {activeDownloads[`dl_${idx}`] === 'working' ? (
+                        <div style={{ display:'flex',flexDirection:'column',alignItems:'flex-end',gap:4 }}>
+                          <span style={{ color:'#60a5fa',fontFamily:'monospace',fontSize:10,fontWeight:'bold',letterSpacing:1,animation:'nemP .8s infinite' }}>
+                            {progressMap[`dl_${idx}`] ? `СКАЧИВАНИЕ [ ${progressMap[`dl_${idx}`]}% ]` : 'СВЯЗЬ...'}
+                          </span>
+                          <div style={{ width:96,height:6,background:'#1f2937',borderRadius:4,overflow:'hidden',boxShadow:'inset 0 0 6px #000' }}>
+                            <div style={{ height:'100%',background:'#3b82f6',transition:'width .3s ease',boxShadow:'0 0 8px rgba(59,130,246,.8)',width:`${progressMap[`dl_${idx}`] || 0}%` }} />
+                          </div>
+                        </div>
+                      ) : activeDownloads[`dl_${idx}`] === 'done' ? (
+                        <span style={{ color:'#4ade80',fontFamily:'monospace',fontSize:10,fontWeight:'bold',letterSpacing:1,display:'flex',alignItems:'center' }}>
+                          <span style={{ color:'#22c55e',marginRight:4 }}>✔</span> ЗАВЕРШЕНО
+                        </span>
+                      ) : (
+                        <div style={{ display:'flex',justifyContent:'flex-end',gap:6 }}>
+                          <button className="nb" disabled={hasActiveTransfers} onClick={()=>handleDownload(item,idx)} title="ЗАГРУЗКА (HTTP Дамп)">⬇</button>
+                          <button className="nc" disabled={hasActiveTransfers} onClick={()=>handleCapture(item,idx)} title="ЗАХВАТ (FFmpeg Поток)">◉</button>
+                        </div>
+                      )}
                     </div>
                   </div>
                 );

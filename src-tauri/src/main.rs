@@ -4607,18 +4607,31 @@ async fn capture_archive_segment(
         .join("captures")
         .join(format!("{}.log", filename));
 
+    // 🔥 МАГИЯ ИНЖЕКЦИИ И ИСПРАВЛЕНИЯ ПОРТА + ОЧИСТКА ОТ МУСОРА
     let mut final_url = source_url.clone();
     if final_url.to_lowercase().starts_with("rtsp://") {
         if let Ok(mut parsed) = reqwest::Url::parse(&final_url) {
-            if matches!(parsed.port(), Some(2019 | 80 | 8080)) {
+            // Меняем веб-порт на стандартный RTSP (554)
+            if parsed.port() == Some(2019) || parsed.port() == Some(80) || parsed.port() == Some(8080) {
                 let _ = parsed.set_port(Some(554));
             }
-            if let Some(ref l) = login {
+            // Вшиваем логин и пароль
+            if let (Some(l), Some(p)) = (&login, &pass) {
                 let _ = parsed.set_username(l);
-                if let Some(ref p) = pass {
-                    let _ = parsed.set_password(Some(p));
+                let _ = parsed.set_password(Some(p));
+            }
+            // 🔪 ХИРУРГИЯ: Вырезаем мусорные параметры size и name, из-за которых NVR выдает ОШИБКУ 400!
+            let mut keep_pairs = Vec::new();
+            for (k, v) in parsed.query_pairs() {
+                if k != "size" && k != "name" {
+                    keep_pairs.push((k.into_owned(), v.into_owned()));
                 }
             }
+            parsed.set_query(None);
+            for (k, v) in keep_pairs {
+                parsed.query_pairs_mut().append_pair(&k, &v);
+            }
+
             final_url = parsed.to_string();
         }
     }
