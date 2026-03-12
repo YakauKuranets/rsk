@@ -3143,7 +3143,7 @@ async fn search_isapi_recordings(
                             // 🔥 МАГИЯ: Если Novicam (или Hikvision) выдает внутренний IP (192.168.x.x),
                             // мы насильно заменяем его на внешний IP-адрес, к которому мы подключились!
                             if let Some(ref mut uri) = playback_uri {
-                                if let Ok(parsed_endpoint) = reqwest::Url::parse(endpoint) {
+                                if let Ok(parsed_endpoint) = reqwest::Url::parse(&endpoint) {
                                     if let Some(target_host) = parsed_endpoint.host_str() {
                                         if let Ok(mut parsed_uri) = reqwest::Url::parse(uri) {
                                             let _ = parsed_uri.set_host(Some(target_host));
