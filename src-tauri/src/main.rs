@@ -4714,17 +4714,28 @@ async fn capture_archive_segment(
                     {
                         push_runtime_log(
                             &log_state,
-                            "FFmpeg copy failed, retrying with re-encode".to_string(),
+                            "FFmpeg copy failed, retrying with re-encode (H.264 + AAC)".to_string(),
                         );
-                        let mut retry_args: Vec<String> = args
-                            .iter()
-                            .map(|a| if a == "copy" { "libx264".to_string() } else { a.clone() })
-                            .collect();
-                        let out_idx = retry_args.len() - 1;
-                        retry_args.insert(out_idx, "-preset".into());
-                        retry_args.insert(out_idx + 1, "fast".into());
-                        retry_args.insert(out_idx + 2, "-crf".into());
-                        retry_args.insert(out_idx + 3, "28".into());
+
+                        // 🔥 ИСПРАВЛЕНИЕ: Четко разделяем видео (libx264) и аудио (aac)
+                        let mut retry_args = Vec::new();
+                        let mut i = 0;
+                        while i < args.len() {
+                            if args[i] == "-c" && i + 1 < args.len() && args[i + 1] == "copy" {
+                                retry_args.push("-c:v".into());
+                                retry_args.push("libx264".into());
+                                retry_args.push("-preset".into());
+                                retry_args.push("fast".into());
+                                retry_args.push("-crf".into());
+                                retry_args.push("28".into());
+                                retry_args.push("-c:a".into());
+                                retry_args.push("aac".into());
+                                i += 2;
+                            } else {
+                                retry_args.push(args[i].clone());
+                                i += 1;
+                            }
+                        }
 
                         let log_file2 = std::fs::File::create(&log_file_path)
                             .map_err(|e| format!("Ошибка создания лога: {}", e))?;
