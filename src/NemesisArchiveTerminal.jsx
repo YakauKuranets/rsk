@@ -269,24 +269,43 @@ export default function NemesisArchiveTerminal({ target, onClose }) {
       log('⚠ запись помечена как non-downloadable; используй CAPTURE', 'warn');
       return false;
     }
-    const normalizedUri = normalizePlaybackUri(item.playbackUri);
+    let normalizedUri = normalizePlaybackUri(item.playbackUri);
     if (!normalizedUri) {
       updateDownloadStatus(`dl_${idx}`, 'error');
       log('❌ Некорректный playback URI для download', 'err');
       return false;
     }
 
+    // 🔥 АБСОЛЮТНАЯ АВТОМАТИЗАЦИЯ НАРЕЗКИ: Берем время прямо из ваших инпутов!
+    const formatToISAPI = (dateStr) => {
+      // Превращаем "2026-03-12 11:00:00" в формат камеры "20260312T110000Z"
+      const clean = (dateStr || '').replace(/[^0-9]/g, '');
+      return clean.length >= 14 ? `${clean.substring(0, 8)}T${clean.substring(8, 14)}Z` : null;
+    };
+
+    const exactStart = formatToISAPI(timeFrom);
+    const exactEnd = formatToISAPI(timeTo);
+
+    if (exactStart && exactEnd) {
+      // Насильно заменяем гигабайтные границы камеры на ВАШЕ точное время
+      normalizedUri = normalizedUri.replace(/starttime=[^&]+/i, `starttime=${exactStart}`);
+      normalizedUri = normalizedUri.replace(/endtime=[^&]+/i, `endtime=${exactEnd}`);
+      log(`✂ Запрошен точный отрезок у NVR: ${timeFrom} ➔ ${timeTo}`, 'sys');
+    }
+
     const k = `dl_${idx}`; updateDownloadStatus(k, 'working');
     log(`⬇ ЗАГРУЗКА БЛОКА #${idx+1}...`, 'info');
     const taskId = `nem_${Date.now()}_${idx}`;
     try {
-      // 🔥 ИСПРАВЛЕНИЕ: Передаем файл целиком, без дробления на чанки по 30 минут!
       const chunkItems = [{ ...item, playbackUri: normalizedUri }];
 
       let lastReport = null;
       for (let i = 0; i < chunkItems.length; i += 1) {
         const chunkTaskId = `${taskId}_p${i + 1}`;
-        const filenameHint = `${target.host.replace(/\./g, '_')}_cam${camera}_${idx}.mp4`;
+        // В имя файла автоматически добавим время, чтобы вы не путались
+        const safeStart = (timeFrom || '').replace(/[-: ]/g, '_').substring(0, 15);
+        const safeEnd = (timeTo || '').replace(/[-: ]/g, '_').substring(8, 15);
+        const filenameHint = `${target.host.replace(/\./g, '_')}_cam${camera}_${safeStart}-${safeEnd}.mp4`;
 
         // eslint-disable-next-line no-await-in-loop
         const job = await invoke('start_archive_export_job', {
@@ -306,11 +325,11 @@ export default function NemesisArchiveTerminal({ target, onClose }) {
 
       const r = lastReport;
       updateDownloadStatus(k, 'done');
-      log(`✅ Сырой дамп скачан: ${r.filename} (${(r.bytesWritten/1048576).toFixed(1)} MB)`, 'ok');
+      log(`✅ ИДЕАЛЬНЫЙ КУСОК СКАЧАН: ${r.filename} (${(r.bytesWritten/1048576).toFixed(1)} MB)`, 'ok');
       return true;
     } catch (e) {
       updateDownloadStatus(k, 'error');
-      log(`❌ ${e}`, 'err');
+      log(`❌ Ошибка скачивания: ${e}`, 'err');
       return false;
     }
   };
