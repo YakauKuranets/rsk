@@ -58,7 +58,7 @@ export default function NemesisArchiveTerminal({ target, onClose }) {
     })();
   }, []);
 
-  const isDownloadableRecord = (item) => (typeof item?.downloadable === 'boolean' ? item.downloadable : Boolean(item?.playbackUri));
+  const isDownloadableRecord = (item) => Boolean(item?.playbackUri);
   const isPlayableRecord = (item) => (typeof item?.playable === 'boolean' ? item.playable : Boolean(item?.playbackUri));
   const normalizePlaybackUri = (uri) => String(uri || '').replace(/&amp;/g, '&').trim();
   const getIsapiFilenameHint = (uri, fallback = 'capture.mp4') => {
