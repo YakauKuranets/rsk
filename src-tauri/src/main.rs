@@ -3138,7 +3138,20 @@ async fn search_isapi_recordings(
                             // 🔥 БОЛЬШЕ НИКАКИХ ПОДМЕН ВРЕМЕНИ! БЕРЕМ ЧИСТУЮ ПРАВДУ ОТ КАМЕРЫ!
                             let start_time = starts.get(i).cloned();
                             let end_time = ends.get(i).cloned();
-                            let playback_uri = uris.get(i).cloned();
+                            let mut playback_uri = uris.get(i).cloned();
+
+                            // 🔥 МАГИЯ: Если Novicam (или Hikvision) выдает внутренний IP (192.168.x.x),
+                            // мы насильно заменяем его на внешний IP-адрес, к которому мы подключились!
+                            if let Some(ref mut uri) = playback_uri {
+                                if let Ok(parsed_endpoint) = reqwest::Url::parse(endpoint) {
+                                    if let Some(target_host) = parsed_endpoint.host_str() {
+                                        if let Ok(mut parsed_uri) = reqwest::Url::parse(uri) {
+                                            let _ = parsed_uri.set_host(Some(target_host));
+                                            *uri = parsed_uri.to_string();
+                                        }
+                                    }
+                                }
+                            }
 
                             let (transport, downloadable, playable, confidence) =
                                 classify_isapi_record(
