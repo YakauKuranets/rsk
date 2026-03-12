@@ -3833,7 +3833,36 @@ async fn download_isapi_playback_uri(
     let port = parsed.port_or_known_default().unwrap_or(80);
 
     let mut request_url = reqwest::Url::parse(&format!("http://{}:{}/ISAPI/ContentMgmt/download", host, port)).map_err(|e| e.to_string())?;
-    let clean_uri = playback_uri.replace("&amp;", "&");
+
+    // 🔥 ХИРУРГИЯ: Мимикрия под браузер. Форматируем ссылку так, как требует кривой API камеры!
+    let mut clean_uri = playback_uri.replace("&amp;", "&");
+    if let Ok(mut parsed_inner) = reqwest::Url::parse(&clean_uri) {
+        let _ = parsed_inner.set_port(None); // Камера ненавидит порт в этой ссылке
+        let _ = parsed_inner.set_username(""); // Убираем логин
+        let _ = parsed_inner.set_password(None);
+
+        let mut query_pairs = Vec::new();
+        for (k, v) in parsed_inner.query_pairs() {
+            let mut val = v.to_string();
+            // Превращаем компактное время (20260312T161905Z) в развернутое (2026-03-12 16:19:05Z)
+            if k == "starttime" || k == "endtime" {
+                let ct = val.replace("-", "").replace(":", "").replace("%20", " ").replace(" ", "T");
+                if ct.len() >= 15 {
+                    val = format!("{}-{}-{} {}:{}:{}Z",
+                        &ct[0..4], &ct[4..6], &ct[6..8],
+                        &ct[9..11], &ct[11..13], &ct[13..15]
+                    );
+                }
+            }
+            query_pairs.push((k.into_owned(), val));
+        }
+        parsed_inner.query_pairs_mut().clear();
+        for (k, v) in query_pairs {
+            parsed_inner.query_pairs_mut().append_pair(&k, &v);
+        }
+        clean_uri = parsed_inner.to_string();
+    }
+
     request_url.query_pairs_mut().append_pair("playbackURI", &clean_uri);
 
     let mut current_offset = 0u64;
