@@ -3868,7 +3868,7 @@ async fn download_isapi_playback_uri(
             .host_str()
             .ok_or_else(|| "Bad URI: empty host".to_string())?
             .to_string();
-        let p = parsed.port_or_known_default().unwrap_or(80);
+        let p = parsed.port().unwrap_or(2019);
         (h, p)
     };
 
