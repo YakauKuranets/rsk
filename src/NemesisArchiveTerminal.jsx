@@ -614,7 +614,26 @@ export default function NemesisArchiveTerminal({ target, onClose }) {
                     <div style={{ flex:2,color:'#9fd7ff',fontSize:10,fontFamily:'monospace',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap' }} title={`transport=${item.transport||'-'} conf=${item.confidence??0} playable=${String(isPlayableRecord(item))} downloadable=${String(isDownloadableRecord(item))}`}>{`${fid}${chunkLabel}`}</div>
                     <div style={{ flex:1,color:'#7fa9cb',fontSize:10,fontFamily:'monospace' }}>{item.startTime?.replace('T',' ').replace('Z','')||'\u2014'}</div>
                     <div style={{ flex:1,color:'#7fa9cb',fontSize:10,fontFamily:'monospace' }}>{item.endTime?.replace('T',' ').replace('Z','')||'\u2014'}</div>
-                    <div style={{ width:65,textAlign:'right',color:'#ff9900',fontSize:10,fontFamily:'monospace' }}>\u2014</div>
+                    <div style={{ width:65,textAlign:'right',color:'#ff9900',fontSize:10,fontFamily:'monospace' }}>
+                      {(() => {
+                        // Если бекенд прислал вес напрямую
+                        if (item.fileSize) return formatBytes(item.fileSize);
+
+                        // 🔥 МАГИЯ: Ищем скрытый параметр size= в ссылке от камеры
+                        const match = (item.playbackUri || '').match(/size=(\d+)/i);
+                        if (match && match[1]) {
+                          const bytes = Number(match[1]);
+                          if (bytes === 0) return '0 B';
+                          const k = 1024;
+                          const sizes = ['B', 'KB', 'MB', 'GB'];
+                          const i = Math.floor(Math.log(bytes) / Math.log(k));
+                          return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+                        }
+
+                        // Если камера вообще ничего не дала
+                        return '\u2014';
+                      })()}
+                    </div>
                     <div style={{ width:100,display:'flex',gap:4,justifyContent:'center' }}>
                       {ds==='done'?<span style={{color:'#00ff9c',fontSize:9,fontFamily:'monospace'}}>{'\u2713'} OK</span>
                        :ds==='error'?<span style={{color:'#ff003c',fontSize:9,fontFamily:'monospace'}}>{'\u2716'} ERR</span>
