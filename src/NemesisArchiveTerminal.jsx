@@ -311,7 +311,9 @@ export default function NemesisArchiveTerminal({ target, onClose }) {
           playbackUri: chunkItems[i]?.playbackUri || normalizedUri,
           login: target.login || 'admin',
           pass: target.password || '',
-          sourceHost: target.host || '',
+          // Важно: для direct ISAPI используем endpoint записи (host:port из search),
+          // чтобы разные типы терминалов не ломали друг друга из-за единого sourceHost.
+          sourceHost: chunkItems[i]?.endpoint || target.host || '',
           filenameHint: `${target.host.replace(/\./g, '_')}_cam${camera}_${idx}.mp4`,
           taskId: `${taskId}_p${i + 1}`,
         });
