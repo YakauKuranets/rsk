@@ -4583,15 +4583,19 @@ async fn capture_archive_segment(
     duration_seconds: Option<u64>,
     extra_headers: Option<String>,
     task_id: Option<String>,
-    _login: Option<String>,
-    _pass: Option<String>,
+    login: Option<String>,
+    pass: Option<String>,
     log_state: State<'_, LogState>,
     cancel_state: State<'_, DownloadCancelState>,
     ffmpeg_limiter: State<'_, FfmpegLimiterState>,
 ) -> Result<DownloadReport, String> {
-    if source_url.trim().is_empty() { return Err("Пустой source_url".into()); }
+    if source_url.trim().is_empty() {
+        return Err("Пустой source_url".into());
+    }
     let task_key = task_id.unwrap_or_else(|| format!("capture_{}", Utc::now().timestamp_millis()));
-    if let Ok(mut cancelled) = cancel_state.cancelled_tasks.lock() { cancelled.remove(&task_key); }
+    if let Ok(mut cancelled) = cancel_state.cancelled_tasks.lock() {
+        cancelled.remove(&task_key);
+    }
 
     let permit = ffmpeg_limiter
         .semaphore
@@ -4600,25 +4604,83 @@ async fn capture_archive_segment(
         .await
         .map_err(|e| format!("Не удалось занять слот FFmpeg: {}", e))?;
     let duration = duration_seconds.unwrap_or(60);
-    let mut filename = filename_hint.map(|s| sanitize_filename_component(&s)).filter(|s| !s.is_empty()).unwrap_or_else(|| format!("archive_{}.mp4", Utc::now().format("%Y%m%d_%H%M%S")));
-    if !filename.contains('.') { filename.push_str(".mp4"); }
+    let mut filename = filename_hint
+        .map(|s| sanitize_filename_component(&s))
+        .filter(|s| !s.is_empty())
+        .unwrap_or_else(|| format!("archive_{}.mp4", Utc::now().format("%Y%m%d_%H%M%S")));
+    if !filename.contains('.') {
+        filename.push_str(".mp4");
+    }
 
     let path = get_vault_path().join("archives").join("captures").join(&filename);
     let _ = std::fs::create_dir_all(path.parent().unwrap());
     let output_path = path.to_string_lossy().to_string();
 
-    let log_file_path = get_vault_path().join("archives").join("captures").join(format!("{}.log", filename));
+    let log_file_path = get_vault_path()
+        .join("archives")
+        .join("captures")
+        .join(format!("{}.log", filename));
+
+    let mut final_url = source_url.clone();
+    if final_url.to_lowercase().starts_with("rtsp://") {
+        if let Ok(mut parsed) = reqwest::Url::parse(&final_url) {
+            if matches!(parsed.port(), Some(2019 | 80 | 8080)) {
+                let _ = parsed.set_port(Some(554));
+            }
+            if let Some(ref l) = login {
+                let _ = parsed.set_username(l);
+                if let Some(ref p) = pass {
+                    let _ = parsed.set_password(Some(p));
+                }
+            }
+            final_url = parsed.to_string();
+        }
+    }
+
+    let masked_url = match reqwest::Url::parse(&final_url) {
+        Ok(mut u) => {
+            let has_user = !u.username().is_empty();
+            if has_user {
+                let _ = u.set_password(Some("***"));
+            }
+            u.to_string()
+        }
+        Err(_) => final_url.clone(),
+    };
+    push_runtime_log(&log_state, format!("CAPTURE SMART URL: {}", masked_url));
 
     let mut args: Vec<String> = Vec::new();
-    let source_lc = source_url.to_lowercase();
+    let source_lc = final_url.to_lowercase();
     if source_lc.starts_with("rtsp://") {
         args.extend_from_slice(&["-rtsp_transport".into(), "tcp".into()]);
     } else {
-        args.extend_from_slice(&["-reconnect".into(), "1".into(), "-reconnect_at_eof".into(), "1".into(), "-reconnect_streamed".into(), "1".into(), "-reconnect_delay_max".into(), "5".into()]);
-        if let Some(ref h) = extra_headers { args.extend_from_slice(&["-headers".into(), h.clone()]); }
+        args.extend_from_slice(&[
+            "-reconnect".into(),
+            "1".into(),
+            "-reconnect_at_eof".into(),
+            "1".into(),
+            "-reconnect_streamed".into(),
+            "1".into(),
+            "-reconnect_delay_max".into(),
+            "5".into(),
+        ]);
+        if let Some(ref h) = extra_headers {
+            args.extend_from_slice(&["-headers".into(), h.clone()]);
+        }
     }
 
-    args.extend_from_slice(&["-y".into(), "-i".into(), source_url.clone(), "-t".into(), duration.to_string(), "-c".into(), "copy".into(), "-movflags".into(), "+faststart".into(), output_path.clone()]);
+    args.extend_from_slice(&[
+        "-y".into(),
+        "-i".into(),
+        final_url,
+        "-t".into(),
+        duration.to_string(),
+        "-c".into(),
+        "copy".into(),
+        "-movflags".into(),
+        "+faststart".into(),
+        output_path.clone(),
+    ]);
 
     let log_file = std::fs::File::create(&log_file_path).map_err(|e| e.to_string())?;
 
@@ -4634,8 +4696,15 @@ async fn capture_archive_segment(
     let mut last_size: u64 = 0;
 
     loop {
-        if cancel_state.cancelled_tasks.lock().map(|s| s.contains(&task_key)).unwrap_or(false) {
-            let _ = child.kill(); let _ = child.wait(); let _ = std::fs::remove_file(&path);
+        if cancel_state
+            .cancelled_tasks
+            .lock()
+            .map(|s| s.contains(&task_key))
+            .unwrap_or(false)
+        {
+            let _ = child.kill();
+            let _ = child.wait();
+            let _ = std::fs::remove_file(&path);
             drop(permit);
             return Err("Захват отменён".into());
         }
@@ -4644,14 +4713,32 @@ async fn capture_archive_segment(
             Ok(Some(status)) => {
                 if !status.success() {
                     let err_log = std::fs::read_to_string(&log_file_path).unwrap_or_default();
-                    let tail = err_log.lines().rev().take(3).collect::<Vec<_>>().into_iter().rev().collect::<Vec<_>>().join(" | ");
+                    let tail = err_log
+                        .lines()
+                        .rev()
+                        .take(3)
+                        .collect::<Vec<_>>()
+                        .into_iter()
+                        .rev()
+                        .collect::<Vec<_>>()
+                        .join(" | ");
 
-                    if err_log.contains("Invalid data") || err_log.contains("codec not currently supported") {
-                        push_runtime_log(&log_state, "FFmpeg copy failed, retrying with re-encode".to_string());
-                        let mut retry_args: Vec<String> = args.iter().map(|a| if a == "copy" { "libx264".to_string() } else { a.clone() }).collect();
+                    if err_log.contains("Invalid data")
+                        || err_log.contains("codec not currently supported")
+                    {
+                        push_runtime_log(
+                            &log_state,
+                            "FFmpeg copy failed, retrying with re-encode".to_string(),
+                        );
+                        let mut retry_args: Vec<String> = args
+                            .iter()
+                            .map(|a| if a == "copy" { "libx264".to_string() } else { a.clone() })
+                            .collect();
                         let out_idx = retry_args.len() - 1;
-                        retry_args.insert(out_idx, "-preset".into()); retry_args.insert(out_idx + 1, "fast".into());
-                        retry_args.insert(out_idx + 2, "-crf".into()); retry_args.insert(out_idx + 3, "28".into());
+                        retry_args.insert(out_idx, "-preset".into());
+                        retry_args.insert(out_idx + 1, "fast".into());
+                        retry_args.insert(out_idx + 2, "-crf".into());
+                        retry_args.insert(out_idx + 3, "28".into());
 
                         let log_file2 = std::fs::File::create(&log_file_path)
                             .map_err(|e| format!("Ошибка создания лога: {}", e))?;
@@ -4664,7 +4751,12 @@ async fn capture_archive_segment(
 
                         let timeout_secs = duration + 30;
                         loop {
-                            if cancel_state.cancelled_tasks.lock().map(|s| s.contains(&task_key)).unwrap_or(false) {
+                            if cancel_state
+                                .cancelled_tasks
+                                .lock()
+                                .map(|s| s.contains(&task_key))
+                                .unwrap_or(false)
+                            {
                                 let _ = child2.kill();
                                 let _ = child2.wait();
                                 let _ = std::fs::remove_file(&path);
@@ -4675,7 +4767,8 @@ async fn capture_archive_segment(
                             match child2.try_wait() {
                                 Ok(Some(status2)) => {
                                     if !status2.success() {
-                                        let err_log2 = std::fs::read_to_string(&log_file_path).unwrap_or_default();
+                                        let err_log2 = std::fs::read_to_string(&log_file_path)
+                                            .unwrap_or_default();
                                         let tail2 = err_log2
                                             .lines()
                                             .rev()
@@ -4713,20 +4806,28 @@ async fn capture_archive_segment(
                 break;
             }
             Ok(None) => {}
-            Err(e) => { drop(permit); return Err(format!("Ошибка ожидания FFmpeg: {}", e)); }
+            Err(e) => {
+                drop(permit);
+                return Err(format!("Ошибка ожидания FFmpeg: {}", e));
+            }
         }
 
         if last_progress.elapsed() >= std::time::Duration::from_secs(2) {
             let current_size = std::fs::metadata(&path).map(|m| m.len()).unwrap_or(last_size);
             if current_size > last_size {
-                push_runtime_log(&log_state, format!("DOWNLOAD_PROGRESS|{}|{}|0", task_key, current_size));
+                push_runtime_log(
+                    &log_state,
+                    format!("DOWNLOAD_PROGRESS|{}|{}|0", task_key, current_size),
+                );
                 last_size = current_size;
             }
             last_progress = std::time::Instant::now();
         }
 
         if started.elapsed() > std::time::Duration::from_secs(duration + 30) {
-            let _ = child.kill(); let _ = child.wait(); break;
+            let _ = child.kill();
+            let _ = child.wait();
+            break;
         }
         tokio::time::sleep(Duration::from_millis(500)).await;
     }
@@ -4738,7 +4839,16 @@ async fn capture_archive_segment(
         return Err("Нет данных от источника. Проверьте правильность порта.".into());
     }
 
-    Ok(DownloadReport { server_alias: "capture".into(), filename, save_path: output_path, bytes_written, total_bytes: bytes_written, duration_ms: started.elapsed().as_millis(), resumed: false, skipped_as_complete: false })
+    Ok(DownloadReport {
+        server_alias: "capture".into(),
+        filename,
+        save_path: output_path,
+        bytes_written,
+        total_bytes: bytes_written,
+        duration_ms: started.elapsed().as_millis(),
+        resumed: false,
+        skipped_as_complete: false,
+    })
 }
 
 
