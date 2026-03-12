@@ -3817,7 +3817,7 @@ async fn download_isapi_playback_uri(
     playback_uri: String,
     login: String,
     pass: String,
-    _source_host: Option<String>,
+    source_host: Option<String>,
     filename_hint: Option<String>,
     task_id: Option<String>,
     log_state: State<'_, LogState>,
@@ -3842,8 +3842,35 @@ async fn download_isapi_playback_uri(
     let client = reqwest::Client::builder().timeout(Duration::from_secs(60)).danger_accept_invalid_certs(true).user_agent("Mozilla/5.0 (X11; Linux x86_64; rv:140.0) Gecko/20100101 Firefox/140.0").build().map_err(|e| e.to_string())?;
 
     let parsed = reqwest::Url::parse(&playback_uri).map_err(|e| format!("Bad URI: {}", e))?;
-    let host = parsed.host_str().ok_or_else(|| "Bad URI: empty host".to_string())?;
-    let port = parsed.port_or_known_default().unwrap_or(80);
+
+    // Приоритет endpoint-хоста: если frontend передал source_host (внешний/доступный адрес NVR),
+    // используем его для HTTP download endpoint, а playback_uri оставляем как payload.
+    let (host, port) = if let Some(src) = source_host.as_ref().map(|s| s.trim()).filter(|s| !s.is_empty()) {
+        let normalized = if src.contains("://") { src.to_string() } else { format!("http://{}", src) };
+        if let Ok(src_url) = reqwest::Url::parse(&normalized) {
+            let h = src_url
+                .host_str()
+                .ok_or_else(|| "Bad source_host: empty host".to_string())?
+                .to_string();
+            let p = src_url.port_or_known_default().unwrap_or(2019);
+            (h, p)
+        } else {
+            let mut parts = src.split(':');
+            let h = parts.next().unwrap_or_default().trim();
+            if h.is_empty() {
+                return Err("Bad source_host: empty host".into());
+            }
+            let p = parts.next().and_then(|x| x.parse::<u16>().ok()).unwrap_or(2019);
+            (h.to_string(), p)
+        }
+    } else {
+        let h = parsed
+            .host_str()
+            .ok_or_else(|| "Bad URI: empty host".to_string())?
+            .to_string();
+        let p = parsed.port_or_known_default().unwrap_or(80);
+        (h, p)
+    };
 
     let request_path = "/ISAPI/ContentMgmt/download";
 
