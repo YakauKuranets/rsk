@@ -3135,17 +3135,11 @@ async fn search_isapi_recordings(
 
                         let mut items = Vec::with_capacity(count);
                         for i in 0..count {
-                            let start_time_raw = starts.get(i).cloned();
-                            let end_time_raw = ends.get(i).cloned();
-                            let (start_time, end_time, overlaps_request) =
-                                clamp_isapi_item_window(start_time_raw, end_time_raw, &from, &to);
-                            if !overlaps_request {
-                                continue;
-                            }
-                            let playback_uri = uris
-                                .get(i)
-                                .cloned()
-                                .map(|u| clamp_isapi_playback_uri_window(&u, &from, &to));
+                            // 🔥 БОЛЬШЕ НИКАКИХ ПОДМЕН ВРЕМЕНИ! БЕРЕМ ЧИСТУЮ ПРАВДУ ОТ КАМЕРЫ!
+                            let start_time = starts.get(i).cloned();
+                            let end_time = ends.get(i).cloned();
+                            let playback_uri = uris.get(i).cloned();
+
                             let (transport, downloadable, playable, confidence) =
                                 classify_isapi_record(
                                     playback_uri.as_deref(),
@@ -3167,13 +3161,6 @@ async fn search_isapi_recordings(
                         }
 
                         if items.is_empty() {
-                            push_runtime_log(
-                                &log_state,
-                                format!(
-                                    "ISAPI search[{run_id}] parsed items do not overlap requested window: endpoint={} tid={} variant={}",
-                                    endpoint, tid, variant_name
-                                ),
-                            );
                             continue;
                         }
 
@@ -3824,37 +3811,37 @@ async fn download_isapi_playback_uri(
     cancel_state: State<'_, DownloadCancelState>,
     _ffmpeg_limiter: State<'_, FfmpegLimiterState>,
 ) -> Result<DownloadReport, String> {
-    let task_key = task_id.unwrap_or_else(|| format!("isapi_{}", Utc::now().timestamp_millis()));
+    if playback_uri.trim().is_empty() { return Err("Пустой playback_uri".into()); }
+
+    let task_key = make_unique_task_key(task_id, "isapi");
     let started = std::time::Instant::now();
 
     if let Ok(mut cancelled) = cancel_state.cancelled_tasks.lock() { cancelled.remove(&task_key); }
 
-    let mut filename = filename_hint.unwrap_or_else(|| format!("isapi_record_{}.mp4", Utc::now().timestamp()));
+    let mut filename = filename_hint.map(|s| sanitize_filename_component(&s)).filter(|s| !s.is_empty()).unwrap_or_else(|| format!("isapi_record_{}.mp4", Utc::now().timestamp()));
     if !filename.contains('.') { filename.push_str(".mp4"); }
+
     let path = get_vault_path().join("archives").join("isapi").join(&filename);
     let _ = std::fs::create_dir_all(path.parent().unwrap());
 
-    push_runtime_log(&log_state, format!("ISAPI GET (SAFE): {} [task:{}]", filename, task_key));
+    push_runtime_log(&log_state, format!("ISAPI SMART GET: {} [task:{}]", filename, task_key));
 
-    let client = reqwest::Client::builder()
-        .timeout(Duration::from_secs(60))
-        .danger_accept_invalid_certs(true)
-        .build()
-        .map_err(|e| e.to_string())?;
+    let client = reqwest::Client::builder().timeout(Duration::from_secs(60)).danger_accept_invalid_certs(true).user_agent("Mozilla/5.0 (X11; Linux x86_64; rv:140.0) Gecko/20100101 Firefox/140.0").build().map_err(|e| e.to_string())?;
 
-    let parsed = reqwest::Url::parse(&playback_uri).map_err(|e| e.to_string())?;
-    let host = parsed.host_str().unwrap_or_default();
+    let parsed = reqwest::Url::parse(&playback_uri).map_err(|e| format!("Bad URI: {}", e))?;
+    let host = parsed.host_str().ok_or_else(|| "Bad URI: empty host".to_string())?;
     let port = parsed.port_or_known_default().unwrap_or(80);
 
+    let mut request_url = reqwest::Url::parse(&format!("http://{}:{}/ISAPI/ContentMgmt/download", host, port)).map_err(|e| e.to_string())?;
     let clean_uri = playback_uri.replace("&amp;", "&");
-    let raw_url = format!("http://{}:{}/ISAPI/ContentMgmt/download?playbackURI={}", host, port, clean_uri);
+    request_url.query_pairs_mut().append_pair("playbackURI", &clean_uri);
 
     let mut current_offset = 0u64;
     let mut total_size = 0u64;
-    let mut retries = 0;
+    let mut retries: u8 = 0;
     let mut digest_cache: Option<String> = None;
 
-    let mut file = std::fs::OpenOptions::new().create(true).write(true).truncate(true).open(&path).map_err(|e| e.to_string())?;
+    let mut file = OpenOptions::new().create(true).write(true).truncate(true).open(&path).map_err(|e| e.to_string())?;
     let progress_step = 2 * 1024 * 1024u64;
     let mut next_mark = progress_step;
 
@@ -3863,17 +3850,12 @@ async fn download_isapi_playback_uri(
             let _ = std::fs::remove_file(&path); return Err("Отменено".into());
         }
 
-        let mut req = client.get(&raw_url)
-            .header("User-Agent", "Mozilla/5.0 (X11; Linux x86_64; rv:140.0) Gecko/20100101 Firefox/140.0")
-            .header("Accept", "*/*")
-            .header("X-Requested-With", "XMLHttpRequest")
-            .header("Referer", format!("http://{}:{}/doc/page/download.asp?fileType=record", host, port));
-
+        let mut req = client.get(request_url.clone());
         if current_offset > 0 { req = req.header("Range", format!("bytes={}-", current_offset)); }
 
         if let Some(ref auth) = digest_cache {
             if let Ok(mut prompt) = digest_auth::parse(auth) {
-                let mut ctx = digest_auth::AuthContext::new(login.clone(), pass.clone(), "/ISAPI/ContentMgmt/download".to_string());
+                let mut ctx = digest_auth::AuthContext::new(login.clone(), pass.clone(), request_url.path().to_string());
                 ctx.method = digest_auth::HttpMethod::GET;
                 if let Ok(answer) = prompt.respond(&ctx) { req = req.header("Authorization", answer.to_string()); }
             }
@@ -3890,9 +3872,10 @@ async fn download_isapi_playback_uri(
                     }
                 }
                 if !resp.status().is_success() {
-                    if retries > 3 { return Err(format!("Proxy/NVR HTTP Error {}", status)); }
+                    if retries > 3 { return Err(format!("NVR HTTP Error {}", status)); }
                     retries += 1; tokio::time::sleep(Duration::from_secs(3)).await; continue;
                 }
+
                 retries = 0;
                 if total_size == 0 { total_size = resp.content_length().unwrap_or(0) + current_offset; }
 
@@ -3907,19 +3890,22 @@ async fn download_isapi_playback_uri(
                         current_offset += data.len() as u64;
                         if current_offset >= next_mark {
                             push_runtime_log(&log_state, format!("DOWNLOAD_PROGRESS|{}|{}|{}", task_key, current_offset, total_size.max(current_offset)));
-                            next_mark += progress_step;
+                            next_mark = current_offset + progress_step;
                         }
                     } else { break; }
                 }
                 if current_offset >= total_size && total_size > 0 { break; }
-            },
+            }
             Err(e) => {
-                if retries > 3 { return Err(format!("Network Error: {}", e)); }
+                if retries > 3 { return Err(format!("Сбой сети: {}", e)); }
                 retries += 1; tokio::time::sleep(Duration::from_secs(3)).await;
             }
         }
     }
+
     push_runtime_log(&log_state, format!("ISAPI DOWNLOAD FINISHED: {} bytes", current_offset));
+    if let Ok(mut cancelled) = cancel_state.cancelled_tasks.lock() { cancelled.remove(&task_key); }
+
     Ok(DownloadReport { server_alias: "isapi_http".into(), filename, save_path: path.to_string_lossy().to_string(), bytes_written: current_offset, total_bytes: total_size.max(current_offset), duration_ms: started.elapsed().as_millis(), resumed: false, skipped_as_complete: false })
 }
 
