@@ -210,10 +210,10 @@ export default function NemesisArchiveTerminal({ target, onClose }) {
       log('⚠ Дождитесь завершения активных загрузок перед новым поиском', 'warn');
       return;
     }
-    setScanning(true); setRecords([]); setSelectedIndexes({}); setActiveDownloads({}); setPhase('scanning'); setStatusText('\u0421\u041a\u0410\u041d\u0418\u0420\u041e\u0412\u0410\u041d\u0418\u0415...');
+    setScanning(true); setRecords([]); setSelectedIndexes({}); setActiveDownloads({}); setPhase('scanning'); setStatusText('СКАНИРОВАНИЕ...');
     const from = timeFrom.replace(' ', 'T') + (timeFrom.includes('Z') ? '' : 'Z');
     const to = timeTo.replace(' ', 'T') + (timeTo.includes('Z') ? '' : 'Z');
-    log(`\ud83d\udd0e \u041f\u041e\u0418\u0421\u041a: ${timeFrom} \u2192 ${timeTo} | cam:${camera}`, 'info');
+    log(`🔎 ПОИСК: ${timeFrom} → ${timeTo} | cam:${camera}`, 'info');
     try {
       const channelNum = Number(String(camera).replace(/[^0-9]/g, ''));
       const cameraChannelId = Number.isFinite(channelNum) && channelNum > 0
@@ -229,18 +229,19 @@ export default function NemesisArchiveTerminal({ target, onClose }) {
         streamType: 1,
       });
       const filtered = (items || []).filter(i => i.playbackUri || i.startTime);
-      const expanded = filtered.flatMap((item) => splitRecordIntoChunks(item, 30));
+
+      // 🔥 ИСПРАВЛЕНИЕ: УБРАЛИ ФЕЙКОВУЮ НАРЕЗКУ (splitRecordIntoChunks). ТЕПЕРЬ ПОКАЗЫВАЕМ КАК ЕСТЬ!
+      const expanded = filtered;
+
       const downloadableCount = expanded.filter(isDownloadableRecord).length;
       const playableCount = expanded.filter(isPlayableRecord).length;
       const maxConfidence = expanded.reduce((m, x) => Math.max(m, Number(x?.confidence ?? 0) || 0), 0);
-      const splitExtra = Math.max(expanded.length - filtered.length, 0);
+
       setRecords(expanded); setPhase('ready'); setStatusText(`НАЙДЕНО: ${expanded.length}`);
-      log(`✅ Результат: ${expanded.length} записей | playable=${playableCount} | downloadable=${downloadableCount} | maxConf=${maxConfidence}`, 'ok');
-      if (splitExtra > 0) log(`ℹ Длинные записи автоматически разбиты на 30-мин сегменты (+${splitExtra})`, 'sys');
-      log(`ℹ Выбрано: 0 / ${playableCount} playable | осталось выбрать: ${playableCount}`, 'sys');
-      log('ℹ Шаги: выбери дату/время → Поиск → отметь записи → Загрузка из сети (или CAPTURE).', 'sys');
+      log(`✅ Результат: ${expanded.length} реальных блоков памяти | playable=${playableCount} | maxConf=${maxConfidence}`, 'ok');
+      log(`ℹ Выбрано: 0 / ${playableCount} | осталось выбрать: ${playableCount}`, 'sys');
     } catch (err) {
-      setPhase('ready'); setStatusText('\u041e\u0428\u0418\u0411\u041a\u0410'); log(`\u274c ${err}`, 'err');
+      setPhase('ready'); setStatusText('ОШИБКА'); log(`❌ ${err}`, 'err');
     } finally { setScanning(false); }
   };
 
@@ -276,18 +277,17 @@ export default function NemesisArchiveTerminal({ target, onClose }) {
     }
 
     const k = `dl_${idx}`; updateDownloadStatus(k, 'working');
-    log(`⬇ ЗАГРУЗКА #${idx+1}...`, 'info');
+    log(`⬇ ЗАГРУЗКА БЛОКА #${idx+1}...`, 'info');
     const taskId = `nem_${Date.now()}_${idx}`;
     try {
-      const chunkItems = splitRecordIntoChunks({ ...item, playbackUri: normalizedUri }, 30);
-      if (chunkItems.length > 1) {
-        log(`ℹ long segment detected: split into ${chunkItems.length} × 30min chunks`, 'sys');
-      }
+      // 🔥 ИСПРАВЛЕНИЕ: Передаем файл целиком, без дробления на чанки по 30 минут!
+      const chunkItems = [{ ...item, playbackUri: normalizedUri }];
+
       let lastReport = null;
       for (let i = 0; i < chunkItems.length; i += 1) {
         const chunkTaskId = `${taskId}_p${i + 1}`;
-        const chunkNameSuffix = chunkItems.length > 1 ? `_p${String(i + 1).padStart(2, '0')}` : '';
-        const filenameHint = `${target.host.replace(/\./g, '_')}_cam${camera}_${idx}${chunkNameSuffix}.mp4`;
+        const filenameHint = `${target.host.replace(/\./g, '_')}_cam${camera}_${idx}.mp4`;
+
         // eslint-disable-next-line no-await-in-loop
         const job = await invoke('start_archive_export_job', {
           playbackUri: chunkItems[i]?.playbackUri || normalizedUri,
@@ -299,15 +299,14 @@ export default function NemesisArchiveTerminal({ target, onClose }) {
         });
         if (!job?.report) {
           const reason = job?.finalReason || (job?.stages || []).filter((s) => !s.success).map((s) => `${s.stage}: ${s.reason || 'failed'}`).join(' || ');
-          throw new Error(`chunk ${i + 1}/${chunkItems.length}: ${reason || 'Archive export failed'}`);
+          throw new Error(`${reason || 'Archive export failed'}`);
         }
         lastReport = job.report;
-        log(`✅ chunk ${i + 1}/${chunkItems.length}: ${job.report.filename} (${(job.report.bytesWritten / 1048576).toFixed(1)} MB)`, 'ok');
       }
 
       const r = lastReport;
       updateDownloadStatus(k, 'done');
-      log(`✅ download complete: ${r.filename} (${(r.bytesWritten/1048576).toFixed(1)} MB)`, 'ok');
+      log(`✅ Сырой дамп скачан: ${r.filename} (${(r.bytesWritten/1048576).toFixed(1)} MB)`, 'ok');
       return true;
     } catch (e) {
       updateDownloadStatus(k, 'error');
