@@ -4007,7 +4007,7 @@ async fn download_isapi_playback_uri(
                             use_legacy_amp_mode = true;
                             retries = 0;
                             digest_cache = None;
-                            push_runtime_log(&log_state, "ISAPI direct: switching to legacy amp; playbackURI mode".into());
+                            push_runtime_log(&log_state, "ISAPI direct: switching to legacy amp; playbackURI mode");
                             tokio::time::sleep(Duration::from_millis(400)).await;
                             continue;
                         }
