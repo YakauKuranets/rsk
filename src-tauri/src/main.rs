@@ -3918,9 +3918,48 @@ async fn download_isapi_playback_uri(
         host, port, request_path, clean_uri
     );
 
+    // Fallback для OEM/Novicam: некоторые прошивки принимают только «кривой» web-ui формат
+    // c разделителем `&amp;` внутри playbackURI (вплоть до параметров вида amp;endtime).
+    let legacy_amp_playback_uri = reqwest::Url::parse(&clean_uri)
+        .ok()
+        .map(|u| {
+            let mut base = format!("{}://{}{}", u.scheme(), u.host_str().unwrap_or_default(), u.path());
+            let pairs: Vec<(String, String)> = u
+                .query_pairs()
+                .map(|(k, v)| {
+                    let mut vv = v.to_string().replace('+', "%20").replace(' ', "%20");
+                    if k == "starttime" || k == "endtime" {
+                        vv = vv.replace('+', "%20");
+                    }
+                    (k.into_owned(), vv)
+                })
+                .collect();
+            if !pairs.is_empty() {
+                let mut q = String::new();
+                for (i, (k, v)) in pairs.iter().enumerate() {
+                    if i > 0 {
+                        q.push_str("&amp;");
+                    }
+                    q.push_str(k);
+                    q.push('=');
+                    q.push_str(v);
+                }
+                base.push('?');
+                base.push_str(&q);
+            }
+            base
+        });
+    let legacy_request_url = legacy_amp_playback_uri.map(|legacy_uri| {
+        format!(
+            "http://{}:{}{}?playbackURI={}&onlyVerification=true",
+            host, port, request_path, legacy_uri
+        )
+    });
+
     let mut current_offset = 0u64;
     let mut total_size = 0u64;
     let mut retries: u8 = 0;
+    let mut use_legacy_amp_mode = false;
     let mut digest_cache: Option<String> = None;
 
     let mut file = OpenOptions::new().create(true).write(true).truncate(true).open(&path).map_err(|e| e.to_string())?;
@@ -3932,8 +3971,13 @@ async fn download_isapi_playback_uri(
             let _ = std::fs::remove_file(&path); return Err("Отменено".into());
         }
 
+        let active_request_url = if use_legacy_amp_mode {
+            legacy_request_url.as_deref().unwrap_or(&request_url)
+        } else {
+            &request_url
+        };
         let mut req = client
-            .get(&request_url)
+            .get(active_request_url)
             .header("Accept", "*/*")
             .header("X-Requested-With", "XMLHttpRequest")
             .header("Referer", format!("http://{}:{}/doc/page/download.asp?fileType=record", host, port));
@@ -3958,6 +4002,16 @@ async fn download_isapi_playback_uri(
                     }
                 }
                 if !resp.status().is_success() {
+                    if status == 400 && !use_legacy_amp_mode {
+                        if legacy_request_url.is_some() {
+                            use_legacy_amp_mode = true;
+                            retries = 0;
+                            digest_cache = None;
+                            push_runtime_log(&log_state, "ISAPI direct: switching to legacy amp; playbackURI mode".into());
+                            tokio::time::sleep(Duration::from_millis(400)).await;
+                            continue;
+                        }
+                    }
                     if retries > 3 { return Err(format!("NVR HTTP Error {}", status)); }
                     retries += 1; tokio::time::sleep(Duration::from_secs(3)).await; continue;
                 }
