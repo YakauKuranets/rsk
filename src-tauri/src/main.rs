@@ -4593,7 +4593,12 @@ async fn capture_archive_segment(
     let task_key = task_id.unwrap_or_else(|| format!("capture_{}", Utc::now().timestamp_millis()));
     if let Ok(mut cancelled) = cancel_state.cancelled_tasks.lock() { cancelled.remove(&task_key); }
 
-    let permit = ffmpeg_limiter.semaphore.clone().acquire_owned().await.unwrap();
+    let permit = ffmpeg_limiter
+        .semaphore
+        .clone()
+        .acquire_owned()
+        .await
+        .map_err(|e| format!("Не удалось занять слот FFmpeg: {}", e))?;
     let duration = duration_seconds.unwrap_or(60);
     let mut filename = filename_hint.map(|s| sanitize_filename_component(&s)).filter(|s| !s.is_empty()).unwrap_or_else(|| format!("archive_{}.mp4", Utc::now().format("%Y%m%d_%H%M%S")));
     if !filename.contains('.') { filename.push_str(".mp4"); }
@@ -4648,13 +4653,56 @@ async fn capture_archive_segment(
                         retry_args.insert(out_idx, "-preset".into()); retry_args.insert(out_idx + 1, "fast".into());
                         retry_args.insert(out_idx + 2, "-crf".into()); retry_args.insert(out_idx + 3, "28".into());
 
-                        let log_file2 = std::fs::File::create(&log_file_path).map_err(|e| e.to_string())?;
-                        let mut child2 = Command::new("ffmpeg").args(&retry_args).stdout(Stdio::null()).stderr(Stdio::from(log_file2)).spawn().map_err(|e| format!("FFmpeg re-encode failed: {}", e))?;
+                        let log_file2 = std::fs::File::create(&log_file_path)
+                            .map_err(|e| format!("Ошибка создания лога: {}", e))?;
+                        let mut child2 = Command::new("ffmpeg")
+                            .args(&retry_args)
+                            .stdout(Stdio::null())
+                            .stderr(Stdio::from(log_file2))
+                            .spawn()
+                            .map_err(|e| format!("Ошибка перезапуска FFmpeg: {}", e))?;
 
                         let timeout_secs = duration + 30;
                         loop {
-                            if let Ok(Some(_)) = child2.try_wait() { break; }
-                            if started.elapsed() > std::time::Duration::from_secs(timeout_secs) { let _ = child2.kill(); break; }
+                            if cancel_state.cancelled_tasks.lock().map(|s| s.contains(&task_key)).unwrap_or(false) {
+                                let _ = child2.kill();
+                                let _ = child2.wait();
+                                let _ = std::fs::remove_file(&path);
+                                drop(permit);
+                                return Err("Захват отменён".into());
+                            }
+
+                            match child2.try_wait() {
+                                Ok(Some(status2)) => {
+                                    if !status2.success() {
+                                        let err_log2 = std::fs::read_to_string(&log_file_path).unwrap_or_default();
+                                        let tail2 = err_log2
+                                            .lines()
+                                            .rev()
+                                            .take(3)
+                                            .collect::<Vec<_>>()
+                                            .into_iter()
+                                            .rev()
+                                            .collect::<Vec<_>>()
+                                            .join(" | ");
+                                        drop(permit);
+                                        return Err(format!("FFmpeg re-encode error: {}", tail2));
+                                    }
+                                    break;
+                                }
+                                Ok(None) => {}
+                                Err(e) => {
+                                    drop(permit);
+                                    return Err(format!("Ошибка ожидания FFmpeg re-encode: {}", e));
+                                }
+                            }
+
+                            if started.elapsed() > std::time::Duration::from_secs(timeout_secs) {
+                                let _ = child2.kill();
+                                let _ = child2.wait();
+                                drop(permit);
+                                return Err("FFmpeg re-encode timeout".into());
+                            }
                             tokio::time::sleep(Duration::from_millis(500)).await;
                         }
                     } else {
@@ -4687,7 +4735,7 @@ async fn capture_archive_segment(
     drop(permit);
     if bytes_written == 0 {
         let _ = std::fs::remove_file(&path);
-        return Err("Нет данных от источника".into());
+        return Err("Нет данных от источника. Проверьте правильность порта.".into());
     }
 
     Ok(DownloadReport { server_alias: "capture".into(), filename, save_path: output_path, bytes_written, total_bytes: bytes_written, duration_ms: started.elapsed().as_millis(), resumed: false, skipped_as_complete: false })
