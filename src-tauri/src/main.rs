@@ -752,35 +752,65 @@ async fn probe_rtsp_path(host: String, login: String, pass: String) -> Result<St
         "/cam/realmonitor?channel=1&subtype=0",
         "/live/ch1",
     ];
+    let base_host = normalize_host_for_scan(&host);
+    let rtsp_host = base_host
+        .split(':')
+        .next()
+        .unwrap_or(base_host.as_str())
+        .to_string();
+    let rtsp_ports = [554u16, 8554u16, 10554u16];
     let ffmpeg = get_ffmpeg_path();
     for sig in signatures {
-        let url = format!(
-            "rtsp://{}:{}@{}/{}",
-            login,
-            pass,
-            host,
-            sig.trim_start_matches('/')
-        );
-        let s = Command::new(&ffmpeg)
-            .args([
-                "-rtsp_transport",
-                "tcp",
-                "-i",
-                &url,
-                "-t",
-                "0.1",
-                "-f",
-                "null",
-                "-",
-            ])
-            .status();
-        if let Ok(status) = s {
-            if status.success() {
-                return Ok(sig.to_string());
+        for port in rtsp_ports {
+            let url = format!(
+                "rtsp://{}:{}@{}:{}/{}",
+                login,
+                pass,
+                rtsp_host,
+                port,
+                sig.trim_start_matches('/')
+            );
+            let s = Command::new(&ffmpeg)
+                .args([
+                    "-rtsp_transport",
+                    "tcp",
+                    "-i",
+                    &url,
+                    "-t",
+                    "0.1",
+                    "-f",
+                    "null",
+                    "-",
+                ])
+                .status();
+            if let Ok(status) = s {
+                if status.success() {
+                    return Ok(sig.to_string());
+                }
             }
         }
     }
     Err("Recon failed".into())
+}
+
+fn normalize_rtsp_url_for_stream(rtsp_url: &str) -> String {
+    let Ok(mut parsed) = reqwest::Url::parse(rtsp_url) else {
+        return rtsp_url.to_string();
+    };
+    if !matches!(parsed.scheme(), "rtsp" | "rtsps") {
+        return rtsp_url.to_string();
+    }
+    let host = parsed.host_str().unwrap_or_default().to_string();
+    if host.is_empty() {
+        return rtsp_url.to_string();
+    }
+
+    let current_port = parsed.port_or_known_default();
+    if matches!(current_port, Some(80 | 8080 | 2019 | 443 | 8443)) {
+        let _ = parsed.set_port(Some(554));
+        return parsed.to_string();
+    }
+    rtsp_url.to_string()
 }
 
 #[tauri::command]
@@ -872,6 +902,7 @@ fn start_stream(
 
     let log_file = std::fs::File::create(&log_file_path).map_err(|e| e.to_string())?;
 
+    let stream_input_url = normalize_rtsp_url_for_stream(&rtsp_url);
     let mut child = Command::new("ffmpeg")
         .args([
             "-y",
@@ -880,7 +911,7 @@ fn start_stream(
             "-fflags",
             "+genpts",
             "-i",
-            &rtsp_url,
+            &stream_input_url,
             "-an",
             "-c:v",
             "libx264",
@@ -931,7 +962,10 @@ fn start_stream(
                 &log_state,
                 format!("❌ FFMPEG STREAM FAILED: {}", last_lines),
             );
-            return Err(format!("Сбой стрима. Причина: {}", last_lines));
+            return Err(format!(
+                "Сбой стрима. URL={} Причина: {}",
+                stream_input_url, last_lines
+            ));
         }
         Ok(None) => {}
         Err(e) => return Err(format!("Не удалось проверить статус FFmpeg: {}", e)),
