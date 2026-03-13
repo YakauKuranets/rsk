@@ -14,7 +14,7 @@ use sha2::{Digest, Sha256};
 use std::collections::{HashMap, HashSet};
 use std::env;
 use std::fs::OpenOptions;
-use std::net::ToSocketAddrs;
+use std::net::{TcpStream as StdTcpStream, ToSocketAddrs};
 use std::path::PathBuf;
 use std::process::{Command, Stdio};
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -913,7 +913,29 @@ fn start_stream(
 
         let mut ports = vec![parsed.port()];
         if !has_port {
-            ports.extend([Some(554), Some(2019), Some(8554), Some(10554)]);
+            let mut discovered_ports = Vec::new();
+            for probe_port in [8554u16, 554u16, 10554u16] {
+                let addr = format!("{}:{}", host, probe_port);
+                let mut open = false;
+                if let Ok(mut resolved) = addr.to_socket_addrs() {
+                    if let Some(sock) = resolved.next() {
+                        open = StdTcpStream::connect_timeout(
+                            &sock,
+                            std::time::Duration::from_millis(250),
+                        )
+                        .is_ok();
+                    }
+                }
+                if open {
+                    discovered_ports.push(Some(probe_port));
+                }
+            }
+
+            if discovered_ports.is_empty() {
+                ports.extend([Some(554), Some(8554), Some(10554)]);
+            } else {
+                ports.extend(discovered_ports);
+            }
         }
 
         for p in ports.into_iter().flatten() {
