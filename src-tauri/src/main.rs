@@ -2608,6 +2608,7 @@ async fn search_isapi_recordings(
     let client = reqwest::Client::builder()
         .timeout(Duration::from_secs(15))
         .danger_accept_invalid_certs(true)
+        .cookie_store(true)
         .build()
         .map_err(|e| e.to_string())?;
 
@@ -2659,9 +2660,8 @@ async fn search_isapi_recordings(
         let mut endpoint_invalid_request = false;
         let mut endpoint_auth_rejected = false;
         let mut endpoint_last_error: Option<String> = None;
-        let mut endpoint_fast_reject = false;
 
-        'track_loop: for tid in &track_ids {
+        for tid in &track_ids {
             let xml_variants = vec![
                 (
                     "CMSearchDescription-webui-form",
@@ -3124,51 +3124,6 @@ async fn search_isapi_recordings(
                         }
                     };
 
-                    if is_2019 && endpoint_reachable && endpoint_invalid_request {
-                        let reason = endpoint_last_error.clone().unwrap_or_else(|| {
-                            "statusCode=6 (Invalid) для ContentMgmt/search".to_string()
-                        });
-                        push_runtime_log(
-                            &log_state,
-                            format!(
-                                "ISAPI search[{run_id}]: устройство отклоняет XML-шаблон запроса на :2019 ({}). Останавливаю дальнейший перебор немедленно.",
-                                reason
-                            ),
-                        );
-                        let diag_request = isapi_diagnostics_request_template(
-                            &clean_host,
-                            &endpoint,
-                            &reason,
-                            &from,
-                            &to,
-                            tid,
-                        );
-                        push_runtime_log(
-                            &log_state,
-                            format!(
-                                "ISAPI search[{run_id}] diagnostics request: {}",
-                                diag_request
-                            ),
-                        );
-                        endpoint_fast_reject = true;
-                        break 'track_loop;
-                    }
-
-                    if is_2019 && endpoint_reachable && endpoint_auth_rejected {
-                        let reason = endpoint_last_error.clone().unwrap_or_else(|| {
-                            "HTTP 401 Unauthorized/lock для ContentMgmt/search".to_string()
-                        });
-                        push_runtime_log(
-                            &log_state,
-                            format!(
-                                "ISAPI search[{run_id}]: устройство отклонило авторизацию на :2019 ({}). Останавливаю перебор вариантов/trackID немедленно.",
-                                reason
-                            ),
-                        );
-                        endpoint_fast_reject = true;
-                        break 'track_loop;
-                    }
-
                     if let Some(text) = text {
                         let starts: Vec<String> = start_re
                             .captures_iter(&text)
@@ -3288,19 +3243,6 @@ async fn search_isapi_recordings(
                     }
                 }
             }
-        }
-
-        if is_2019 && endpoint_fast_reject {
-            push_runtime_log(
-                &log_state,
-                format!(
-                    "ISAPI search[{run_id}]: :2019 отклоняет запросы ({}). Продолжаю fallback-порты.",
-                    endpoint_last_error
-                        .clone()
-                        .unwrap_or_else(|| "no_detailed_reason".to_string())
-                ),
-            );
-            continue;
         }
 
         if is_2019 && endpoint_reachable && endpoint_client_error {
