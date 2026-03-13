@@ -978,42 +978,68 @@ fn start_stream(
         ];
 
         if !host.is_empty() && !login.is_empty() {
-            let isapi_port = match parsed.port() {
-                Some(80) | Some(2019) => parsed.port().unwrap_or(80),
-                _ => 80,
-            };
-            match tauri::async_runtime::block_on(fetch_hikvision_active_channels(
-                host, isapi_port, login, pass,
-            )) {
-                Ok(active_channels) if !active_channels.is_empty() => {
-                    if !active_channels.contains(&channel) {
-                        return Err(format!(
-                            "Канал {} отключен на устройстве (ISAPI pre-flight)",
-                            channel
-                        ));
+            let mut isapi_ports: Vec<u16> = Vec::new();
+
+            for (k, v) in parsed.query_pairs() {
+                if (k == "http_port" || k == "web_port") && !v.is_empty() {
+                    if let Ok(p) = v.parse::<u16>() {
+                        isapi_ports.push(p);
                     }
-                    path_variants = vec![format!("/Streaming/Channels/{}02", channel)];
-                    push_runtime_log(
-                        &log_state,
-                        format!(
-                            "ISAPI pre-flight active channels: {:?}; using substream for channel {}",
-                            active_channels, channel
-                        ),
-                    );
                 }
-                Ok(_) => {
-                    push_runtime_log(
-                        &log_state,
-                        "ISAPI pre-flight returned empty channel list; using RTSP fallback"
-                            .to_string(),
-                    );
+            }
+
+            if let Some(p) = parsed.port() {
+                if p != 554 {
+                    isapi_ports.push(p);
                 }
-                Err(err) => {
-                    push_runtime_log(
-                        &log_state,
-                        format!("ISAPI pre-flight failed: {}. Using RTSP fallback", err),
-                    );
+            }
+
+            isapi_ports.extend([2019, 80]);
+            isapi_ports.sort_unstable();
+            isapi_ports.dedup();
+
+            let mut preflight_ok = false;
+            let mut last_preflight_err: Option<String> = None;
+            for isapi_port in isapi_ports {
+                match tauri::async_runtime::block_on(fetch_hikvision_active_channels(
+                    host, isapi_port, login, pass,
+                )) {
+                    Ok(active_channels) if !active_channels.is_empty() => {
+                        if !active_channels.contains(&channel) {
+                            return Err(format!(
+                                "Канал {} отключен на устройстве (ISAPI pre-flight)",
+                                channel
+                            ));
+                        }
+                        path_variants = vec![format!("/Streaming/Channels/{}02", channel)];
+                        push_runtime_log(
+                            &log_state,
+                            format!(
+                                "ISAPI pre-flight ok on port {}: active channels {:?}; using substream for channel {}",
+                                isapi_port, active_channels, channel
+                            ),
+                        );
+                        preflight_ok = true;
+                        break;
+                    }
+                    Ok(_) => {
+                        last_preflight_err =
+                            Some(format!("empty channel list on port {}", isapi_port));
+                    }
+                    Err(err) => {
+                        last_preflight_err = Some(format!("port {}: {}", isapi_port, err));
+                    }
                 }
+            }
+
+            if !preflight_ok {
+                push_runtime_log(
+                    &log_state,
+                    format!(
+                        "ISAPI pre-flight unavailable; using RTSP fallback ({})",
+                        last_preflight_err.unwrap_or_else(|| "unknown error".to_string())
+                    ),
+                );
             }
         }
 
