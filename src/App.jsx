@@ -149,6 +149,13 @@ export default function App() {
   const [spiderEnableOsintImport, setSpiderEnableOsintImport] = useState(false);
   const [spiderEnableTopologyDiscovery, setSpiderEnableTopologyDiscovery] = useState(false);
   const [spiderEnableSnapshotRefresh, setSpiderEnableSnapshotRefresh] = useState(false);
+  const [spiderEnableVideoStreamAnalyzer, setSpiderEnableVideoStreamAnalyzer] = useState(false);
+  const [spiderEnableCredentialDepthAudit, setSpiderEnableCredentialDepthAudit] = useState(false);
+  const [spiderEnablePassiveArpDiscovery, setSpiderEnablePassiveArpDiscovery] = useState(false);
+  const [spiderEnableUptimeMonitoring, setSpiderEnableUptimeMonitoring] = useState(false);
+  const [spiderEnableNeighborDiscovery, setSpiderEnableNeighborDiscovery] = useState(false);
+  const [spiderEnableThreatIntel, setSpiderEnableThreatIntel] = useState(false);
+  const [spiderEnableScheduledAudits, setSpiderEnableScheduledAudits] = useState(false);
   const [spiderRunning, setSpiderRunning] = useState(false);
   const [spiderReport, setSpiderReport] = useState(null);
   const [spiderTab, setSpiderTab] = useState('pages'); // pages|js|dirs|tech|sitemap // null | 'ok' | 'error'
@@ -1438,6 +1445,15 @@ const handleSecurityAudit = async () => {
             <label><input type="checkbox" checked={spiderEnableTopologyDiscovery} onChange={e => setSpiderEnableTopologyDiscovery(e.target.checked)} /> Topology</label>
             <label><input type="checkbox" checked={spiderEnableSnapshotRefresh} onChange={e => setSpiderEnableSnapshotRefresh(e.target.checked)} /> Snapshot Refresh</label>
           </div>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '4px', marginBottom: '6px', fontSize: '9px', color: '#b694df' }}>
+            <label><input type="checkbox" checked={spiderEnableVideoStreamAnalyzer} onChange={e => setSpiderEnableVideoStreamAnalyzer(e.target.checked)} /> Video Stream Info</label>
+            <label><input type="checkbox" checked={spiderEnableCredentialDepthAudit} onChange={e => setSpiderEnableCredentialDepthAudit(e.target.checked)} /> Credential Depth</label>
+            <label><input type="checkbox" checked={spiderEnablePassiveArpDiscovery} onChange={e => setSpiderEnablePassiveArpDiscovery(e.target.checked)} /> Passive ARP</label>
+            <label><input type="checkbox" checked={spiderEnableUptimeMonitoring} onChange={e => setSpiderEnableUptimeMonitoring(e.target.checked)} /> Uptime</label>
+            <label><input type="checkbox" checked={spiderEnableNeighborDiscovery} onChange={e => setSpiderEnableNeighborDiscovery(e.target.checked)} /> Neighbors</label>
+            <label><input type="checkbox" checked={spiderEnableThreatIntel} onChange={e => setSpiderEnableThreatIntel(e.target.checked)} /> Threat Intel</label>
+            <label><input type="checkbox" checked={spiderEnableScheduledAudits} onChange={e => setSpiderEnableScheduledAudits(e.target.checked)} /> Scheduled Audits</label>
+          </div>
 
           <button
             disabled={spiderRunning}
@@ -1456,6 +1472,13 @@ const handleSecurityAudit = async () => {
                   enableOsintImport: spiderEnableOsintImport,
                   enableTopologyDiscovery: spiderEnableTopologyDiscovery,
                   enableSnapshotRefresh: spiderEnableSnapshotRefresh,
+                  enableVideoStreamAnalyzer: spiderEnableVideoStreamAnalyzer,
+                  enableCredentialDepthAudit: spiderEnableCredentialDepthAudit,
+                  enablePassiveArpDiscovery: spiderEnablePassiveArpDiscovery,
+                  enableUptimeMonitoring: spiderEnableUptimeMonitoring,
+                  enableNeighborDiscovery: spiderEnableNeighborDiscovery,
+                  enableThreatIntel: spiderEnableThreatIntel,
+                  enableScheduledAudits: spiderEnableScheduledAudits,
                 });
                 setSpiderReport(report);
               } catch (err) {
@@ -1507,6 +1530,35 @@ const handleSecurityAudit = async () => {
                     <div key={`${m.module}_${i}`} style={{ color: '#ac90d5', marginBottom: '3px' }}>
                       {m.module}: {m.status} — {m.details}
                     </div>
+                  ))}
+                </div>
+              )}
+
+              {spiderReport.videoStreamInfo?.length > 0 && (
+                <div style={{ border: '1px solid #294a52', background: '#041014', padding: '6px', marginBottom: '6px', fontSize: '9px' }}>
+                  <div style={{ color: '#7fd7e8', fontWeight: 'bold', marginBottom: '4px' }}>🎥 VIDEO STREAM INFO</div>
+                  {spiderReport.videoStreamInfo.map((v, i) => (
+                    <div key={`${v.host}_${i}`} style={{ color: '#8ecad6', marginBottom: '3px' }}>
+                      {v.host}: {v.status} | {v.codec} | {v.resolution} | fps={v.fps} | br={v.bitrate}
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {spiderReport.passiveDevices?.length > 0 && (
+                <div style={{ border: '1px solid #355126', background: '#0b1406', padding: '6px', marginBottom: '6px', fontSize: '9px', maxHeight: '100px', overflowY: 'auto' }}>
+                  <div style={{ color: '#a3d58a', fontWeight: 'bold', marginBottom: '4px' }}>📡 PASSIVE DEVICES</div>
+                  {spiderReport.passiveDevices.map((d, i) => (
+                    <div key={`${d.ip}_${i}`} style={{ color: '#95c27e', marginBottom: '2px' }}>{d.ip} — {d.mac}</div>
+                  ))}
+                </div>
+              )}
+
+              {spiderReport.threatLinks?.length > 0 && (
+                <div style={{ border: '1px solid #5c3b1e', background: '#1a0f05', padding: '6px', marginBottom: '6px', fontSize: '9px' }}>
+                  <div style={{ color: '#ffc27a', fontWeight: 'bold', marginBottom: '4px' }}>⚠️ THREAT INTEL</div>
+                  {spiderReport.threatLinks.map((t, i) => (
+                    <div key={`${t.cve}_${i}`} style={{ color: '#e6b17a', marginBottom: '2px' }}>{t.cve}: {t.title} ({t.url})</div>
                   ))}
                 </div>
               )}
