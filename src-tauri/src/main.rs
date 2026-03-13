@@ -14,10 +14,9 @@ use sha2::{Digest, Sha256};
 use std::collections::{HashMap, HashSet};
 use std::env;
 use std::fs::OpenOptions;
-use std::io::Read;
 use std::net::{TcpStream as StdTcpStream, ToSocketAddrs};
 use std::path::PathBuf;
-use std::process::{ChildStdout, Command, Stdio};
+use std::process::{Command, Stdio};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, OnceLock};
 mod archive;
@@ -30,6 +29,8 @@ use tokio::sync::Semaphore;
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
     net::TcpStream,
+    process::{Child as TokioChild, ChildStdout as TokioChildStdout},
+    task::JoinHandle,
     time::{timeout, Duration},
 };
 use warp::Filter;
@@ -41,8 +42,10 @@ struct StreamState {
 }
 
 struct ActiveStreamProcess {
-    child: std::process::Child,
+    child: TokioChild,
     shutdown_ws: Option<tokio::sync::oneshot::Sender<()>>,
+    ws_task: Option<JoinHandle<()>>,
+    stdout_task: Option<JoinHandle<()>>,
 }
 
 struct VideodvorState {
@@ -527,59 +530,82 @@ async fn external_search(
 }
 
 // --- НОВЫЙ МОДУЛЬ: FFMPEG ТУННЕЛЬ ДЛЯ ХАБА ---
-fn spawn_ws_relay(
-    target_id: &str,
-    mut stdout: ChildStdout,
-) -> Result<(String, tokio::sync::oneshot::Sender<()>), String> {
-    let listener = std::net::TcpListener::bind("127.0.0.1:0").map_err(|e| e.to_string())?;
+struct WsRelayHandles {
+    ws_url: String,
+    shutdown_tx: tokio::sync::oneshot::Sender<()>,
+    ws_task: JoinHandle<()>,
+    stdout_task: JoinHandle<()>,
+}
+
+async fn spawn_ws_relay(
+    target_id: String,
+    mut stdout: TokioChildStdout,
+) -> Result<WsRelayHandles, String> {
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+        .await
+        .map_err(|e| e.to_string())?;
     let port = listener.local_addr().map_err(|e| e.to_string())?.port();
-    listener.set_nonblocking(true).map_err(|e| e.to_string())?;
-    let listener = tokio::net::TcpListener::from_std(listener).map_err(|e| e.to_string())?;
 
     let (tx, _) = tokio::sync::broadcast::channel::<Vec<u8>>(64);
     let (shutdown_tx, mut shutdown_rx) = tokio::sync::oneshot::channel::<()>();
 
-    let read_tx = tx.clone();
-    std::thread::spawn(move || {
-        let mut buffer = [0u8; 8192];
+    let tx_stdout = tx.clone();
+    let stdout_task = tauri::async_runtime::spawn(async move {
+        let mut buffer = vec![0u8; 8192];
         loop {
-            match stdout.read(&mut buffer) {
+            match stdout.read(&mut buffer).await {
                 Ok(0) => break,
                 Ok(n) => {
-                    let _ = read_tx.send(buffer[..n].to_vec());
+                    let _ = tx_stdout.send(buffer[..n].to_vec());
                 }
                 Err(_) => break,
             }
         }
     });
 
-    std::thread::spawn(move || {
-        let rt = tokio::runtime::Runtime::new().expect("ws relay runtime");
-        rt.block_on(async move {
-            loop {
-                tokio::select! {
-                    _ = &mut shutdown_rx => break,
-                    incoming = listener.accept() => {
-                        let Ok((stream, _)) = incoming else { continue; };
-                        let mut rx = tx.subscribe();
-                        tokio::spawn(async move {
-                            let Ok(ws) = tokio_tungstenite::accept_async(stream).await else { return; };
-                            let (mut sink, _) = ws.split();
-                            while let Ok(chunk) = rx.recv().await {
-                                if sink.send(tokio_tungstenite::tungstenite::Message::Binary(chunk.into())).await.is_err() {
-                                    break;
-                                }
+    let ws_task = tauri::async_runtime::spawn(async move {
+        loop {
+            tokio::select! {
+                _ = &mut shutdown_rx => break,
+                incoming = listener.accept() => {
+                    let Ok((stream, _)) = incoming else { continue; };
+                    let mut rx = tx.subscribe();
+                    tauri::async_runtime::spawn(async move {
+                        let Ok(ws) = tokio_tungstenite::accept_async(stream).await else { return; };
+                        let (mut sink, _) = ws.split();
+                        while let Ok(chunk) = rx.recv().await {
+                            if sink.send(tokio_tungstenite::tungstenite::Message::Binary(chunk.into())).await.is_err() {
+                                break;
                             }
-                        });
-                    }
+                        }
+                    });
                 }
             }
-        });
+        }
     });
 
-    let ws_url = format!("ws://127.0.0.1:{}/stream/{}", port, target_id);
+    let ws_url = format!("ws://127.0.0.1:{}", port);
     println!("WS relay ready for stream {}: {}", target_id, ws_url);
-    Ok((ws_url, shutdown_tx))
+
+    Ok(WsRelayHandles {
+        ws_url,
+        shutdown_tx,
+        ws_task,
+        stdout_task,
+    })
+}
+
+fn terminate_stream_process(mut stream: ActiveStreamProcess) {
+    if let Some(shutdown) = stream.shutdown_ws.take() {
+        let _ = shutdown.send(());
+    }
+    if let Some(ws_task) = stream.ws_task.take() {
+        ws_task.abort();
+    }
+    if let Some(stdout_task) = stream.stdout_task.take() {
+        stdout_task.abort();
+    }
+    let _ = stream.child.start_kill();
 }
 
 fn start_hub_stream(
@@ -599,12 +625,8 @@ fn start_hub_stream(
     );
     {
         let mut streams = state.active_streams.lock().unwrap();
-        if let Some(mut old) = streams.remove(&target_id) {
-            if let Some(shutdown) = old.shutdown_ws.take() {
-                let _ = shutdown.send(());
-            }
-            let _ = old.child.kill();
-            let _ = old.child.wait();
+        if let Some(old) = streams.remove(&target_id) {
+            terminate_stream_process(old);
         }
     }
 
@@ -613,7 +635,7 @@ fn start_hub_stream(
         user_id, channel_id
     );
 
-    let mut child = Command::new("ffmpeg")
+    let mut child = tokio::process::Command::new("ffmpeg")
         .args([
             "-headers",
             &format!(
@@ -632,24 +654,26 @@ fn start_hub_stream(
             "pipe:1",
         ])
         .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
+        .stderr(Stdio::null())
         .spawn()
-        .map_err(|e| e.to_string())?;
+        .map_err(|e| format!("FFmpeg start error: {}", e))?;
 
     let stdout = child
         .stdout
         .take()
         .ok_or_else(|| "FFmpeg stdout not captured".to_string())?;
-    let (ws_url, ws_shutdown) = spawn_ws_relay(&target_id, stdout)?;
+    let relay = tauri::async_runtime::block_on(spawn_ws_relay(target_id.clone(), stdout))?;
 
     state.active_streams.lock().unwrap().insert(
         target_id.clone(),
         ActiveStreamProcess {
             child,
-            shutdown_ws: Some(ws_shutdown),
+            shutdown_ws: Some(relay.shutdown_tx),
+            ws_task: Some(relay.ws_task),
+            stdout_task: Some(relay.stdout_task),
         },
     );
-    Ok(ws_url)
+    Ok(relay.ws_url)
 }
 
 // --- ИСПРАВЛЕННЫЙ СКАНЕР: НАХОДИТ ВСЕ КАНАЛЫ (КАМЕРЫ) ---
@@ -985,16 +1009,12 @@ fn start_stream(
 
     {
         let mut streams = state.active_streams.lock().unwrap();
-        if let Some(mut old) = streams.remove(&target_id) {
-            if let Some(shutdown) = old.shutdown_ws.take() {
-                let _ = shutdown.send(());
-            }
-            let _ = old.child.kill();
-            let _ = old.child.wait();
+        if let Some(old) = streams.remove(&target_id) {
+            terminate_stream_process(old);
         }
     }
 
-    let mut child = Command::new("ffmpeg")
+    let mut child = tokio::process::Command::new("ffmpeg")
         .args([
             "-rtsp_transport",
             "tcp",
@@ -1008,42 +1028,27 @@ fn start_stream(
             "pipe:1",
         ])
         .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
+        .stderr(Stdio::null())
         .spawn()
         .map_err(|e| format!("FFmpeg start error: {}", e))?;
-
-    std::thread::sleep(std::time::Duration::from_millis(1200));
-    if let Ok(Some(_)) = child.try_wait() {
-        let err_log = child
-            .stderr
-            .as_mut()
-            .and_then(|stderr| {
-                let mut out = String::new();
-                std::io::Read::read_to_string(stderr, &mut out).ok()?;
-                Some(out)
-            })
-            .unwrap_or_else(|| "unknown ffmpeg error".to_string());
-        return Err(format!(
-            "Сбой стрима. URL={} Причина: {}",
-            rtsp_url, err_log
-        ));
-    }
 
     let stdout = child
         .stdout
         .take()
         .ok_or_else(|| "FFmpeg stdout not captured".to_string())?;
-    let (ws_url, ws_shutdown) = spawn_ws_relay(&target_id, stdout)?;
+    let relay = tauri::async_runtime::block_on(spawn_ws_relay(target_id.clone(), stdout))?;
 
     state.active_streams.lock().unwrap().insert(
         target_id,
         ActiveStreamProcess {
             child,
-            shutdown_ws: Some(ws_shutdown),
+            shutdown_ws: Some(relay.shutdown_tx),
+            ws_task: Some(relay.ws_task),
+            stdout_task: Some(relay.stdout_task),
         },
     );
 
-    Ok(ws_url)
+    Ok(relay.ws_url)
 }
 
 fn check_stream_alive(target_id: String, state: State<'_, StreamState>) -> Result<bool, String> {
@@ -1051,7 +1056,9 @@ fn check_stream_alive(target_id: String, state: State<'_, StreamState>) -> Resul
     if let Some(stream) = streams.get_mut(&target_id) {
         match stream.child.try_wait() {
             Ok(Some(_)) => {
-                streams.remove(&target_id);
+                if let Some(old) = streams.remove(&target_id) {
+                    terminate_stream_process(old);
+                }
                 Ok(false)
             }
             Ok(None) => Ok(true),
@@ -1073,12 +1080,8 @@ fn restart_stream(
 
     {
         let mut streams = state.active_streams.lock().unwrap();
-        if let Some(mut old) = streams.remove(&target_id) {
-            if let Some(shutdown) = old.shutdown_ws.take() {
-                let _ = shutdown.send(());
-            }
-            let _ = old.child.kill();
-            let _ = old.child.wait();
+        if let Some(old) = streams.remove(&target_id) {
+            terminate_stream_process(old);
         }
     }
 
@@ -1090,11 +1093,8 @@ fn stop_stream(
     state: State<'_, StreamState>,
     log_state: State<'_, LogState>,
 ) -> Result<String, String> {
-    if let Some(mut stream) = state.active_streams.lock().unwrap().remove(&target_id) {
-        if let Some(shutdown) = stream.shutdown_ws.take() {
-            let _ = shutdown.send(());
-        }
-        let _ = stream.child.kill();
+    if let Some(stream) = state.active_streams.lock().unwrap().remove(&target_id) {
+        terminate_stream_process(stream);
         push_runtime_log(&log_state, format!("Stop stream: {}", target_id));
         Ok("Stopped".into())
     } else {

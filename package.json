@@ -14,6 +14,7 @@
     "@tauri-apps/plugin-opener": "^2",
     "hls.js": "^1.6.15",
     "leaflet": "^1.9.4",
+    "mpegts.js": "^1.8.0",
     "react": "^19.1.0",
     "react-dom": "^19.1.0",
     "react-leaflet": "^5.0.0",

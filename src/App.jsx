@@ -4,6 +4,7 @@ import { MapContainer, TileLayer, Marker, Popup, useMap } from 'react-leaflet';
 import 'leaflet/dist/leaflet.css';
 import './App.css';
 import L from 'leaflet';
+import mpegts from 'mpegts.js';
 import NemesisArchiveTerminal from './NemesisArchiveTerminal';
 
 import icon from 'leaflet/dist/images/marker-icon.png';
@@ -166,6 +167,7 @@ export default function App() {
   const playerRef = useRef(null);
   const pollIntervalRef = useRef(null);
   const healthCheckRef = useRef(null);
+  const activeTargetIdRef = useRef(null);
 
   useEffect(() => { loadTargets(); }, []);
 
@@ -253,31 +255,54 @@ export default function App() {
 
   useEffect(() => {
     if (activeStream && streamType === 'ws-flv' && videoContainerRef.current) {
-      videoContainerRef.current.innerHTML = '';
-
-      const Jessibuca = window.Jessibuca;
-      if (!Jessibuca) {
-        console.warn('[PLAYER] Jessibuca is not loaded');
+      if (!mpegts.getFeatureList().mseLivePlayback) {
+        console.warn('[PLAYER] mpegts.js live playback is not supported by this browser');
         return;
       }
 
-      const player = new Jessibuca({
-        container: videoContainerRef.current,
-        videoBuffer: 0.2,
-        isResize: true,
+      videoContainerRef.current.innerHTML = '';
+
+      const videoElement = document.createElement('video');
+      videoElement.autoplay = true;
+      videoElement.controls = true;
+      videoElement.muted = true;
+      videoElement.style.width = '100%';
+      videoContainerRef.current.appendChild(videoElement);
+
+      const player = mpegts.createPlayer({
+        type: 'flv',
+        isLive: true,
+        url: activeStream,
         hasAudio: false,
       });
-      player.play(activeStream);
+      player.attachMediaElement(videoElement);
+      player.load();
+      player.play().catch(() => {});
       playerRef.current = player;
 
       return () => {
         if (playerRef.current) {
+          playerRef.current.unload();
+          playerRef.current.detachMediaElement();
           playerRef.current.destroy();
           playerRef.current = null;
         }
       };
     }
   }, [activeStream, streamType]);
+
+  useEffect(() => {
+    activeTargetIdRef.current = activeTargetId;
+  }, [activeTargetId]);
+
+  useEffect(() => {
+    return () => {
+      const targetId = activeTargetIdRef.current;
+      if (targetId) {
+        invoke('stop_stream', { targetId }).catch(() => {});
+      }
+    };
+  }, []);
 
   const loadTargets = async () => {
     try {
