@@ -5458,6 +5458,38 @@ async fn spider_full_scan(
         ),
     );
 
+    // Phase 3/4/5 (безопасный audit-only режим: без брутфорса/эксплуатации)
+    let credential_policy_note = "Active weak-password guessing disabled (audit-safe mode).".to_string();
+
+    let firmware_vuln_note = if vendor_guess.contains("Hikvision") || vendor_guess.contains("Novicam") {
+        "Firmware match: OEM Hikvision profile detected, recommend CVE baseline review (e.g. 2017-era auth bypass families).".to_string()
+    } else if vendor_guess.contains("Dahua") {
+        "Firmware match: Dahua profile detected, recommend NVD cross-check for current firmware branch.".to_string()
+    } else {
+        "Firmware match: unknown vendor signature, manual NVD mapping required.".to_string()
+    };
+
+    let open_share_note = if open_ports.iter().any(|p| p.port == 21) {
+        match timeout(Duration::from_secs(3), audit_ftp_anonymous_inventory(&target_host)).await {
+            Ok(Ok((entries, video_like))) => format!(
+                "FTP anonymous access detected: {} entries visible (video-like: {}).",
+                entries, video_like
+            ),
+            Ok(Err(_)) => "FTP open, anonymous listing denied (good policy).".to_string(),
+            Err(_) => "FTP open, anonymous audit timed out.".to_string(),
+        }
+    } else {
+        "No FTP service in target acquisition set.".to_string()
+    };
+
+    let monitoring_note = if target_card.rtsp_status.starts_with("alive") {
+        "RTSP is live: snapshot telemetry can be scheduled after explicit operator authentication.".to_string()
+    } else {
+        "RTSP telemetry unavailable in unauthenticated probe.".to_string()
+    };
+
+    let topology_note = "Topology discovery requires authenticated ONVIF/NVR inventory stage (not executed in passive scan).".to_string();
+
     if sweep_hosts.len() > 1 {
         let duration_sec = started.elapsed().as_secs();
         return Ok(SpiderReport {
@@ -5476,6 +5508,21 @@ async fn spider_full_scan(
                     key: "Discovered hosts".into(),
                     value: discovered_targets.len().to_string(),
                     source: "Target acquisition".into(),
+                },
+                TechFingerprint {
+                    key: "Credential policy auditor".into(),
+                    value: credential_policy_note.clone(),
+                    source: "Phase 3".into(),
+                },
+                TechFingerprint {
+                    key: "Open share scanner".into(),
+                    value: open_share_note.clone(),
+                    source: "Phase 3".into(),
+                },
+                TechFingerprint {
+                    key: "Topology discovery".into(),
+                    value: topology_note.clone(),
+                    source: "Phase 5".into(),
                 },
             ],
             target_card,
@@ -5826,6 +5873,31 @@ async fn spider_full_scan(
         value: target_card.rtsp_status.clone(),
         source: "RTSP OPTIONS".into(),
     });
+    tech_stack.push(TechFingerprint {
+        key: "Credential policy auditor".into(),
+        value: credential_policy_note,
+        source: "Phase 3".into(),
+    });
+    tech_stack.push(TechFingerprint {
+        key: "Firmware vulnerability matcher".into(),
+        value: firmware_vuln_note,
+        source: "Phase 3".into(),
+    });
+    tech_stack.push(TechFingerprint {
+        key: "Open share scanner".into(),
+        value: open_share_note,
+        source: "Phase 3".into(),
+    });
+    tech_stack.push(TechFingerprint {
+        key: "Remote monitoring".into(),
+        value: monitoring_note,
+        source: "Phase 4".into(),
+    });
+    tech_stack.push(TechFingerprint {
+        key: "Topology discovery".into(),
+        value: topology_note,
+        source: "Phase 5".into(),
+    });
 
     // Из заголовков
     if let Some(vals) = all_headers.get("server") {
@@ -5943,6 +6015,31 @@ async fn spider_full_scan(
 }
 
 // ===== ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ ПАУКА =====
+
+async fn audit_ftp_anonymous_inventory(host: &str) -> Result<(usize, usize), String> {
+    let host = host.to_string();
+    tokio::task::spawn_blocking(move || {
+        let addr = format!("{}:21", host);
+        let mut ftp = FtpStream::connect(addr).map_err(|e| e.to_string())?;
+        ftp.login("anonymous", "anonymous").map_err(|e| e.to_string())?;
+        let list = ftp.nlst(Some("/")).map_err(|e| e.to_string())?;
+        let mut video_like = 0usize;
+        for name in &list {
+            let lower = name.to_ascii_lowercase();
+            if lower.ends_with(".mp4")
+                || lower.ends_with(".dav")
+                || lower.ends_with(".h264")
+                || lower.ends_with(".avi")
+            {
+                video_like += 1;
+            }
+        }
+        let _ = ftp.quit();
+        Ok((list.len(), video_like))
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
 
 fn parse_ipv4_cidr_hosts(input: &str) -> Option<Vec<String>> {
     let cidr = input.trim();
