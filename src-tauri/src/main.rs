@@ -543,6 +543,7 @@ fn start_hub_stream(
     cleanup_hls_cache(&cache);
 
     let playlist = cache.join("stream.m3u8");
+    let segment_path = cache.join("%03d.ts");
 
     {
         let mut streams = state.active_streams.lock().unwrap();
@@ -564,50 +565,20 @@ fn start_hub_stream(
 
     let child = Command::new("ffmpeg")
         .args([
-            // --- ЗАГОЛОВКИ ---
-            "-headers",
-            &headers,
-            "-user_agent",
-            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/120.0.0.0 Safari/537.36",
-            // --- БУФЕРЫ И ТАЙМАУТЫ ---
-            "-probesize",
-            "10000000",
-            "-analyzeduration",
-            "10000000",
+            "-y",
             "-use_wallclock_as_timestamps",
             "1",
-            // --- РЕКОННЕКТ ---
-            "-reconnect",
-            "1",
-            "-reconnect_at_eof",
-            "1",
-            "-reconnect_streamed",
-            "1",
-            "-reconnect_delay_max",
-            "5",
-            // --- ВВОД ---
-            "-f",
-            "mpjpeg",
-            "-y",
+            "-rtsp_transport",
+            "tcp",
+            "-stimeout",
+            "3000000",
             "-fflags",
             "nobuffer+genpts+flush_packets",
             "-i",
             &url,
-            // --- КОДИРОВАНИЕ ---
-            "-c:v",
-            "libx264",
-            "-preset",
-            "ultrafast",
-            "-tune",
-            "zerolatency",
-            "-crf",
-            "28",
-            "-g",
-            "30",
-            "-sc_threshold",
-            "0",
             "-an",
-            // --- HLS ---
+            "-c:v",
+            "copy",
             "-f",
             "hls",
             "-hls_time",
@@ -615,9 +586,11 @@ fn start_hub_stream(
             "-hls_list_size",
             "3",
             "-hls_flags",
-            "delete_segments+omit_endlist",
+            "delete_segments+omit_endlist+independent_segments",
             "-hls_segment_type",
             "mpegts",
+            "-hls_segment_filename",
+            segment_path.to_str().unwrap(),
             playlist.to_str().unwrap(),
         ])
         .stdout(Stdio::null())
@@ -961,23 +934,15 @@ fn start_stream(
                 "1",
                 "-rtsp_transport",
                 "tcp",
+                "-stimeout",
+                "3000000",
                 "-fflags",
                 "nobuffer+genpts+flush_packets",
                 "-i",
                 &candidate,
                 "-an",
                 "-c:v",
-                "libx264",
-                "-preset",
-                "ultrafast",
-                "-tune",
-                "zerolatency",
-                "-pix_fmt",
-                "yuv420p",
-                "-g",
-                "25",
-                "-sc_threshold",
-                "0",
+                "copy",
                 "-f",
                 "hls",
                 "-hls_time",
@@ -985,7 +950,7 @@ fn start_stream(
                 "-hls_list_size",
                 "3",
                 "-hls_flags",
-                "delete_segments+omit_endlist",
+                "delete_segments+omit_endlist+independent_segments",
                 "-hls_segment_type",
                 "mpegts",
                 "-hls_segment_filename",
