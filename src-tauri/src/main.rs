@@ -752,28 +752,58 @@ async fn probe_rtsp_path(host: String, login: String, pass: String) -> Result<St
         "/cam/realmonitor?channel=1&subtype=0",
         "/live/ch1",
     ];
+
+    let host_trimmed = host.trim();
+    let explicit_port = if host_trimmed.contains("://") {
+        reqwest::Url::parse(host_trimmed)
+            .ok()
+            .and_then(|u| u.port())
+    } else {
+        host_trimmed
+            .rsplit_once(':')
+            .and_then(|(_, p)| p.parse::<u16>().ok())
+    };
     let base_host = normalize_host_for_scan(&host);
     let rtsp_host = base_host
         .split(':')
         .next()
         .unwrap_or(base_host.as_str())
         .to_string();
-    let rtsp_ports = [554u16, 8554u16, 10554u16];
+
+    // Важно для Novicam: сначала пробуем порт, который явно задан в цели, затем типовые RTSP-порты.
+    let mut rtsp_ports: Vec<Option<u16>> = vec![
+        explicit_port,
+        Some(554),
+        Some(8554),
+        Some(10554),
+        Some(2019),
+        None,
+    ];
+    rtsp_ports.dedup();
+
     let ffmpeg = get_ffmpeg_path();
     for sig in signatures {
-        for port in rtsp_ports {
+        for port in &rtsp_ports {
+            let endpoint = match port {
+                Some(p) => format!("{}:{}", rtsp_host, p),
+                None => rtsp_host.clone(),
+            };
             let url = format!(
-                "rtsp://{}:{}@{}:{}/{}",
+                "rtsp://{}:{}@{}/{}",
                 login,
                 pass,
-                rtsp_host,
-                port,
+                endpoint,
                 sig.trim_start_matches('/')
             );
             let s = Command::new(&ffmpeg)
                 .args([
+                    "-nostdin",
+                    "-loglevel",
+                    "error",
                     "-rtsp_transport",
                     "tcp",
+                    "-rw_timeout",
+                    "2500000",
                     "-i",
                     &url,
                     "-t",
@@ -806,7 +836,7 @@ fn normalize_rtsp_url_for_stream(rtsp_url: &str) -> String {
     }
 
     let current_port = parsed.port_or_known_default();
-    if matches!(current_port, Some(80 | 8080 | 2019 | 443 | 8443)) {
+    if matches!(current_port, Some(80 | 8080 | 443 | 8443)) {
         let _ = parsed.set_port(Some(554));
         return parsed.to_string();
     }
