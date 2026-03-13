@@ -3957,10 +3957,25 @@ async fn download_isapi_playback_uri(
         )
     });
 
+    // ActiveX fallback: некоторые OEM принимают только GET с XML-телом (нестандартно).
+    let mut activex_playback_uri = clean_uri.clone();
+    if let Ok(mut parsed_uri) = reqwest::Url::parse(&activex_playback_uri) {
+        let _ = parsed_uri.set_host(Some(&host));
+        let _ = parsed_uri.set_port(None);
+        activex_playback_uri = parsed_uri.to_string();
+    }
+    activex_playback_uri = activex_playback_uri.replace("T", "%20").replace("&", "&amp;");
+    let activex_xml_payload = format!(
+        "<?xml version='1.0'?>\r\n<downloadRequest><playbackURI>{}</playbackURI></downloadRequest>",
+        activex_playback_uri
+    );
+    let activex_request_url = format!("http://{}:{}{}", host, port, request_path);
+
     let mut current_offset = 0u64;
     let mut total_size = 0u64;
     let mut retries: u8 = 0;
     let mut use_legacy_amp_mode = false;
+    let mut use_activex_xml_mode = false;
     let mut digest_cache: Option<String> = None;
 
     let mut file = OpenOptions::new().create(true).write(true).truncate(true).open(&path).map_err(|e| e.to_string())?;
@@ -3972,17 +3987,36 @@ async fn download_isapi_playback_uri(
             let _ = std::fs::remove_file(&path); return Err("Отменено".into());
         }
 
-        let active_request_url = if use_legacy_amp_mode {
+        let active_request_url = if use_activex_xml_mode {
+            &activex_request_url
+        } else if use_legacy_amp_mode {
             legacy_request_url.as_deref().unwrap_or(&request_url)
         } else {
             &request_url
         };
-        let mut req = client
-            .get(active_request_url)
-            .header("Accept", "*/*")
-            .header("X-Requested-With", "XMLHttpRequest")
-            .header("Referer", format!("http://{}:{}/doc/page/download.asp?fileType=record", host, port));
-        if current_offset > 0 { req = req.header("Range", format!("bytes={}-", current_offset)); }
+        let mut req = if use_activex_xml_mode {
+            client
+                .get(active_request_url)
+                .header("User-Agent", "NS-HTTP/1.0")
+                .header(
+                    "Accept",
+                    "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+                )
+                .header("Content-Type", "application/xml")
+                .body(activex_xml_payload.clone())
+        } else {
+            client
+                .get(active_request_url)
+                .header("Accept", "*/*")
+                .header("X-Requested-With", "XMLHttpRequest")
+                .header(
+                    "Referer",
+                    format!("http://{}:{}/doc/page/download.asp?fileType=record", host, port),
+                )
+        };
+        if current_offset > 0 && !use_activex_xml_mode {
+            req = req.header("Range", format!("bytes={}-", current_offset));
+        }
 
         if let Some(ref auth) = digest_cache {
             if let Ok(mut prompt) = digest_auth::parse(auth) {
@@ -4003,12 +4037,22 @@ async fn download_isapi_playback_uri(
                     }
                 }
                 if !resp.status().is_success() {
-                    if status == 400 && !use_legacy_amp_mode {
-                        if legacy_request_url.is_some() {
-                            use_legacy_amp_mode = true;
+                    if status == 400 {
+                        if !use_legacy_amp_mode {
+                            if legacy_request_url.is_some() {
+                                use_legacy_amp_mode = true;
+                                retries = 0;
+                                digest_cache = None;
+                                push_runtime_log(&log_state, "ISAPI direct: switching to legacy amp; playbackURI mode");
+                                tokio::time::sleep(Duration::from_millis(400)).await;
+                                continue;
+                            }
+                        }
+                        if !use_activex_xml_mode {
+                            use_activex_xml_mode = true;
                             retries = 0;
                             digest_cache = None;
-                            push_runtime_log(&log_state, "ISAPI direct: switching to legacy amp; playbackURI mode");
+                            push_runtime_log(&log_state, "ISAPI direct: switching to ActiveX XML-body mode");
                             tokio::time::sleep(Duration::from_millis(400)).await;
                             continue;
                         }
