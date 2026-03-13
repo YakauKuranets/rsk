@@ -5566,7 +5566,7 @@ async fn spider_full_scan(
 
     let target_card = SpiderTargetCard {
         host: target_host.clone(),
-        open_ports,
+        open_ports: open_ports.clone(),
         vendor_guess: vendor_guess.clone(),
         api_guess: api_guess.clone(),
         rtsp_status: rtsp_status.clone(),
