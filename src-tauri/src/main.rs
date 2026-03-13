@@ -550,7 +550,7 @@ async fn spawn_ws_relay(
     let (shutdown_tx, mut shutdown_rx) = tokio::sync::oneshot::channel::<()>();
 
     let tx_stdout = tx.clone();
-    let stdout_task = tauri::async_runtime::spawn(async move {
+    let stdout_task = tokio::spawn(async move {
         let mut buffer = vec![0u8; 8192];
         loop {
             match stdout.read(&mut buffer).await {
@@ -563,14 +563,14 @@ async fn spawn_ws_relay(
         }
     });
 
-    let ws_task = tauri::async_runtime::spawn(async move {
+    let ws_task = tokio::spawn(async move {
         loop {
             tokio::select! {
                 _ = &mut shutdown_rx => break,
                 incoming = listener.accept() => {
                     let Ok((stream, _)) = incoming else { continue; };
                     let mut rx = tx.subscribe();
-                    tauri::async_runtime::spawn(async move {
+                    tokio::spawn(async move {
                         let Ok(ws) = tokio_tungstenite::accept_async(stream).await else { return; };
                         let (mut sink, _) = ws.split();
                         while let Ok(chunk) = rx.recv().await {
