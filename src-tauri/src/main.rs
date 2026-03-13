@@ -4105,6 +4105,8 @@ async fn download_isapi_playback_uri(
     let heartbeat_client = client.clone();
     let heartbeat_url = format!("http://{}:{}/ISAPI/Security/sessionHeartbeat", host, port);
     let heartbeat_fallback_url = format!("http://{}:{}/ISAPI/System/deviceInfo", host, port);
+    let heartbeat_origin = format!("http://{}:{}", host, port);
+    let heartbeat_referer = format!("http://{}:{}/doc/page/playback.asp", host, port);
     let heartbeat_login = login.clone();
     let heartbeat_pass = pass.clone();
     let heartbeat_request_path = request_path.to_string();
@@ -4116,7 +4118,13 @@ async fn download_isapi_playback_uri(
             let mut hb_req = heartbeat_client
                 .put(&heartbeat_url)
                 .header("X-Requested-With", "XMLHttpRequest")
-                .basic_auth(&heartbeat_login, Some(&heartbeat_pass));
+                .header("Accept", "*/*")
+                .header("Origin", heartbeat_origin.clone())
+                .header("Referer", heartbeat_referer.clone())
+                .header(
+                    "User-Agent",
+                    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/145.0.0.0 Safari/537.36 Edg/145.0.0.0",
+                );
 
             if let Some(ref challenge) = digest_challenge {
                 if let Ok(mut prompt) = digest_auth::parse(challenge) {
@@ -4134,7 +4142,8 @@ async fn download_isapi_playback_uri(
 
             match hb_req.send().await {
                 Ok(resp) => {
-                    if resp.status().as_u16() == 401 {
+                    let code = resp.status().as_u16();
+                    if code == 401 {
                         if let Some(auth) = resp
                             .headers()
                             .get(reqwest::header::WWW_AUTHENTICATE)
@@ -4147,7 +4156,9 @@ async fn download_isapi_playback_uri(
                 Err(_) => {
                     let _ = heartbeat_client
                         .get(&heartbeat_fallback_url)
-                        .basic_auth(&heartbeat_login, Some(&heartbeat_pass))
+                        .header("X-Requested-With", "XMLHttpRequest")
+                        .header("Accept", "*/*")
+                        .header("Referer", heartbeat_referer.clone())
                         .send()
                         .await;
                 }
