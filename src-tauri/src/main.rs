@@ -5253,6 +5253,15 @@ struct SpiderDiscoveredTarget {
     open_ports: Vec<SpiderOpenPort>,
 }
 
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct SpiderModuleStatus {
+    module: String,
+    enabled: bool,
+    status: String,
+    details: String,
+}
+
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 struct SpiderReport {
@@ -5264,6 +5273,7 @@ struct SpiderReport {
     tech_stack: Vec<TechFingerprint>,
     target_card: SpiderTargetCard,
     discovered_targets: Vec<SpiderDiscoveredTarget>,
+    module_statuses: Vec<SpiderModuleStatus>,
     all_headers: HashMap<String, Vec<String>>,
     sitemap: Vec<String>,
     saved_html_dir: String,
@@ -5278,12 +5288,20 @@ async fn spider_full_scan(
     max_depth: Option<u32>,
     max_pages: Option<usize>,
     dir_bruteforce: Option<bool>,
+    enable_vuln_verification: Option<bool>,
+    enable_osint_import: Option<bool>,
+    enable_topology_discovery: Option<bool>,
+    enable_snapshot_refresh: Option<bool>,
     log_state: State<'_, LogState>,
 ) -> Result<SpiderReport, String> {
     let started = std::time::Instant::now();
     let max_d = max_depth.unwrap_or(3);
     let max_p = max_pages.unwrap_or(100);
     let do_dirs = dir_bruteforce.unwrap_or(true);
+    let do_vuln_verification = enable_vuln_verification.unwrap_or(false);
+    let do_osint_import = enable_osint_import.unwrap_or(false);
+    let do_topology_discovery = enable_topology_discovery.unwrap_or(false);
+    let do_snapshot_refresh = enable_snapshot_refresh.unwrap_or(false);
 
     push_runtime_log(
         &log_state,
@@ -5488,7 +5506,67 @@ async fn spider_full_scan(
         "RTSP telemetry unavailable in unauthenticated probe.".to_string()
     };
 
-    let topology_note = "Topology discovery requires authenticated ONVIF/NVR inventory stage (not executed in passive scan).".to_string();
+    let topology_note = if do_topology_discovery {
+        "Topology discovery requested: passive read-only inventory is queued, requires authenticated ONVIF/CGI profile stage.".to_string()
+    } else {
+        "Topology discovery disabled by operator.".to_string()
+    };
+
+    let snapshot_note = if do_snapshot_refresh {
+        if target_card.rtsp_status.starts_with("alive") {
+            format!(
+                "Snapshot refresh scheduler armed (passive mode). Last check: {}",
+                Utc::now().to_rfc3339()
+            )
+        } else {
+            "Snapshot refresh requested but RTSP probe is not alive; waiting for credentials/availability.".to_string()
+        }
+    } else {
+        "Snapshot refresh disabled by operator.".to_string()
+    };
+
+    let mut module_statuses = vec![
+        SpiderModuleStatus {
+            module: "credential_policy_auditor".into(),
+            enabled: do_vuln_verification,
+            status: if do_vuln_verification { "passive".into() } else { "disabled".into() },
+            details: credential_policy_note.clone(),
+        },
+        SpiderModuleStatus {
+            module: "firmware_vulnerability_matcher".into(),
+            enabled: do_vuln_verification,
+            status: if do_vuln_verification { "passive".into() } else { "disabled".into() },
+            details: firmware_vuln_note.clone(),
+        },
+        SpiderModuleStatus {
+            module: "open_share_scanner".into(),
+            enabled: true,
+            status: "passive".into(),
+            details: open_share_note.clone(),
+        },
+        SpiderModuleStatus {
+            module: "snapshot_refresh".into(),
+            enabled: do_snapshot_refresh,
+            status: if do_snapshot_refresh { "scheduled".into() } else { "disabled".into() },
+            details: snapshot_note.clone(),
+        },
+        SpiderModuleStatus {
+            module: "topology_discovery".into(),
+            enabled: do_topology_discovery,
+            status: if do_topology_discovery { "queued".into() } else { "disabled".into() },
+            details: topology_note.clone(),
+        },
+        SpiderModuleStatus {
+            module: "osint_import".into(),
+            enabled: do_osint_import,
+            status: if do_osint_import { "configured".into() } else { "disabled".into() },
+            details: if do_osint_import {
+                "External OSINT import is operator-controlled and requires configured API key in secure settings.".into()
+            } else {
+                "OSINT import disabled by operator.".into()
+            },
+        },
+    ];
 
     if sweep_hosts.len() > 1 {
         let duration_sec = started.elapsed().as_secs();
@@ -5527,6 +5605,7 @@ async fn spider_full_scan(
             ],
             target_card,
             discovered_targets,
+            module_statuses,
             all_headers: HashMap::new(),
             sitemap: Vec::new(),
             saved_html_dir: String::new(),
@@ -5898,6 +5977,11 @@ async fn spider_full_scan(
         value: topology_note,
         source: "Phase 5".into(),
     });
+    tech_stack.push(TechFingerprint {
+        key: "Snapshot refresh".into(),
+        value: snapshot_note,
+        source: "Phase 4".into(),
+    });
 
     // Из заголовков
     if let Some(vals) = all_headers.get("server") {
@@ -6007,6 +6091,7 @@ async fn spider_full_scan(
         tech_stack,
         target_card,
         discovered_targets,
+        module_statuses,
         all_headers,
         sitemap,
         saved_html_dir: html_dir.to_string_lossy().to_string(),

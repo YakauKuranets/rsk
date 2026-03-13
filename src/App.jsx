@@ -145,6 +145,10 @@ export default function App() {
   const [spiderMaxDepth, setSpiderMaxDepth] = useState(3);
   const [spiderMaxPages, setSpiderMaxPages] = useState(50);
   const [spiderDirBrute, setSpiderDirBrute] = useState(true);
+  const [spiderEnableVulnVerification, setSpiderEnableVulnVerification] = useState(false);
+  const [spiderEnableOsintImport, setSpiderEnableOsintImport] = useState(false);
+  const [spiderEnableTopologyDiscovery, setSpiderEnableTopologyDiscovery] = useState(false);
+  const [spiderEnableSnapshotRefresh, setSpiderEnableSnapshotRefresh] = useState(false);
   const [spiderRunning, setSpiderRunning] = useState(false);
   const [spiderReport, setSpiderReport] = useState(null);
   const [spiderTab, setSpiderTab] = useState('pages'); // pages|js|dirs|tech|sitemap // null | 'ok' | 'error'
@@ -1428,6 +1432,12 @@ const handleSecurityAudit = async () => {
               DIRS
             </label>
           </div>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '4px', marginBottom: '6px', fontSize: '9px', color: '#b694df' }}>
+            <label><input type="checkbox" checked={spiderEnableVulnVerification} onChange={e => setSpiderEnableVulnVerification(e.target.checked)} /> Phase3 Audit</label>
+            <label><input type="checkbox" checked={spiderEnableOsintImport} onChange={e => setSpiderEnableOsintImport(e.target.checked)} /> OSINT Mode</label>
+            <label><input type="checkbox" checked={spiderEnableTopologyDiscovery} onChange={e => setSpiderEnableTopologyDiscovery(e.target.checked)} /> Topology</label>
+            <label><input type="checkbox" checked={spiderEnableSnapshotRefresh} onChange={e => setSpiderEnableSnapshotRefresh(e.target.checked)} /> Snapshot Refresh</label>
+          </div>
 
           <button
             disabled={spiderRunning}
@@ -1442,6 +1452,10 @@ const handleSecurityAudit = async () => {
                   maxDepth: spiderMaxDepth,
                   maxPages: spiderMaxPages,
                   dirBruteforce: spiderDirBrute,
+                  enableVulnVerification: spiderEnableVulnVerification,
+                  enableOsintImport: spiderEnableOsintImport,
+                  enableTopologyDiscovery: spiderEnableTopologyDiscovery,
+                  enableSnapshotRefresh: spiderEnableSnapshotRefresh,
                 });
                 setSpiderReport(report);
               } catch (err) {
@@ -1481,6 +1495,17 @@ const handleSecurityAudit = async () => {
                   {spiderReport.discoveredTargets.map((t, i) => (
                     <div key={`${t.host}_${i}`} style={{ color: '#a989d1', marginBottom: '3px' }}>
                       {t.host} → {(t.openPorts || []).map(p => p.port).join(', ')}
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {spiderReport.moduleStatuses?.length > 0 && (
+                <div style={{ border: '1px solid #3a2755', background: '#0b0314', padding: '6px', marginBottom: '6px', fontSize: '9px', maxHeight: '120px', overflowY: 'auto' }}>
+                  <div style={{ color: '#c19cff', fontWeight: 'bold', marginBottom: '4px' }}>🧪 AUDIT MODULES</div>
+                  {spiderReport.moduleStatuses.map((m, i) => (
+                    <div key={`${m.module}_${i}`} style={{ color: '#ac90d5', marginBottom: '3px' }}>
+                      {m.module}: {m.status} — {m.details}
                     </div>
                   ))}
                 </div>
