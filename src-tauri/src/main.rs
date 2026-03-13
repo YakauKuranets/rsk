@@ -770,7 +770,7 @@ async fn probe_rtsp_path(host: String, login: String, pass: String) -> Result<St
                 "error",
                 "-rtsp_transport",
                 "tcp",
-                "-rw_timeout",
+                "-stimeout",
                 "2500000",
                 "-i",
                 &url,
@@ -791,7 +791,6 @@ async fn probe_rtsp_path(host: String, login: String, pass: String) -> Result<St
     // Не роняем запуск стрима: возвращаем дефолтный Hikvision-путь для прямой попытки FFmpeg.
     Ok("/Streaming/Channels/101".to_string())
 }
-
 
 #[tauri::command]
 async fn geocode_address(address: String) -> Result<(f64, f64), String> {
@@ -4122,7 +4121,7 @@ async fn download_isapi_playback_uri(
     let heartbeat_referer = format!("http://{}:{}/doc/page/playback.asp", host, port);
     let heartbeat_login = login.clone();
     let heartbeat_pass = pass.clone();
-    let heartbeat_request_path = request_path.to_string();
+    let heartbeat_request_path = "/ISAPI/Security/sessionHeartbeat".to_string();
     let _heartbeat_guard = HeartbeatGuard(Some(tokio::spawn(async move {
         let mut digest_challenge: Option<String> = None;
         loop {
