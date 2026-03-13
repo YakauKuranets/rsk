@@ -608,7 +608,7 @@ fn terminate_stream_process(mut stream: ActiveStreamProcess) {
     let _ = stream.child.start_kill();
 }
 
-fn start_hub_stream(
+pub async fn start_hub_stream(
     target_id: String,
     user_id: String,
     channel_id: String,
@@ -662,7 +662,7 @@ fn start_hub_stream(
         .stdout
         .take()
         .ok_or_else(|| "FFmpeg stdout not captured".to_string())?;
-    let relay = tauri::async_runtime::block_on(spawn_ws_relay(target_id.clone(), stdout))?;
+    let relay = spawn_ws_relay(target_id.clone(), stdout).await?;
 
     state.active_streams.lock().unwrap().insert(
         target_id.clone(),
@@ -999,7 +999,7 @@ async fn fetch_hikvision_active_channels(
     Ok(active)
 }
 
-fn start_stream(
+pub async fn start_stream(
     target_id: String,
     rtsp_url: String,
     state: State<'_, StreamState>,
@@ -1036,7 +1036,7 @@ fn start_stream(
         .stdout
         .take()
         .ok_or_else(|| "FFmpeg stdout not captured".to_string())?;
-    let relay = tauri::async_runtime::block_on(spawn_ws_relay(target_id.clone(), stdout))?;
+    let relay = spawn_ws_relay(target_id.clone(), stdout).await?;
 
     state.active_streams.lock().unwrap().insert(
         target_id,
@@ -1070,7 +1070,7 @@ fn check_stream_alive(target_id: String, state: State<'_, StreamState>) -> Resul
 }
 
 /// Перезапуск стрима: kill -> cleanup -> start заново
-fn restart_stream(
+pub async fn restart_stream(
     target_id: String,
     rtsp_url: String,
     state: State<'_, StreamState>,
@@ -1085,7 +1085,7 @@ fn restart_stream(
         }
     }
 
-    start_stream(target_id, rtsp_url, state, log_state)
+    start_stream(target_id, rtsp_url, state, log_state).await
 }
 
 fn stop_stream(

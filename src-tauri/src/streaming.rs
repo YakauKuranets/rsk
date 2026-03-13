@@ -6,7 +6,7 @@ pub async fn probe_rtsp_path(host: String, login: String, pass: String) -> Resul
 }
 
 #[tauri::command]
-pub fn start_hub_stream(
+pub async fn start_hub_stream(
     target_id: String,
     user_id: String,
     channel_id: String,
@@ -14,17 +14,17 @@ pub fn start_hub_stream(
     state: State<'_, StreamState>,
     log_state: State<'_, LogState>,
 ) -> Result<String, String> {
-    super::start_hub_stream(target_id, user_id, channel_id, cookie, state, log_state)
+    super::start_hub_stream(target_id, user_id, channel_id, cookie, state, log_state).await
 }
 
 #[tauri::command]
-pub fn start_stream(
+pub async fn start_stream(
     target_id: String,
     rtsp_url: String,
     state: State<'_, StreamState>,
     log_state: State<'_, LogState>,
 ) -> Result<String, String> {
-    super::start_stream(target_id, rtsp_url, state, log_state)
+    super::start_stream(target_id, rtsp_url, state, log_state).await
 }
 
 #[tauri::command]
@@ -36,13 +36,13 @@ pub fn check_stream_alive(
 }
 
 #[tauri::command]
-pub fn restart_stream(
+pub async fn restart_stream(
     target_id: String,
     rtsp_url: String,
     state: State<'_, StreamState>,
     log_state: State<'_, LogState>,
 ) -> Result<String, String> {
-    super::restart_stream(target_id, rtsp_url, state, log_state)
+    super::restart_stream(target_id, rtsp_url, state, log_state).await
 }
 
 #[tauri::command]
