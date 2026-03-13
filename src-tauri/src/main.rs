@@ -521,7 +521,6 @@ async fn external_search(
 }
 
 // --- НОВЫЙ МОДУЛЬ: FFMPEG ТУННЕЛЬ ДЛЯ ХАБА ---
-#[tauri::command]
 fn start_hub_stream(
     target_id: String,
     user_id: String,
@@ -749,7 +748,6 @@ fn delete_target(target_id: String) -> Result<String, String> {
     Ok("Deleted".into())
 }
 
-#[tauri::command]
 async fn probe_rtsp_path(host: String, login: String, pass: String) -> Result<String, String> {
     let signatures = vec![
         "/Streaming/Channels/101",
@@ -866,7 +864,6 @@ fn cleanup_hls_cache(cache_dir: &std::path::Path) {
     }
 }
 
-#[tauri::command]
 fn start_stream(
     target_id: String,
     rtsp_url: String,
@@ -1060,7 +1057,6 @@ fn start_stream(
     Ok("Started".into())
 }
 
-#[tauri::command]
 fn check_stream_alive(target_id: String, state: State<'_, StreamState>) -> Result<bool, String> {
     let mut streams = state.active_streams.lock().unwrap();
     if let Some(child) = streams.get_mut(&target_id) {
@@ -1078,7 +1074,6 @@ fn check_stream_alive(target_id: String, state: State<'_, StreamState>) -> Resul
 }
 
 /// Перезапуск стрима: kill -> cleanup -> start заново
-#[tauri::command]
 fn restart_stream(
     target_id: String,
     rtsp_url: String,
@@ -1101,7 +1096,6 @@ fn restart_stream(
     start_stream(target_id, rtsp_url, state, log_state)
 }
 
-#[tauri::command]
 fn stop_stream(
     target_id: String,
     state: State<'_, StreamState>,
@@ -2104,7 +2098,6 @@ fn download_ftp_file(
     })
 }
 
-#[tauri::command]
 fn cancel_download_task(
     task_id: String,
     cancel_state: State<'_, DownloadCancelState>,
@@ -3471,7 +3464,6 @@ async fn search_onvif_recordings(
     Err("ONVIF recording_service недоступен или не вернул recording tokens".into())
 }
 
-#[tauri::command]
 async fn probe_archive_export_endpoints(
     host: String,
     login: String,
@@ -3948,7 +3940,6 @@ async fn download_onvif_recording_token(
     })
 }
 
-#[tauri::command]
 async fn download_isapi_playback_uri(
     playback_uri: String,
     login: String,
@@ -4416,7 +4407,6 @@ async fn download_isapi_playback_uri(
     })
 }
 
-#[tauri::command]
 async fn start_archive_export_job(
     playback_uri: String,
     login: String,

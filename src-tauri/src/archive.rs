@@ -4,8 +4,9 @@ use super::*;
 pub fn cancel_download_task(
     task_id: String,
     cancel_state: State<'_, DownloadCancelState>,
+    log_state: State<'_, LogState>,
 ) -> Result<String, String> {
-    super::cancel_download_task(task_id, cancel_state)
+    super::cancel_download_task(task_id, cancel_state, log_state)
 }
 
 #[tauri::command]
