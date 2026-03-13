@@ -5246,6 +5246,13 @@ struct SpiderTargetCard {
     rtsp_status: String,
 }
 
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct SpiderDiscoveredTarget {
+    host: String,
+    open_ports: Vec<SpiderOpenPort>,
+}
+
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 struct SpiderReport {
@@ -5256,6 +5263,7 @@ struct SpiderReport {
     dir_results: Vec<SpiderDirResult>,
     tech_stack: Vec<TechFingerprint>,
     target_card: SpiderTargetCard,
+    discovered_targets: Vec<SpiderDiscoveredTarget>,
     all_headers: HashMap<String, Vec<String>>,
     sitemap: Vec<String>,
     saved_html_dir: String,
@@ -5302,32 +5310,65 @@ async fn spider_full_scan(
     // ===== ФАЗА 0: TARGET ACQUISITION (порты + баннеры + RTSP) =====
     push_runtime_log(&log_state, "🕷️ [0/4] TARGET ACQUISITION...".to_string());
 
-    let target_host = reqwest::Url::parse(&target_url)
+    let single_target_host = reqwest::Url::parse(&target_url)
         .ok()
         .and_then(|u| u.host_str().map(|h| h.to_string()))
         .unwrap_or_else(|| extract_domain(&target_url));
 
-    let scan_ports: [u16; 7] = [80, 443, 554, 8000, 37777, 2019, 21];
-    let mut open_ports: Vec<SpiderOpenPort> = Vec::new();
-    for port in scan_ports {
-        let connect = timeout(Duration::from_millis(900), TcpStream::connect((target_host.as_str(), port))).await;
-        if matches!(connect, Ok(Ok(_))) {
-            open_ports.push(SpiderOpenPort {
-                port,
-                service: match port {
-                    80 => "HTTP",
-                    443 => "HTTPS",
-                    554 => "RTSP",
-                    8000 => "Hikvision SDK",
-                    37777 => "Dahua SDK",
-                    2019 => "Novicam/Hikvision Web",
-                    21 => "FTP",
-                    _ => "Unknown",
-                }
-                .to_string(),
+    let scan_ports: [u16; 7] = [80, 554, 8000, 37777, 2019, 3702, 21];
+
+    let sweep_hosts = parse_ipv4_cidr_hosts(&target_url).unwrap_or_else(|| vec![single_target_host.clone()]);
+    if sweep_hosts.len() > 1 {
+        push_runtime_log(
+            &log_state,
+            format!("🛰️ CCTV sweep mode: {} hosts", sweep_hosts.len()),
+        );
+    }
+
+    let mut discovered_targets: Vec<SpiderDiscoveredTarget> = Vec::new();
+    for host in &sweep_hosts {
+        let mut open_ports: Vec<SpiderOpenPort> = Vec::new();
+        for port in scan_ports {
+            let connect = timeout(
+                Duration::from_millis(450),
+                TcpStream::connect((host.as_str(), port)),
+            )
+            .await;
+            if matches!(connect, Ok(Ok(_))) {
+                open_ports.push(SpiderOpenPort {
+                    port,
+                    service: match port {
+                        80 => "HTTP",
+                        554 => "RTSP",
+                        8000 => "Hikvision SDK",
+                        37777 => "Dahua SDK",
+                        2019 => "Novicam/Hikvision Web",
+                        3702 => "ONVIF WS-Discovery",
+                        21 => "FTP",
+                        _ => "Unknown",
+                    }
+                    .to_string(),
+                });
+            }
+        }
+        if !open_ports.is_empty() {
+            discovered_targets.push(SpiderDiscoveredTarget {
+                host: host.clone(),
+                open_ports,
             });
         }
     }
+
+    let target_host = discovered_targets
+        .first()
+        .map(|t| t.host.clone())
+        .unwrap_or(single_target_host.clone());
+
+    let open_ports = discovered_targets
+        .iter()
+        .find(|t| t.host == target_host)
+        .map(|t| t.open_ports.clone())
+        .unwrap_or_default();
 
     let mut server_banner = String::new();
     let mut auth_banner = String::new();
@@ -5416,6 +5457,35 @@ async fn spider_full_scan(
             target_card.host, target_card.vendor_guess, target_card.api_guess, target_card.rtsp_status
         ),
     );
+
+    if sweep_hosts.len() > 1 {
+        let duration_sec = started.elapsed().as_secs();
+        return Ok(SpiderReport {
+            target: target_url,
+            pages_crawled: 0,
+            pages: Vec::new(),
+            js_endpoints: Vec::new(),
+            dir_results: Vec::new(),
+            tech_stack: vec![
+                TechFingerprint {
+                    key: "Mode".into(),
+                    value: "Subnet CCTV sweep".into(),
+                    source: "Target acquisition".into(),
+                },
+                TechFingerprint {
+                    key: "Discovered hosts".into(),
+                    value: discovered_targets.len().to_string(),
+                    source: "Target acquisition".into(),
+                },
+            ],
+            target_card,
+            discovered_targets,
+            all_headers: HashMap::new(),
+            sitemap: Vec::new(),
+            saved_html_dir: String::new(),
+            duration_sec,
+        });
+    }
 
     // ===== ФАЗА 1: CRAWLER =====
     push_runtime_log(&log_state, "🕷️ [1/4] CRAWLING...".to_string());
@@ -5864,6 +5934,7 @@ async fn spider_full_scan(
         dir_results,
         tech_stack,
         target_card,
+        discovered_targets,
         all_headers,
         sitemap,
         saved_html_dir: html_dir.to_string_lossy().to_string(),
@@ -5872,6 +5943,40 @@ async fn spider_full_scan(
 }
 
 // ===== ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ ПАУКА =====
+
+fn parse_ipv4_cidr_hosts(input: &str) -> Option<Vec<String>> {
+    let cidr = input.trim();
+    let (ip_part, prefix_part) = cidr.split_once('/')?;
+    let ip: std::net::Ipv4Addr = ip_part.parse().ok()?;
+    let prefix: u32 = prefix_part.parse().ok()?;
+    if prefix > 32 {
+        return None;
+    }
+
+    // safety guard: не сканируем чрезмерно большие сети внутри UI-команды
+    if prefix < 22 {
+        return None;
+    }
+
+    let base = u32::from(ip);
+    let mask = if prefix == 0 { 0 } else { u32::MAX << (32 - prefix) };
+    let network = base & mask;
+    let broadcast = network | !mask;
+
+    let mut hosts = Vec::new();
+    let start = network.saturating_add(1);
+    let end = broadcast.saturating_sub(1);
+    for n in start..=end {
+        hosts.push(std::net::Ipv4Addr::from(n).to_string());
+        if hosts.len() >= 2048 {
+            break;
+        }
+    }
+    if hosts.is_empty() {
+        hosts.push(ip.to_string());
+    }
+    Some(hosts)
+}
 
 fn extract_base_url(url: &str) -> String {
     if let Some(idx) = url.find("://") {

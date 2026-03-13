@@ -1414,7 +1414,7 @@ const handleSecurityAudit = async () => {
 
           <input
             style={{ width: '100%', backgroundColor: '#000', border: '1px solid #b366ff', color: '#b366ff', padding: '6px', marginBottom: '6px', boxSizing: 'border-box', fontSize: '11px' }}
-            placeholder="https://videodvor.by/stream/"
+            placeholder="https://target/ или 10.0.0.0/24"
             value={spiderTarget}
             onChange={e => setSpiderTarget(e.target.value)}
           />
@@ -1472,6 +1472,17 @@ const handleSecurityAudit = async () => {
                   <div style={{ color: '#9f82c5', marginTop: '4px' }}>
                     [ ПОРТЫ: {(spiderReport.targetCard.openPorts || []).map(p => `${p.port} (${p.service})`).join(', ') || 'не обнаружены'} ]
                   </div>
+                </div>
+              )}
+
+              {spiderReport.discoveredTargets?.length > 0 && (
+                <div style={{ border: '1px solid #4a2f6c', background: '#0d0217', padding: '6px', marginBottom: '6px', fontSize: '9px', maxHeight: '120px', overflowY: 'auto' }}>
+                  <div style={{ color: '#b694df', fontWeight: 'bold', marginBottom: '4px' }}>📡 SWEEP RESULTS ({spiderReport.discoveredTargets.length})</div>
+                  {spiderReport.discoveredTargets.map((t, i) => (
+                    <div key={`${t.host}_${i}`} style={{ color: '#a989d1', marginBottom: '3px' }}>
+                      {t.host} → {(t.openPorts || []).map(p => p.port).join(', ')}
+                    </div>
+                  ))}
                 </div>
               )}
 
