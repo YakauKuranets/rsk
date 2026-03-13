@@ -2427,6 +2427,28 @@ fn isapi_diagnostics_request_template(
     )
 }
 
+
+fn parse_isapi_auth_lock_hint(
+    code: u16,
+    status_string: Option<&str>,
+    lock_status: Option<&str>,
+    unlock_time: Option<&str>,
+) -> Option<String> {
+    let unauthorized = status_string
+        .unwrap_or_default()
+        .to_ascii_lowercase()
+        .contains("unauthorized");
+    let is_lock = lock_status
+        .unwrap_or_default()
+        .eq_ignore_ascii_case("lock");
+
+    if code == 401 && unauthorized && is_lock {
+        return unlock_time.map(|v| v.trim().to_string()).filter(|v| !v.is_empty());
+    }
+
+    None
+}
+
 #[tauri::command]
 async fn extract_isapi_search_template_from_har(
     har_json: String,
@@ -2600,6 +2622,10 @@ async fn search_isapi_recordings(
         Regex::new(r"<statusCode>([^<]+)</statusCode>").map_err(|e| e.to_string())?;
     let status_string_re =
         Regex::new(r"<statusString>([^<]+)</statusString>").map_err(|e| e.to_string())?;
+    let lock_status_re =
+        Regex::new(r"<lockStatus>([^<]+)</lockStatus>").map_err(|e| e.to_string())?;
+    let unlock_time_re =
+        Regex::new(r"<unlockTime>([^<]+)</unlockTime>").map_err(|e| e.to_string())?;
 
     let mut track_ids: Vec<String> = Vec::new();
     if let Some(channel_id) = camera_channel_id {
@@ -2624,6 +2650,8 @@ async fn search_isapi_recordings(
         let mut endpoint_reachable = false;
         let mut endpoint_client_error = false;
         let mut endpoint_invalid_request = false;
+        let mut endpoint_auth_locked = false;
+        let mut endpoint_unlock_seconds: Option<String> = None;
         let mut endpoint_last_error: Option<String> = None;
 
         for tid in &track_ids {
@@ -2908,6 +2936,31 @@ async fn search_isapi_recordings(
                                                             endpoint_invalid_request = true;
                                                         }
 
+                                                        let parsed_lock_status = lock_status_re
+                                                            .captures(&t)
+                                                            .and_then(|c| {
+                                                                c.get(1).map(|m| {
+                                                                    m.as_str().trim().to_string()
+                                                                })
+                                                            });
+                                                        let parsed_unlock_time = unlock_time_re
+                                                            .captures(&t)
+                                                            .and_then(|c| {
+                                                                c.get(1).map(|m| {
+                                                                    m.as_str().trim().to_string()
+                                                                })
+                                                            });
+                                                        if let Some(unlock_seconds) = parse_isapi_auth_lock_hint(
+                                                            code,
+                                                            parsed_status_string.as_deref(),
+                                                            parsed_lock_status.as_deref(),
+                                                            parsed_unlock_time.as_deref(),
+                                                        ) {
+                                                            endpoint_auth_locked = true;
+                                                            endpoint_unlock_seconds =
+                                                                Some(unlock_seconds);
+                                                        }
+
                                                         endpoint_last_error = Some(format!(
                                                             "HTTP {} statusCode={:?} statusString={:?} body='{}'",
                                                             code,
@@ -2978,6 +3031,24 @@ async fn search_isapi_recordings(
                                             .contains("invalid")
                                     {
                                         endpoint_invalid_request = true;
+                                    }
+
+                                    let parsed_lock_status =
+                                        lock_status_re.captures(&t).and_then(|c| {
+                                            c.get(1).map(|m| m.as_str().trim().to_string())
+                                        });
+                                    let parsed_unlock_time =
+                                        unlock_time_re.captures(&t).and_then(|c| {
+                                            c.get(1).map(|m| m.as_str().trim().to_string())
+                                        });
+                                    if let Some(unlock_seconds) = parse_isapi_auth_lock_hint(
+                                        code,
+                                        parsed_status_string.as_deref(),
+                                        parsed_lock_status.as_deref(),
+                                        parsed_unlock_time.as_deref(),
+                                    ) {
+                                        endpoint_auth_locked = true;
+                                        endpoint_unlock_seconds = Some(unlock_seconds);
                                     }
 
                                     endpoint_last_error = Some(format!(
@@ -3081,6 +3152,28 @@ async fn search_isapi_recordings(
                         return Err(format!(
                             "ISAPI ContentMgmt/search отклонён устройством как invalid request ({}). {}",
                             reason, diag_request
+                        ));
+                    }
+
+                    if is_2019 && endpoint_reachable && endpoint_auth_locked {
+                        let unlock_hint = endpoint_unlock_seconds
+                            .clone()
+                            .map(|v| format!(" Повторите после {} сек.", v))
+                            .unwrap_or_default();
+                        let reason = endpoint_last_error.clone().unwrap_or_else(|| {
+                            "HTTP 401 Unauthorized (lockStatus=lock) на ContentMgmt/search"
+                                .to_string()
+                        });
+                        push_runtime_log(
+                            &log_state,
+                            format!(
+                                "ISAPI search[{run_id}]: устройство заблокировало авторизацию на :2019 ({}). Останавливаю перебор XML/track fallback, чтобы не тратить время.",
+                                reason
+                            ),
+                        );
+                        return Err(format!(
+                            "ISAPI ContentMgmt/search вернул блокировку авторизации ({}).{}",
+                            reason, unlock_hint
                         ));
                     }
 
