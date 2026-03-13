@@ -753,7 +753,15 @@ async fn probe_rtsp_path(host: String, login: String, pass: String) -> Result<St
         "/live/ch1",
     ];
 
-    let rtsp_host = normalize_host_for_scan(&host);
+    let rtsp_host = host
+        .trim()
+        .trim_start_matches("http://")
+        .trim_start_matches("https://")
+        .trim_start_matches("rtsp://")
+        .split('/')
+        .next()
+        .unwrap_or_default()
+        .to_string();
     let ffmpeg = get_ffmpeg_path();
     for sig in signatures {
         let url = format!(
@@ -879,74 +887,135 @@ fn start_stream(
         }
     }
 
-    let log_file = std::fs::File::create(&log_file_path).map_err(|e| e.to_string())?;
+    let mut candidate_urls = vec![rtsp_url.clone()];
+    if let Ok(parsed) = reqwest::Url::parse(&rtsp_url) {
+        let host = parsed.host_str().unwrap_or_default();
+        let login = parsed.username();
+        let pass = parsed.password().unwrap_or_default();
+        let has_port = parsed.port().is_some();
 
-    let mut child = Command::new("ffmpeg")
-        .args([
-            "-y",
-            "-rtsp_transport",
-            "tcp",
-            "-fflags",
-            "+genpts",
-            "-i",
-            &rtsp_url,
-            "-an",
-            "-c:v",
-            "libx264",
-            "-preset",
-            "ultrafast",
-            "-tune",
-            "zerolatency",
-            "-pix_fmt",
-            "yuv420p",
-            "-g",
-            "25",
-            "-sc_threshold",
-            "0",
-            "-f",
-            "hls",
-            "-hls_time",
-            "2",
-            "-hls_list_size",
-            "5",
-            "-hls_flags",
-            "delete_segments+append_list+omit_endlist",
-            "-hls_segment_type",
-            "mpegts",
-            "-hls_segment_filename",
-            segment_path.to_str().unwrap(),
-            playlist.to_str().unwrap(),
-        ])
-        .stdout(Stdio::null())
-        .stderr(Stdio::from(log_file))
-        .spawn()
-        .map_err(|e| format!("FFmpeg start error: {}", e))?;
-
-    std::thread::sleep(std::time::Duration::from_millis(2500));
-
-    match child.try_wait() {
-        Ok(Some(_status)) => {
-            let err_log = std::fs::read_to_string(&log_file_path).unwrap_or_default();
-            let last_lines = err_log
-                .lines()
-                .rev()
-                .take(6)
-                .collect::<Vec<_>>()
-                .into_iter()
-                .rev()
-                .collect::<Vec<_>>()
-                .join(" | ");
-            push_runtime_log(
-                &log_state,
-                format!("❌ FFMPEG STREAM FAILED: {}", last_lines),
-            );
-            return Err(format!(
-                "Сбой стрима. URL={} Причина: {}",
-                rtsp_url, last_lines
-            ));
+        let mut channel = 1u32;
+        if let Some(pos) = parsed.path().find("/Channels/") {
+            let part = &parsed.path()[pos + "/Channels/".len()..];
+            let digits: String = part.chars().take_while(|c| c.is_ascii_digit()).collect();
+            if digits.len() >= 3 {
+                if let Ok(raw) = digits.parse::<u32>() {
+                    channel = std::cmp::max(raw / 100, 1);
+                }
+            }
         }
-        Ok(None) => {}
-        Err(e) => return Err(format!("Не удалось проверить статус FFmpeg: {}", e)),
+
+        let path_variants = vec![
+            format!("/Streaming/Channels/{}01", channel),
+            format!("/cam/realmonitor?channel={}&subtype=0", channel),
+            format!("/live/ch{}", channel),
+        ];
+
+        let mut ports = vec![parsed.port()];
+        if !has_port {
+            ports.extend([Some(554), Some(2019), Some(8554), Some(10554)]);
+        }
+
+        for p in ports.into_iter().flatten() {
+            for path in &path_variants {
+                candidate_urls.push(format!("rtsp://{}:{}@{}:{}{}", login, pass, host, p, path));
+            }
+        }
+    }
+    candidate_urls.dedup();
+
+    let mut child: Option<Child> = None;
+    let mut last_lines = String::new();
+    let mut active_url = rtsp_url.clone();
+
+    for candidate in candidate_urls {
+        let log_file = std::fs::File::create(&log_file_path).map_err(|e| e.to_string())?;
+        let mut proc = Command::new("ffmpeg")
+            .args([
+                "-y",
+                "-rtsp_transport",
+                "tcp",
+                "-fflags",
+                "+genpts",
+                "-i",
+                &candidate,
+                "-an",
+                "-c:v",
+                "libx264",
+                "-preset",
+                "ultrafast",
+                "-tune",
+                "zerolatency",
+                "-pix_fmt",
+                "yuv420p",
+                "-g",
+                "25",
+                "-sc_threshold",
+                "0",
+                "-f",
+                "hls",
+                "-hls_time",
+                "2",
+                "-hls_list_size",
+                "5",
+                "-hls_flags",
+                "delete_segments+append_list+omit_endlist",
+                "-hls_segment_type",
+                "mpegts",
+                "-hls_segment_filename",
+                segment_path.to_str().unwrap(),
+                playlist.to_str().unwrap(),
+            ])
+            .stdout(Stdio::null())
+            .stderr(Stdio::from(log_file))
+            .spawn()
+            .map_err(|e| format!("FFmpeg start error: {}", e))?;
+
+        std::thread::sleep(std::time::Duration::from_millis(2500));
+
+        match proc.try_wait() {
+            Ok(Some(_)) => {
+                let err_log = std::fs::read_to_string(&log_file_path).unwrap_or_default();
+                last_lines = err_log
+                    .lines()
+                    .rev()
+                    .take(6)
+                    .collect::<Vec<_>>()
+                    .into_iter()
+                    .rev()
+                    .collect::<Vec<_>>()
+                    .join(" | ");
+                push_runtime_log(
+                    &log_state,
+                    format!("FFmpeg retry next URL after failure: {}", candidate),
+                );
+            }
+            Ok(None) => {
+                active_url = candidate;
+                child = Some(proc);
+                break;
+            }
+            Err(e) => return Err(format!("Не удалось проверить статус FFmpeg: {}", e)),
+        }
+    }
+
+    let Some(child) = child else {
+        push_runtime_log(
+            &log_state,
+            format!("❌ FFMPEG STREAM FAILED: {}", last_lines),
+        );
+        return Err(format!(
+            "Сбой стрима. URL={} Причина: {}",
+            rtsp_url, last_lines
+        ));
+    };
+    let child = child;
+
+    if active_url != rtsp_url {
+        push_runtime_log(
+            &log_state,
+            format!("FFmpeg stream fallback selected URL: {}", active_url),
+        );
     }
 
     push_runtime_log(
