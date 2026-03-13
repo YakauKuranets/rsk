@@ -4290,15 +4290,20 @@ async fn download_isapi_playback_uri(
         match req.send().await {
             Ok(resp) => {
                 let status = resp.status().as_u16();
-                if status == 401 && digest_cache.is_none() {
+                if status == 401 {
+                    retries = retries.saturating_add(1);
                     if let Some(auth) = resp
                         .headers()
                         .get("WWW-Authenticate")
                         .and_then(|h| h.to_str().ok())
                     {
                         digest_cache = Some(auth.to_string());
-                        continue;
                     }
+                    if retries > 5 {
+                        return Err("NVR HTTP Error 401 (Digest re-auth retries exceeded)".into());
+                    }
+                    tokio::time::sleep(Duration::from_millis(300)).await;
+                    continue;
                 }
                 if !resp.status().is_success() {
                     if status == 400 {
@@ -4978,15 +4983,20 @@ async fn download_isapi_via_http(
             Ok(resp) => {
                 let status = resp.status().as_u16();
 
-                if status == 401 && digest_cache.is_none() {
+                if status == 401 {
+                    retries = retries.saturating_add(1);
                     if let Some(auth) = resp
                         .headers()
                         .get("WWW-Authenticate")
                         .and_then(|h| h.to_str().ok())
                     {
                         digest_cache = Some(auth.to_string());
-                        continue;
                     }
+                    if retries > 5 {
+                        return Err("NVR error HTTP 401 (Digest re-auth retries exceeded)".into());
+                    }
+                    tokio::time::sleep(Duration::from_millis(300)).await;
+                    continue;
                 }
 
                 if !resp.status().is_success() {
