@@ -835,6 +835,100 @@ fn cleanup_hls_cache(cache_dir: &std::path::Path) {
     }
 }
 
+async fn fetch_hikvision_active_channels(
+    host: &str,
+    isapi_port: u16,
+    login: &str,
+    pass: &str,
+) -> Result<Vec<u32>, String> {
+    let endpoint = format!(
+        "http://{}:{}/ISAPI/System/Video/inputs/channels",
+        host, isapi_port
+    );
+    let request_path = "/ISAPI/System/Video/inputs/channels";
+
+    let client = reqwest::Client::builder()
+        .timeout(Duration::from_secs(4))
+        .danger_accept_invalid_certs(true)
+        .build()
+        .map_err(|e| e.to_string())?;
+
+    let mut response = client
+        .get(&endpoint)
+        .header("Accept", "application/xml")
+        .send()
+        .await
+        .map_err(|e| format!("ISAPI preflight request failed: {}", e))?;
+
+    if response.status().as_u16() == 401 {
+        if let Some(www_auth) = response
+            .headers()
+            .get("WWW-Authenticate")
+            .and_then(|h| h.to_str().ok())
+        {
+            if let Ok(mut prompt) = digest_auth::parse(www_auth) {
+                let mut ctx = digest_auth::AuthContext::new(
+                    login.to_string(),
+                    pass.to_string(),
+                    request_path.to_string(),
+                );
+                ctx.method = digest_auth::HttpMethod::GET;
+                if let Ok(answer) = prompt.respond(&ctx) {
+                    response = client
+                        .get(&endpoint)
+                        .header("Accept", "application/xml")
+                        .header("Authorization", answer.to_string())
+                        .send()
+                        .await
+                        .map_err(|e| format!("ISAPI digest preflight failed: {}", e))?;
+                }
+            }
+        }
+    }
+
+    if !response.status().is_success() {
+        return Err(format!(
+            "ISAPI preflight HTTP status {}",
+            response.status().as_u16()
+        ));
+    }
+
+    let body = response
+        .text()
+        .await
+        .map_err(|e| format!("ISAPI preflight body read failed: {}", e))?;
+
+    let channel_re = Regex::new(r"(?is)<VideoInputChannel[^>]*>(.*?)</VideoInputChannel>")
+        .map_err(|e| e.to_string())?;
+    let id_re = Regex::new(r"(?is)<id>\s*(\d+)\s*</id>").map_err(|e| e.to_string())?;
+    let enabled_re = Regex::new(r"(?is)<videoInputEnabled>\s*true\s*</videoInputEnabled>")
+        .map_err(|e| e.to_string())?;
+    let no_video_re =
+        Regex::new(r"(?is)<resDesc>\s*NO\s+VIDEO\s*</resDesc>").map_err(|e| e.to_string())?;
+
+    let mut active = Vec::new();
+    for caps in channel_re.captures_iter(&body) {
+        let block = caps.get(1).map(|m| m.as_str()).unwrap_or_default();
+        if !enabled_re.is_match(block) || no_video_re.is_match(block) {
+            continue;
+        }
+        if let Some(id_caps) = id_re.captures(block) {
+            if let Ok(id) = id_caps
+                .get(1)
+                .map(|m| m.as_str())
+                .unwrap_or_default()
+                .parse::<u32>()
+            {
+                active.push(id);
+            }
+        }
+    }
+
+    active.sort_unstable();
+    active.dedup();
+    Ok(active)
+}
+
 fn start_stream(
     target_id: String,
     rtsp_url: String,
@@ -859,7 +953,7 @@ fn start_stream(
         }
     }
 
-    let mut candidate_urls = vec![rtsp_url.clone()];
+    let mut candidate_urls: Vec<String> = Vec::new();
     if let Ok(parsed) = reqwest::Url::parse(&rtsp_url) {
         let host = parsed.host_str().unwrap_or_default();
         let login = parsed.username();
@@ -877,11 +971,51 @@ fn start_stream(
             }
         }
 
-        let path_variants = vec![
+        let mut path_variants = vec![
             format!("/Streaming/Channels/{}01", channel),
             format!("/cam/realmonitor?channel={}&subtype=0", channel),
             format!("/live/ch{}", channel),
         ];
+
+        if !host.is_empty() && !login.is_empty() {
+            let isapi_port = match parsed.port() {
+                Some(80) | Some(2019) => parsed.port().unwrap_or(80),
+                _ => 80,
+            };
+            match tauri::async_runtime::block_on(fetch_hikvision_active_channels(
+                host, isapi_port, login, pass,
+            )) {
+                Ok(active_channels) if !active_channels.is_empty() => {
+                    if !active_channels.contains(&channel) {
+                        return Err(format!(
+                            "Канал {} отключен на устройстве (ISAPI pre-flight)",
+                            channel
+                        ));
+                    }
+                    path_variants = vec![format!("/Streaming/Channels/{}02", channel)];
+                    push_runtime_log(
+                        &log_state,
+                        format!(
+                            "ISAPI pre-flight active channels: {:?}; using substream for channel {}",
+                            active_channels, channel
+                        ),
+                    );
+                }
+                Ok(_) => {
+                    push_runtime_log(
+                        &log_state,
+                        "ISAPI pre-flight returned empty channel list; using RTSP fallback"
+                            .to_string(),
+                    );
+                }
+                Err(err) => {
+                    push_runtime_log(
+                        &log_state,
+                        format!("ISAPI pre-flight failed: {}. Using RTSP fallback", err),
+                    );
+                }
+            }
+        }
 
         let mut ports = vec![parsed.port()];
         if !has_port {
@@ -915,6 +1049,10 @@ fn start_stream(
                 candidate_urls.push(format!("rtsp://{}:{}@{}:{}{}", login, pass, host, p, path));
             }
         }
+    }
+
+    if candidate_urls.is_empty() {
+        candidate_urls.push(rtsp_url.clone());
     }
     candidate_urls.dedup();
 
