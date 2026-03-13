@@ -753,95 +753,45 @@ async fn probe_rtsp_path(host: String, login: String, pass: String) -> Result<St
         "/live/ch1",
     ];
 
-    let host_trimmed = host.trim();
-    let explicit_port = if host_trimmed.contains("://") {
-        reqwest::Url::parse(host_trimmed)
-            .ok()
-            .and_then(|u| u.port())
-    } else {
-        host_trimmed
-            .rsplit_once(':')
-            .and_then(|(_, p)| p.parse::<u16>().ok())
-    };
-    let base_host = normalize_host_for_scan(&host);
-    let rtsp_host = base_host
-        .split(':')
-        .next()
-        .unwrap_or(base_host.as_str())
-        .to_string();
-
-    // Важно для Novicam: сначала пробуем порт, который явно задан в цели, затем типовые RTSP-порты.
-    let mut rtsp_ports: Vec<Option<u16>> = vec![
-        explicit_port,
-        Some(554),
-        Some(8554),
-        Some(10554),
-        Some(2019),
-        None,
-    ];
-    rtsp_ports.dedup();
-
+    let rtsp_host = normalize_host_for_scan(&host);
     let ffmpeg = get_ffmpeg_path();
     for sig in signatures {
-        for port in &rtsp_ports {
-            let endpoint = match port {
-                Some(p) => format!("{}:{}", rtsp_host, p),
-                None => rtsp_host.clone(),
-            };
-            let url = format!(
-                "rtsp://{}:{}@{}/{}",
-                login,
-                pass,
-                endpoint,
-                sig.trim_start_matches('/')
-            );
-            let s = Command::new(&ffmpeg)
-                .args([
-                    "-nostdin",
-                    "-loglevel",
-                    "error",
-                    "-rtsp_transport",
-                    "tcp",
-                    "-rw_timeout",
-                    "2500000",
-                    "-i",
-                    &url,
-                    "-t",
-                    "0.1",
-                    "-f",
-                    "null",
-                    "-",
-                ])
-                .status();
-            if let Ok(status) = s {
-                if status.success() {
-                    return Ok(sig.to_string());
-                }
+        let url = format!(
+            "rtsp://{}:{}@{}/{}",
+            login,
+            pass,
+            rtsp_host,
+            sig.trim_start_matches('/')
+        );
+        let s = Command::new(&ffmpeg)
+            .args([
+                "-nostdin",
+                "-loglevel",
+                "error",
+                "-rtsp_transport",
+                "tcp",
+                "-rw_timeout",
+                "2500000",
+                "-i",
+                &url,
+                "-t",
+                "0.1",
+                "-f",
+                "null",
+                "-",
+            ])
+            .status();
+        if let Ok(status) = s {
+            if status.success() {
+                return Ok(sig.to_string());
             }
         }
     }
-    Err("Recon failed".into())
+
+    // Не роняем запуск стрима: возвращаем дефолтный Hikvision-путь для прямой попытки FFmpeg.
+    Ok("/Streaming/Channels/101".to_string())
 }
 
-fn normalize_rtsp_url_for_stream(rtsp_url: &str) -> String {
-    let Ok(mut parsed) = reqwest::Url::parse(rtsp_url) else {
-        return rtsp_url.to_string();
-    };
-    if !matches!(parsed.scheme(), "rtsp" | "rtsps") {
-        return rtsp_url.to_string();
-    }
-    let host = parsed.host_str().unwrap_or_default().to_string();
-    if host.is_empty() {
-        return rtsp_url.to_string();
-    }
-
-    let current_port = parsed.port_or_known_default();
-    if matches!(current_port, Some(80 | 8080 | 443 | 8443)) {
-        let _ = parsed.set_port(Some(554));
-        return parsed.to_string();
-    }
-    rtsp_url.to_string()
-}
 
 #[tauri::command]
 async fn geocode_address(address: String) -> Result<(f64, f64), String> {
@@ -932,7 +882,6 @@ fn start_stream(
 
     let log_file = std::fs::File::create(&log_file_path).map_err(|e| e.to_string())?;
 
-    let stream_input_url = normalize_rtsp_url_for_stream(&rtsp_url);
     let mut child = Command::new("ffmpeg")
         .args([
             "-y",
@@ -941,7 +890,7 @@ fn start_stream(
             "-fflags",
             "+genpts",
             "-i",
-            &stream_input_url,
+            &rtsp_url,
             "-an",
             "-c:v",
             "libx264",
@@ -994,7 +943,7 @@ fn start_stream(
             );
             return Err(format!(
                 "Сбой стрима. URL={} Причина: {}",
-                stream_input_url, last_lines
+                rtsp_url, last_lines
             ));
         }
         Ok(None) => {}
