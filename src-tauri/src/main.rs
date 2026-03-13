@@ -6,7 +6,7 @@ use aes_gcm::{
 };
 use chrono::Utc;
 use dotenv::dotenv;
-use futures_util::StreamExt;
+use futures_util::{SinkExt, StreamExt};
 use regex::Regex;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -14,9 +14,10 @@ use sha2::{Digest, Sha256};
 use std::collections::{HashMap, HashSet};
 use std::env;
 use std::fs::OpenOptions;
+use std::io::Read;
 use std::net::{TcpStream as StdTcpStream, ToSocketAddrs};
 use std::path::PathBuf;
-use std::process::{Command, Stdio};
+use std::process::{ChildStdout, Command, Stdio};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, OnceLock};
 mod archive;
@@ -36,7 +37,12 @@ use warp::Filter;
 mod videodvor_scanner;
 
 struct StreamState {
-    active_streams: std::sync::Mutex<HashMap<String, std::process::Child>>,
+    active_streams: std::sync::Mutex<HashMap<String, ActiveStreamProcess>>,
+}
+
+struct ActiveStreamProcess {
+    child: std::process::Child,
+    shutdown_ws: Option<tokio::sync::oneshot::Sender<()>>,
 }
 
 struct VideodvorState {
@@ -521,6 +527,61 @@ async fn external_search(
 }
 
 // --- НОВЫЙ МОДУЛЬ: FFMPEG ТУННЕЛЬ ДЛЯ ХАБА ---
+fn spawn_ws_relay(
+    target_id: &str,
+    mut stdout: ChildStdout,
+) -> Result<(String, tokio::sync::oneshot::Sender<()>), String> {
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").map_err(|e| e.to_string())?;
+    let port = listener.local_addr().map_err(|e| e.to_string())?.port();
+    listener.set_nonblocking(true).map_err(|e| e.to_string())?;
+    let listener = tokio::net::TcpListener::from_std(listener).map_err(|e| e.to_string())?;
+
+    let (tx, _) = tokio::sync::broadcast::channel::<Vec<u8>>(64);
+    let (shutdown_tx, mut shutdown_rx) = tokio::sync::oneshot::channel::<()>();
+
+    let read_tx = tx.clone();
+    std::thread::spawn(move || {
+        let mut buffer = [0u8; 8192];
+        loop {
+            match stdout.read(&mut buffer) {
+                Ok(0) => break,
+                Ok(n) => {
+                    let _ = read_tx.send(buffer[..n].to_vec());
+                }
+                Err(_) => break,
+            }
+        }
+    });
+
+    std::thread::spawn(move || {
+        let rt = tokio::runtime::Runtime::new().expect("ws relay runtime");
+        rt.block_on(async move {
+            loop {
+                tokio::select! {
+                    _ = &mut shutdown_rx => break,
+                    incoming = listener.accept() => {
+                        let Ok((stream, _)) = incoming else { continue; };
+                        let mut rx = tx.subscribe();
+                        tokio::spawn(async move {
+                            let Ok(ws) = tokio_tungstenite::accept_async(stream).await else { return; };
+                            let (mut sink, _) = ws.split();
+                            while let Ok(chunk) = rx.recv().await {
+                                if sink.send(tokio_tungstenite::tungstenite::Message::Binary(chunk.into())).await.is_err() {
+                                    break;
+                                }
+                            }
+                        });
+                    }
+                }
+            }
+        });
+    });
+
+    let ws_url = format!("ws://127.0.0.1:{}/stream/{}", port, target_id);
+    println!("WS relay ready for stream {}: {}", target_id, ws_url);
+    Ok((ws_url, shutdown_tx))
+}
+
 fn start_hub_stream(
     target_id: String,
     user_id: String,
@@ -536,20 +597,14 @@ fn start_hub_stream(
             target_id, user_id, channel_id
         ),
     );
-    let cache = get_vault_path().join("hls_cache").join(&target_id);
-    let _ = std::fs::create_dir_all(&cache);
-
-    // Очищаем старые сегменты
-    cleanup_hls_cache(&cache);
-
-    let playlist = cache.join("stream.m3u8");
-    let segment_path = cache.join("%03d.ts");
-
     {
         let mut streams = state.active_streams.lock().unwrap();
         if let Some(mut old) = streams.remove(&target_id) {
-            let _ = old.kill();
-            let _ = old.wait();
+            if let Some(shutdown) = old.shutdown_ws.take() {
+                let _ = shutdown.send(());
+            }
+            let _ = old.child.kill();
+            let _ = old.child.wait();
         }
     }
 
@@ -558,52 +613,43 @@ fn start_hub_stream(
         user_id, channel_id
     );
 
-    let headers = format!(
-        "Cookie: {}\r\nReferer: https://videodvor.by/stream/admin.php\r\n",
-        cookie
-    );
-
-    let child = Command::new("ffmpeg")
+    let mut child = Command::new("ffmpeg")
         .args([
-            "-y",
-            "-use_wallclock_as_timestamps",
-            "1",
+            "-headers",
+            &format!(
+                "Cookie: {}\r\nReferer: https://videodvor.by/stream/admin.php\r\n",
+                cookie
+            ),
             "-rtsp_transport",
             "tcp",
-            "-fflags",
-            "nobuffer+genpts+flush_packets",
             "-i",
             &url,
-            "-an",
             "-c:v",
             "copy",
+            "-an",
             "-f",
-            "hls",
-            "-hls_time",
-            "2",
-            "-hls_list_size",
-            "3",
-            "-hls_flags",
-            "delete_segments+append_list",
-            "-hls_allow_cache",
-            "0",
-            "-hls_segment_type",
-            "mpegts",
-            "-hls_segment_filename",
-            segment_path.to_str().unwrap(),
-            playlist.to_str().unwrap(),
+            "flv",
+            "pipe:1",
         ])
-        .stdout(Stdio::null())
+        .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()
         .map_err(|e| e.to_string())?;
 
-    state
-        .active_streams
-        .lock()
-        .unwrap()
-        .insert(target_id, child);
-    Ok("Started".into())
+    let stdout = child
+        .stdout
+        .take()
+        .ok_or_else(|| "FFmpeg stdout not captured".to_string())?;
+    let (ws_url, ws_shutdown) = spawn_ws_relay(&target_id, stdout)?;
+
+    state.active_streams.lock().unwrap().insert(
+        target_id.clone(),
+        ActiveStreamProcess {
+            child,
+            shutdown_ws: Some(ws_shutdown),
+        },
+    );
+    Ok(ws_url)
 }
 
 // --- ИСПРАВЛЕННЫЙ СКАНЕР: НАХОДИТ ВСЕ КАНАЛЫ (КАМЕРЫ) ---
@@ -937,257 +983,73 @@ fn start_stream(
 ) -> Result<String, String> {
     push_runtime_log(&log_state, format!("Start stream: {}", target_id));
 
-    let cache = get_vault_path().join("hls_cache").join(&target_id);
-    std::fs::create_dir_all(&cache).map_err(|e| e.to_string())?;
-    cleanup_hls_cache(&cache);
-
-    let playlist = cache.join("stream.m3u8");
-    let segment_path = cache.join("%03d.ts");
-    let log_file_path = cache.join("ffmpeg_stream.log");
-
     {
         let mut streams = state.active_streams.lock().unwrap();
         if let Some(mut old) = streams.remove(&target_id) {
-            let _ = old.kill();
-            let _ = old.wait();
+            if let Some(shutdown) = old.shutdown_ws.take() {
+                let _ = shutdown.send(());
+            }
+            let _ = old.child.kill();
+            let _ = old.child.wait();
         }
     }
 
-    let mut candidate_urls: Vec<String> = Vec::new();
-    if let Ok(parsed) = reqwest::Url::parse(&rtsp_url) {
-        let host = parsed.host_str().unwrap_or_default();
-        let login = parsed.username();
-        let pass = parsed.password().unwrap_or_default();
-        let has_port = parsed.port().is_some();
+    let mut child = Command::new("ffmpeg")
+        .args([
+            "-rtsp_transport",
+            "tcp",
+            "-i",
+            &rtsp_url,
+            "-c:v",
+            "copy",
+            "-an",
+            "-f",
+            "flv",
+            "pipe:1",
+        ])
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .map_err(|e| format!("FFmpeg start error: {}", e))?;
 
-        let mut channel = 1u32;
-        if let Some(pos) = parsed.path().find("/Channels/") {
-            let part = &parsed.path()[pos + "/Channels/".len()..];
-            let digits: String = part.chars().take_while(|c| c.is_ascii_digit()).collect();
-            if digits.len() >= 3 {
-                if let Ok(raw) = digits.parse::<u32>() {
-                    channel = std::cmp::max(raw / 100, 1);
-                }
-            }
-        }
-
-        let mut path_variants = vec![
-            format!("/Streaming/Channels/{}01", channel),
-            format!("/cam/realmonitor?channel={}&subtype=0", channel),
-            format!("/live/ch{}", channel),
-        ];
-
-        if !host.is_empty() && !login.is_empty() {
-            let mut isapi_ports: Vec<u16> = Vec::new();
-
-            for (k, v) in parsed.query_pairs() {
-                if (k == "http_port" || k == "web_port") && !v.is_empty() {
-                    if let Ok(p) = v.parse::<u16>() {
-                        isapi_ports.push(p);
-                    }
-                }
-            }
-
-            if let Some(p) = parsed.port() {
-                if p != 554 {
-                    isapi_ports.push(p);
-                }
-            }
-
-            isapi_ports.extend([2019, 80]);
-            isapi_ports.sort_unstable();
-            isapi_ports.dedup();
-
-            let mut preflight_ok = false;
-            let mut last_preflight_err: Option<String> = None;
-            for isapi_port in isapi_ports {
-                match tauri::async_runtime::block_on(fetch_hikvision_active_channels(
-                    host, isapi_port, login, pass,
-                )) {
-                    Ok(active_channels) if !active_channels.is_empty() => {
-                        if !active_channels.contains(&channel) {
-                            return Err(format!(
-                                "Канал {} отключен на устройстве (ISAPI pre-flight)",
-                                channel
-                            ));
-                        }
-                        path_variants = vec![format!("/Streaming/Channels/{}02", channel)];
-                        push_runtime_log(
-                            &log_state,
-                            format!(
-                                "ISAPI pre-flight ok on port {}: active channels {:?}; using substream for channel {}",
-                                isapi_port, active_channels, channel
-                            ),
-                        );
-                        preflight_ok = true;
-                        break;
-                    }
-                    Ok(_) => {
-                        last_preflight_err =
-                            Some(format!("empty channel list on port {}", isapi_port));
-                    }
-                    Err(err) => {
-                        last_preflight_err = Some(format!("port {}: {}", isapi_port, err));
-                    }
-                }
-            }
-
-            if !preflight_ok {
-                push_runtime_log(
-                    &log_state,
-                    format!(
-                        "ISAPI pre-flight unavailable; using RTSP fallback ({})",
-                        last_preflight_err.unwrap_or_else(|| "unknown error".to_string())
-                    ),
-                );
-            }
-        }
-
-        let mut ports = vec![parsed.port()];
-        if !has_port {
-            let mut discovered_ports = Vec::new();
-            for probe_port in [8554u16, 554u16, 10554u16] {
-                let addr = format!("{}:{}", host, probe_port);
-                let mut open = false;
-                if let Ok(mut resolved) = addr.to_socket_addrs() {
-                    if let Some(sock) = resolved.next() {
-                        open = StdTcpStream::connect_timeout(
-                            &sock,
-                            std::time::Duration::from_millis(250),
-                        )
-                        .is_ok();
-                    }
-                }
-                if open {
-                    discovered_ports.push(Some(probe_port));
-                }
-            }
-
-            if discovered_ports.is_empty() {
-                ports.extend([Some(554), Some(8554), Some(10554)]);
-            } else {
-                ports.extend(discovered_ports);
-            }
-        }
-
-        for p in ports.into_iter().flatten() {
-            for path in &path_variants {
-                candidate_urls.push(format!("rtsp://{}:{}@{}:{}{}", login, pass, host, p, path));
-            }
-        }
-    }
-
-    if candidate_urls.is_empty() {
-        candidate_urls.push(rtsp_url.clone());
-    }
-    candidate_urls.dedup();
-
-    let mut child: Option<std::process::Child> = None;
-    let mut last_lines = String::new();
-    let mut active_url = rtsp_url.clone();
-    let mut failed_candidates = 0usize;
-
-    for candidate in candidate_urls {
-        let log_file = std::fs::File::create(&log_file_path).map_err(|e| e.to_string())?;
-        let mut proc = Command::new("ffmpeg")
-            .args([
-                "-y",
-                "-use_wallclock_as_timestamps",
-                "1",
-                "-rtsp_transport",
-                "tcp",
-                "-fflags",
-                "nobuffer+genpts+flush_packets",
-                "-i",
-                &candidate,
-                "-c:v",
-                "copy",
-                "-an",
-                "-f",
-                "hls",
-                "-hls_time",
-                "2",
-                "-hls_list_size",
-                "3",
-                "-hls_flags",
-                "delete_segments+append_list",
-                "-hls_allow_cache",
-                "0",
-                "-hls_segment_type",
-                "mpegts",
-                "-hls_segment_filename",
-                segment_path.to_str().unwrap(),
-                playlist.to_str().unwrap(),
-            ])
-            .stdout(Stdio::null())
-            .stderr(Stdio::from(log_file))
-            .spawn()
-            .map_err(|e| format!("FFmpeg start error: {}", e))?;
-
-        std::thread::sleep(std::time::Duration::from_millis(2500));
-
-        match proc.try_wait() {
-            Ok(Some(_)) => {
-                failed_candidates += 1;
-                let err_log = std::fs::read_to_string(&log_file_path).unwrap_or_default();
-                last_lines = err_log
-                    .lines()
-                    .rev()
-                    .take(6)
-                    .collect::<Vec<_>>()
-                    .into_iter()
-                    .rev()
-                    .collect::<Vec<_>>()
-                    .join(" | ");
-            }
-            Ok(None) => {
-                active_url = candidate;
-                child = Some(proc);
-                break;
-            }
-            Err(e) => return Err(format!("Не удалось проверить статус FFmpeg: {}", e)),
-        }
-    }
-
-    let Some(child) = child else {
-        push_runtime_log(
-            &log_state,
-            format!("❌ FFMPEG STREAM FAILED: {}", last_lines),
-        );
+    std::thread::sleep(std::time::Duration::from_millis(1200));
+    if let Ok(Some(_)) = child.try_wait() {
+        let err_log = child
+            .stderr
+            .as_mut()
+            .and_then(|stderr| {
+                let mut out = String::new();
+                std::io::Read::read_to_string(stderr, &mut out).ok()?;
+                Some(out)
+            })
+            .unwrap_or_else(|| "unknown ffmpeg error".to_string());
         return Err(format!(
             "Сбой стрима. URL={} Причина: {}",
-            rtsp_url, last_lines
+            rtsp_url, err_log
         ));
-    };
-    let child = child;
-
-    if active_url != rtsp_url {
-        push_runtime_log(
-            &log_state,
-            format!(
-                "FFmpeg stream fallback selected URL: {} (failed candidates: {})",
-                active_url, failed_candidates
-            ),
-        );
     }
 
-    push_runtime_log(
-        &log_state,
-        "✅ FFmpeg успешно запущен, ожидание генерации HLS...".to_string(),
-    );
-    state
-        .active_streams
-        .lock()
-        .unwrap()
-        .insert(target_id, child);
+    let stdout = child
+        .stdout
+        .take()
+        .ok_or_else(|| "FFmpeg stdout not captured".to_string())?;
+    let (ws_url, ws_shutdown) = spawn_ws_relay(&target_id, stdout)?;
 
-    Ok("Started".into())
+    state.active_streams.lock().unwrap().insert(
+        target_id,
+        ActiveStreamProcess {
+            child,
+            shutdown_ws: Some(ws_shutdown),
+        },
+    );
+
+    Ok(ws_url)
 }
 
 fn check_stream_alive(target_id: String, state: State<'_, StreamState>) -> Result<bool, String> {
     let mut streams = state.active_streams.lock().unwrap();
-    if let Some(child) = streams.get_mut(&target_id) {
-        match child.try_wait() {
+    if let Some(stream) = streams.get_mut(&target_id) {
+        match stream.child.try_wait() {
             Ok(Some(_)) => {
                 streams.remove(&target_id);
                 Ok(false)
@@ -1212,13 +1074,13 @@ fn restart_stream(
     {
         let mut streams = state.active_streams.lock().unwrap();
         if let Some(mut old) = streams.remove(&target_id) {
-            let _ = old.kill();
-            let _ = old.wait();
+            if let Some(shutdown) = old.shutdown_ws.take() {
+                let _ = shutdown.send(());
+            }
+            let _ = old.child.kill();
+            let _ = old.child.wait();
         }
     }
-
-    let cache = get_vault_path().join("hls_cache").join(&target_id);
-    cleanup_hls_cache(&cache);
 
     start_stream(target_id, rtsp_url, state, log_state)
 }
@@ -1228,8 +1090,11 @@ fn stop_stream(
     state: State<'_, StreamState>,
     log_state: State<'_, LogState>,
 ) -> Result<String, String> {
-    if let Some(mut child) = state.active_streams.lock().unwrap().remove(&target_id) {
-        let _ = child.kill();
+    if let Some(mut stream) = state.active_streams.lock().unwrap().remove(&target_id) {
+        if let Some(shutdown) = stream.shutdown_ws.take() {
+            let _ = shutdown.send(());
+        }
+        let _ = stream.child.kill();
         push_runtime_log(&log_state, format!("Stop stream: {}", target_id));
         Ok("Stopped".into())
     } else {

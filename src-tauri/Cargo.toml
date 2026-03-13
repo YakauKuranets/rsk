@@ -23,6 +23,7 @@ zeroize = "1.7"
 
 # ОБНОВЛЕНО: Библиотека для работы с потоками reqwest
 futures-util = "0.3"
+tokio-tungstenite = "0.24"
 
 regex = "1.10"
 sled = "0.34"

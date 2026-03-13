@@ -4,8 +4,6 @@ import { MapContainer, TileLayer, Marker, Popup, useMap } from 'react-leaflet';
 import 'leaflet/dist/leaflet.css';
 import './App.css';
 import L from 'leaflet';
-import videojs from 'video.js';
-import 'video.js/dist/video-js.css';
 import NemesisArchiveTerminal from './NemesisArchiveTerminal';
 
 import icon from 'leaflet/dist/images/marker-icon.png';
@@ -50,7 +48,7 @@ function normalizeTargetRecords(rawTargets) {
 export default function App() {
   const [targets, setTargets] = useState([]);
   const [activeStream, setActiveStream] = useState(null);
-  const [streamType, setStreamType] = useState('hls');
+  const [streamType, setStreamType] = useState('ws-flv');
   const [activeTargetId, setActiveTargetId] = useState(null);
   const [activeCameraName, setActiveCameraName] = useState('');
 
@@ -254,64 +252,27 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    if (activeStream && streamType === 'hls' && videoContainerRef.current) {
-      const videoElement = document.createElement('video');
-      videoElement.className = 'video-js vjs-big-play-centered';
+    if (activeStream && streamType === 'ws-flv' && videoContainerRef.current) {
       videoContainerRef.current.innerHTML = '';
-      videoContainerRef.current.appendChild(videoElement);
 
-      const player = videojs(videoElement, {
-        autoplay: true,
-        controls: true,
-        responsive: true,
-        fluid: true,
-        liveui: true,
-        liveTracker: {
-          trackingThreshold: 0,       // Всегда считаем стрим «живым»
-          liveTolerance: 15,           // 15 сек толерантность к отставанию
-        },
-        sources: [{ src: activeStream, type: 'application/x-mpegURL' }],
-        html5: {
-          vhs: {
-            overrideNative: true,
-            fastQualityChange: true,
-            handleManifestRedirects: true,
-            allowSeeksWithinUnsafeLiveWindow: true,
-            // Агрессивные ретраи при ошибках сегментов
-            experimentalBufferBasedABR: true,
-          },
-          nativeAudioTracks: false,
-          nativeVideoTracks: false,
-        }
+      const Jessibuca = window.Jessibuca;
+      if (!Jessibuca) {
+        console.warn('[PLAYER] Jessibuca is not loaded');
+        return;
+      }
+
+      const player = new Jessibuca({
+        container: videoContainerRef.current,
+        videoBuffer: 0.2,
+        isResize: true,
+        hasAudio: false,
       });
-
-      // --- АВТОВОССТАНОВЛЕНИЕ ПРИ ОШИБКАХ ---
-      let retryCount = 0;
-      const MAX_RETRIES = 3;
-
-      player.on('error', () => {
-        const error = player.error();
-        console.warn('[PLAYER] Error:', error?.code, error?.message);
-
-        if (retryCount < MAX_RETRIES) {
-          retryCount++;
-          console.log(`[PLAYER] Auto-retry ${retryCount}/${MAX_RETRIES}`);
-          setTimeout(() => {
-            const src = activeStream.split('?')[0] + `?retry=${Date.now()}`;
-            player.src({ src, type: 'application/x-mpegURL' });
-            player.play().catch(() => {});
-          }, 2000);
-        }
-      });
-
-      // Сбрасываем счётчик ретраев при успешном воспроизведении
-      player.on('playing', () => { retryCount = 0; });
-
+      player.play(activeStream);
       playerRef.current = player;
 
       return () => {
         if (playerRef.current) {
-          playerRef.current.dispose();
+          playerRef.current.destroy();
           playerRef.current = null;
         }
       };
@@ -368,12 +329,13 @@ export default function App() {
       if (terminal.type === 'hub') {
         setRadarStatus('ЗАПУСК FFMPEG-ТУННЕЛЯ ДЛЯ ХАБА...');
         streamSessionId = `hub_${terminal.hub_id}_${channel.index}`;
-        await invoke('start_hub_stream', {
+        const wsUrl = await invoke('start_hub_stream', {
             targetId: streamSessionId,
             userId: terminal.hub_id.toString(),
             channelId: channel.index.toString(),
             cookie: hubConfig.cookie
         });
+        setActiveStream(wsUrl);
         rtspUrlForRecovery = 'hub'; // Маркер что это hub-стрим
       } else {
         setRadarStatus('РАЗВЕДКА МАРШРУТА...');
@@ -384,7 +346,8 @@ export default function App() {
 
         streamSessionId = `${terminal.id}_${channel.id}`;
         setRadarStatus('ЗАПУСК ЯДРА FFMPEG...');
-        await invoke('start_stream', { targetId: streamSessionId, rtspUrl });
+        const wsUrl = await invoke('start_stream', { targetId: streamSessionId, rtspUrl });
+        setActiveStream(wsUrl);
         rtspUrlForRecovery = rtspUrl;
       }
 
@@ -393,44 +356,20 @@ export default function App() {
       setStreamTerminal(terminal);
       setStreamChannel(channel);
 
-      let attempts = 0;
-      const streamUrl = `http://127.0.0.1:49152/${streamSessionId}/stream.m3u8`;
+      setStreamType('ws-flv');
+      setActiveTargetId(streamSessionId);
+      setActiveCameraName(`${terminal.name} :: ${channel.name}`);
+      setLoading(false);
 
-      pollIntervalRef.current = setInterval(async () => {
-        attempts++;
-        setRadarStatus(`ПОИСК ПАКЕТОВ... ПОПЫТКА ${attempts}/20`);
+      healthCheckRef.current = setInterval(async () => {
         try {
-          const res = await fetch(`${streamUrl}?ping=${Date.now()}`, { method: 'HEAD', cache: 'no-store' });
-          if (res.ok) {
-            clearInterval(pollIntervalRef.current);
-            setStreamType('hls');
-            setActiveStream(`${streamUrl}?t=${Date.now()}`);
-            setActiveTargetId(streamSessionId);
-            setActiveCameraName(`${terminal.name} :: ${channel.name}`);
-            setLoading(false);
-
-            // --- МОНИТОРИНГ ЗДОРОВЬЯ СТРИМА ---
-            // Каждые 5 сек проверяем: жив ли FFmpeg?
-            healthCheckRef.current = setInterval(async () => {
-              try {
-                const alive = await invoke('check_stream_alive', { targetId: streamSessionId });
-                if (!alive) {
-                  clearInterval(healthCheckRef.current);
-                  console.warn('[STREAM] FFmpeg process died for', streamSessionId);
-                  // Не закрываем плеер — пользователь нажмёт "обновить"
-                }
-              } catch (e) {}
-            }, 5000);
+          const alive = await invoke('check_stream_alive', { targetId: streamSessionId });
+          if (!alive) {
+            clearInterval(healthCheckRef.current);
+            console.warn('[STREAM] FFmpeg process died for', streamSessionId);
           }
         } catch (e) {}
-
-        if (attempts >= 20) {
-          clearInterval(pollIntervalRef.current);
-          setRadarStatus('ТАЙМАУТ: ЦЕЛЬ НЕ ОТВЕЧАЕТ');
-          setTimeout(() => { setLoading(false); }, 2000);
-          await invoke('stop_stream', { targetId: streamSessionId });
-        }
-      }, 1000);
+      }, 5000);
     } catch (err) {
       alert("СБОЙ: " + err);
       setLoading(false);
@@ -457,7 +396,7 @@ export default function App() {
 
     // Уничтожаем текущий плеер
     if (playerRef.current) {
-      playerRef.current.dispose();
+      playerRef.current.destroy();
       playerRef.current = null;
     }
 
@@ -474,47 +413,26 @@ export default function App() {
 
         // Если это hub-стрим — перезапускаем через hub
         if (streamTerminal && streamTerminal.type === 'hub') {
-          await invoke('start_hub_stream', {
+          const wsUrl = await invoke('start_hub_stream', {
             targetId: activeTargetId,
             userId: streamTerminal.hub_id.toString(),
             channelId: streamChannel.index.toString(),
             cookie: hubConfig.cookie
           });
+          setActiveStream(wsUrl);
         } else {
-          await invoke('start_stream', { targetId: activeTargetId, rtspUrl: streamRtspUrl });
+          const wsUrl = await invoke('start_stream', { targetId: activeTargetId, rtspUrl: streamRtspUrl });
+          setActiveStream(wsUrl);
         }
-
-        // Ждём пока FFmpeg нагенерит новые сегменты
-        const streamUrl = `http://127.0.0.1:49152/${activeTargetId}/stream.m3u8`;
-        let attempts = 0;
-        const waitForReady = setInterval(async () => {
-          attempts++;
-          setRadarStatus(`ОЖИДАНИЕ ПАКЕТОВ... ${attempts}/10`);
-          try {
-            const res = await fetch(`${streamUrl}?ping=${Date.now()}`, { method: 'HEAD', cache: 'no-store' });
-            if (res.ok) {
-              clearInterval(waitForReady);
-              setActiveStream(`${streamUrl}?t=${Date.now()}`);
-              setLoading(false);
-            }
-          } catch (e) {}
-          if (attempts >= 10) {
-            clearInterval(waitForReady);
-            setRadarStatus('НЕ УДАЛОСЬ ВОССТАНОВИТЬ ПОТОК');
-            setTimeout(() => setLoading(false), 1500);
-          }
-        }, 1500);
+        setLoading(false);
       } catch (err) {
         alert('Ошибка перезапуска: ' + err);
         setLoading(false);
       }
     } else {
       // Простой refresh — пересоздаём плеер с тем же URL
-      const currentUrl = activeStream;
       setActiveStream(null);
-      setTimeout(() => {
-        setActiveStream(currentUrl.split('?')[0] + `?t=${Date.now()}`);
-      }, 300);
+      setTimeout(() => setActiveStream(activeStream), 300);
     }
   };
 
