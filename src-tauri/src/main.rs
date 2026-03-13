@@ -2260,37 +2260,40 @@ async fn fetch_nvr_device_info(
             Ok(r) => {
                 let status_code = r.status().as_u16();
 
-                // Если 401 на порту 2019 — делаем Digest auth
+                // Если 401 на порту 2019 — делаем Digest auth.
+                // Даже если digest не дал 200, сам факт 401 означает, что endpoint живой.
                 if status_code == 401 && is_2019 {
-                    if let Some(www_auth) = r
+                    let www_auth = r
                         .headers()
                         .get(reqwest::header::WWW_AUTHENTICATE)
                         .and_then(|h| h.to_str().ok())
-                        .map(|s| s.to_string())
-                    {
-                        let _ = r.text().await; // consume body
+                        .map(|s| s.to_string());
+                    let first_body = r.text().await.unwrap_or_default();
+                    if let Some(www_auth) = www_auth {
                         let path = "/ISAPI/System/deviceInfo";
                         if let Ok(mut prompt) = digest_auth::parse(&www_auth) {
                             let ctx =
                                 digest_auth::AuthContext::new(login.clone(), pass.clone(), path);
                             if let Ok(answer) = prompt.respond(&ctx) {
-                                let resp2 = client.get(&endpoint)
+                                let resp2 = client
+                                    .get(&endpoint)
                                     .header("Authorization", answer.to_string())
                                     .header("X-Requested-With", "XMLHttpRequest")
                                     .header("User-Agent", "Mozilla/4.0 (compatible; MSIE 8.0; Windows NT 6.1; WOW64; Trident/4.0)")
-                                    .send().await;
+                                    .send()
+                                    .await;
                                 if let Ok(r2) = resp2 {
                                     let sc2 = r2.status().as_u16();
                                     let text2 = r2.text().await.unwrap_or_default();
-                                    if sc2 == 200 {
-                                        let preview = text2.chars().take(600).collect::<String>();
-                                        push_runtime_log(
-                                            &log_state,
-                                            format!(
-                                                "ISAPI deviceInfo (Digest) {} from {}",
-                                                sc2, endpoint
-                                            ),
-                                        );
+                                    let preview = text2.chars().take(600).collect::<String>();
+                                    push_runtime_log(
+                                        &log_state,
+                                        format!(
+                                            "ISAPI deviceInfo (Digest) {} from {}",
+                                            sc2, endpoint
+                                        ),
+                                    );
+                                    if sc2 == 200 || sc2 == 401 || sc2 == 403 {
                                         return Ok(NvrDeviceInfoResult {
                                             endpoint,
                                             status: sc2.to_string(),
@@ -2300,8 +2303,21 @@ async fn fetch_nvr_device_info(
                                 }
                             }
                         }
-                        continue;
                     }
+
+                    let preview = first_body.chars().take(600).collect::<String>();
+                    push_runtime_log(
+                        &log_state,
+                        format!(
+                            "ISAPI deviceInfo response {} from {}",
+                            status_code, endpoint
+                        ),
+                    );
+                    return Ok(NvrDeviceInfoResult {
+                        endpoint,
+                        status: status_code.to_string(),
+                        body_preview: preview,
+                    });
                 }
 
                 let text = r.text().await.unwrap_or_default();
@@ -2619,6 +2635,20 @@ async fn search_isapi_recordings(
             clean_host, from, to
         ),
     );
+
+    // Novicam/Hikvision: прогреваем WebSession cookie перед перебором XML-вариантов поиска.
+    let _ = client
+        .get(format!(
+            "http://{}:2019/ISAPI/System/deviceInfo",
+            clean_host
+        ))
+        .header("X-Requested-With", "XMLHttpRequest")
+        .header(
+            "User-Agent",
+            "Mozilla/4.0 (compatible; MSIE 8.0; Windows NT 6.1; WOW64; Trident/4.0)",
+        )
+        .send()
+        .await;
 
     let start_re = Regex::new(r"<startTime>([^<]+)</startTime>").map_err(|e| e.to_string())?;
     let end_re = Regex::new(r"<endTime>([^<]+)</endTime>").map_err(|e| e.to_string())?;
