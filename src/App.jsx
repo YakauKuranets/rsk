@@ -1462,6 +1462,19 @@ const handleSecurityAudit = async () => {
               </div>
               <div style={{ fontSize: '9px', color: '#666', marginBottom: '6px' }}>HTML сохранён: {spiderReport.savedHtmlDir}</div>
 
+              {spiderReport.targetCard && (
+                <div style={{ border: '1px solid #663399', background: '#10001f', padding: '6px', marginBottom: '6px', fontSize: '10px' }}>
+                  <div style={{ color: '#d8b7ff', fontWeight: 'bold', marginBottom: '4px' }}>🎯 TARGET CARD</div>
+                  <div style={{ color: '#b8a0d8' }}>[ IP/HOST: {spiderReport.targetCard.host} ]</div>
+                  <div style={{ color: '#b8a0d8' }}>[ ВЕНДОР: {spiderReport.targetCard.vendorGuess} ]</div>
+                  <div style={{ color: '#b8a0d8' }}>[ API: {spiderReport.targetCard.apiGuess} ]</div>
+                  <div style={{ color: '#b8a0d8' }}>[ RTSP: {spiderReport.targetCard.rtspStatus} ]</div>
+                  <div style={{ color: '#9f82c5', marginTop: '4px' }}>
+                    [ ПОРТЫ: {(spiderReport.targetCard.openPorts || []).map(p => `${p.port} (${p.service})`).join(', ') || 'не обнаружены'} ]
+                  </div>
+                </div>
+              )}
+
               {/* Вкладки */}
               <div style={{ display: 'flex', gap: '2px', marginBottom: '6px' }}>
                 {[['pages', '📄'], ['js', '📜 JS'], ['dirs', '📁 DIRS'], ['tech', '🔧 TECH'], ['sitemap', '🗺️']].map(([key, label]) => (

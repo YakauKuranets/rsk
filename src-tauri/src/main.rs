@@ -25,6 +25,7 @@ use tauri::State;
 use tokio::sync::Mutex as TokioMutex;
 use tokio::sync::Semaphore;
 use tokio::{
+    io::{AsyncReadExt, AsyncWriteExt},
     net::TcpStream,
     time::{timeout, Duration},
 };
@@ -5228,6 +5229,23 @@ struct TechFingerprint {
     source: String,
 }
 
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct SpiderOpenPort {
+    port: u16,
+    service: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct SpiderTargetCard {
+    host: String,
+    open_ports: Vec<SpiderOpenPort>,
+    vendor_guess: String,
+    api_guess: String,
+    rtsp_status: String,
+}
+
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 struct SpiderReport {
@@ -5237,6 +5255,7 @@ struct SpiderReport {
     js_endpoints: Vec<SpiderJsEndpoint>,
     dir_results: Vec<SpiderDirResult>,
     tech_stack: Vec<TechFingerprint>,
+    target_card: SpiderTargetCard,
     all_headers: HashMap<String, Vec<String>>,
     sitemap: Vec<String>,
     saved_html_dir: String,
@@ -5279,6 +5298,124 @@ async fn spider_full_scan(
     // Определяем base URL
     let base = extract_base_url(&target_url);
     let base_domain = extract_domain(&target_url);
+
+    // ===== ФАЗА 0: TARGET ACQUISITION (порты + баннеры + RTSP) =====
+    push_runtime_log(&log_state, "🕷️ [0/4] TARGET ACQUISITION...".to_string());
+
+    let target_host = reqwest::Url::parse(&target_url)
+        .ok()
+        .and_then(|u| u.host_str().map(|h| h.to_string()))
+        .unwrap_or_else(|| extract_domain(&target_url));
+
+    let scan_ports: [u16; 7] = [80, 443, 554, 8000, 37777, 2019, 21];
+    let mut open_ports: Vec<SpiderOpenPort> = Vec::new();
+    for port in scan_ports {
+        let connect = timeout(Duration::from_millis(900), TcpStream::connect((target_host.as_str(), port))).await;
+        if matches!(connect, Ok(Ok(_))) {
+            open_ports.push(SpiderOpenPort {
+                port,
+                service: match port {
+                    80 => "HTTP",
+                    443 => "HTTPS",
+                    554 => "RTSP",
+                    8000 => "Hikvision SDK",
+                    37777 => "Dahua SDK",
+                    2019 => "Novicam/Hikvision Web",
+                    21 => "FTP",
+                    _ => "Unknown",
+                }
+                .to_string(),
+            });
+        }
+    }
+
+    let mut server_banner = String::new();
+    let mut auth_banner = String::new();
+    for web_port in [2019u16, 80, 443, 8000] {
+        if !open_ports.iter().any(|p| p.port == web_port) {
+            continue;
+        }
+        let scheme = if web_port == 443 { "https" } else { "http" };
+        let probe_url = format!("{}://{}:{}/", scheme, target_host, web_port);
+        if let Ok(resp) = client.get(&probe_url).send().await {
+            if let Some(v) = resp.headers().get("server").and_then(|x| x.to_str().ok()) {
+                if server_banner.is_empty() {
+                    server_banner = v.to_string();
+                }
+            }
+            if let Some(v) = resp.headers().get("www-authenticate").and_then(|x| x.to_str().ok()) {
+                if auth_banner.is_empty() {
+                    auth_banner = v.to_string();
+                }
+            }
+            if !server_banner.is_empty() || !auth_banner.is_empty() {
+                break;
+            }
+        }
+    }
+
+    let rtsp_status = if open_ports.iter().any(|p| p.port == 554) {
+        match timeout(Duration::from_secs(2), TcpStream::connect((target_host.as_str(), 554))).await {
+            Ok(Ok(mut stream)) => {
+                let rtsp_probe = format!(
+                    "OPTIONS rtsp://{}:554/ RTSP/1.0\r\nCSeq: 1\r\nUser-Agent: HyperionSpider/1.0\r\n\r\n",
+                    target_host
+                );
+                let _ = stream.write_all(rtsp_probe.as_bytes()).await;
+                let mut buf = [0u8; 512];
+                match timeout(Duration::from_millis(800), stream.read(&mut buf)).await {
+                    Ok(Ok(n)) if n > 0 => {
+                        let txt = String::from_utf8_lossy(&buf[..n]);
+                        if txt.contains("RTSP/1.0 401") {
+                            "alive (401 Unauthorized)".to_string()
+                        } else if txt.contains("RTSP/1.0") {
+                            "alive".to_string()
+                        } else {
+                            "opened, unknown reply".to_string()
+                        }
+                    }
+                    _ => "opened, no reply".to_string(),
+                }
+            }
+            _ => "closed".to_string(),
+        }
+    } else {
+        "closed".to_string()
+    };
+
+    let joined = format!("{} {}", server_banner.to_lowercase(), auth_banner.to_lowercase());
+    let vendor_guess = if joined.contains("app-webs") {
+        "OEM Hikvision / Novicam".to_string()
+    } else if joined.contains("dahua") || joined.contains("lighttpd") {
+        "Dahua / lighttpd OEM".to_string()
+    } else if joined.contains("goahead") {
+        "XMeye / GoAhead OEM".to_string()
+    } else {
+        "Unknown OEM".to_string()
+    };
+    let api_guess = if open_ports.iter().any(|p| p.port == 2019 || p.port == 8000) {
+        "ISAPI/SDK likely".to_string()
+    } else if open_ports.iter().any(|p| p.port == 37777) {
+        "Dahua CGI/SDK likely".to_string()
+    } else {
+        "HTTP/RTSP generic".to_string()
+    };
+
+    let target_card = SpiderTargetCard {
+        host: target_host.clone(),
+        open_ports,
+        vendor_guess: vendor_guess.clone(),
+        api_guess: api_guess.clone(),
+        rtsp_status: rtsp_status.clone(),
+    };
+
+    push_runtime_log(
+        &log_state,
+        format!(
+            "TARGET CARD | host={} | vendor={} | api={} | rtsp={}",
+            target_card.host, target_card.vendor_guess, target_card.api_guess, target_card.rtsp_status
+        ),
+    );
 
     // ===== ФАЗА 1: CRAWLER =====
     push_runtime_log(&log_state, "🕷️ [1/4] CRAWLING...".to_string());
@@ -5604,6 +5741,22 @@ async fn spider_full_scan(
 
     let mut tech_stack: Vec<TechFingerprint> = Vec::new();
 
+    tech_stack.push(TechFingerprint {
+        key: "Vendor guess".into(),
+        value: target_card.vendor_guess.clone(),
+        source: "Target acquisition".into(),
+    });
+    tech_stack.push(TechFingerprint {
+        key: "API guess".into(),
+        value: target_card.api_guess.clone(),
+        source: "Target acquisition".into(),
+    });
+    tech_stack.push(TechFingerprint {
+        key: "RTSP probe".into(),
+        value: target_card.rtsp_status.clone(),
+        source: "RTSP OPTIONS".into(),
+    });
+
     // Из заголовков
     if let Some(vals) = all_headers.get("server") {
         if let Some(first) = vals.first() {
@@ -5710,6 +5863,7 @@ async fn spider_full_scan(
         js_endpoints,
         dir_results,
         tech_stack,
+        target_card,
         all_headers,
         sitemap,
         saved_html_dir: html_dir.to_string_lossy().to_string(),
