@@ -521,7 +521,6 @@ async fn external_search(
 }
 
 // --- НОВЫЙ МОДУЛЬ: FFMPEG ТУННЕЛЬ ДЛЯ ХАБА ---
-#[tauri::command]
 fn start_hub_stream_impl(
     target_id: String,
     user_id: String,
@@ -726,7 +725,6 @@ fn read_target(target_id: String) -> Result<String, String> {
 }
 
 #[tauri::command]
-async fn probe_rtsp_path_impl(host: String, login: String, pass: String) -> Result<String, String> {
     let db = sled::open(get_vault_path().join("targets_vault"))
         .map_err(|e: sled::Error| e.to_string())?;
     let mut keys = Vec::new();
@@ -822,7 +820,6 @@ async fn geocode_address(address: String) -> Result<(f64, f64), String> {
     }
     let lat = data[0]["lat"].as_str().unwrap().parse::<f64>().unwrap();
     let lon = data[0]["lon"].as_str().unwrap().parse::<f64>().unwrap();
-    Ok((lat, lon))
 }
 
 #[tauri::command]
@@ -927,9 +924,6 @@ fn start_stream(
 
     let mut candidate_urls = vec![rtsp_url.clone()];
     if let Ok(parsed) = reqwest::Url::parse(&rtsp_url) {
-        let host = parsed.host_str().unwrap_or_default();
-        let login = parsed.username();
-        let pass = parsed.password().unwrap_or_default();
         let has_port = parsed.port().is_some();
 
         let mut channel = 1u32;
@@ -1974,7 +1968,6 @@ fn download_ftp_file(
                     filename
                 ),
             );
-        }
     }
 
 fn cancel_download_task_impl(
@@ -3347,7 +3340,6 @@ async fn search_isapi_recordings(
                         }
 
                         if items.is_empty() {
-                            continue;
 async fn probe_archive_export_endpoints_impl(
 
                         let downloadable_count = items.iter().filter(|x| x.downloadable).count();
@@ -3824,7 +3816,6 @@ async fn download_onvif_recording_token(
                         &log_state,
                         format!("DOWNLOAD_PROGRESS|{}|{}|0", task_key, current_size),
                     );
-                    last_size = current_size;
 async fn download_isapi_playback_uri_impl(
     if playback_uri.trim().is_empty() {
         return Err("Пустой playback_uri".into());
@@ -4237,7 +4228,6 @@ async fn start_archive_export_job_impl(
             u.path()
         );
         let pairs: Vec<(String, String)> = u
-            .query_pairs()
             .map(|(k, v)| {
                 let mut vv = v.to_string().replace('+', "%20").replace(' ', "%20");
                 if k == "starttime" || k == "endtime" {
