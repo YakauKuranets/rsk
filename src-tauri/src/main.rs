@@ -875,22 +875,37 @@ fn start_stream(
     let mut child = Command::new("ffmpeg")
         .args([
             "-y",
-            "-rtsp_transport", "tcp",
-            "-fflags", "+genpts",
-            "-i", &rtsp_url,
+            "-rtsp_transport",
+            "tcp",
+            "-fflags",
+            "+genpts",
+            "-i",
+            &rtsp_url,
             "-an",
-            "-c:v", "libx264",
-            "-preset", "ultrafast",
-            "-tune", "zerolatency",
-            "-pix_fmt", "yuv420p",
-            "-g", "25",
-            "-sc_threshold", "0",
-            "-f", "hls",
-            "-hls_time", "2",
-            "-hls_list_size", "5",
-            "-hls_flags", "delete_segments+append_list+omit_endlist",
-            "-hls_segment_type", "mpegts",
-            "-hls_segment_filename", segment_path.to_str().unwrap(),
+            "-c:v",
+            "libx264",
+            "-preset",
+            "ultrafast",
+            "-tune",
+            "zerolatency",
+            "-pix_fmt",
+            "yuv420p",
+            "-g",
+            "25",
+            "-sc_threshold",
+            "0",
+            "-f",
+            "hls",
+            "-hls_time",
+            "2",
+            "-hls_list_size",
+            "5",
+            "-hls_flags",
+            "delete_segments+append_list+omit_endlist",
+            "-hls_segment_type",
+            "mpegts",
+            "-hls_segment_filename",
+            segment_path.to_str().unwrap(),
             playlist.to_str().unwrap(),
         ])
         .stdout(Stdio::null())
@@ -903,20 +918,37 @@ fn start_stream(
     match child.try_wait() {
         Ok(Some(_status)) => {
             let err_log = std::fs::read_to_string(&log_file_path).unwrap_or_default();
-            let last_lines = err_log.lines().rev().take(6).collect::<Vec<_>>().into_iter().rev().collect::<Vec<_>>().join(" | ");
-            push_runtime_log(&log_state, format!("❌ FFMPEG STREAM FAILED: {}", last_lines));
+            let last_lines = err_log
+                .lines()
+                .rev()
+                .take(6)
+                .collect::<Vec<_>>()
+                .into_iter()
+                .rev()
+                .collect::<Vec<_>>()
+                .join(" | ");
+            push_runtime_log(
+                &log_state,
+                format!("❌ FFMPEG STREAM FAILED: {}", last_lines),
+            );
             return Err(format!("Сбой стрима. Причина: {}", last_lines));
         }
         Ok(None) => {}
         Err(e) => return Err(format!("Не удалось проверить статус FFmpeg: {}", e)),
     }
 
-    push_runtime_log(&log_state, "✅ FFmpeg успешно запущен, ожидание генерации HLS...".to_string());
-    state.active_streams.lock().unwrap().insert(target_id, child);
+    push_runtime_log(
+        &log_state,
+        "✅ FFmpeg успешно запущен, ожидание генерации HLS...".to_string(),
+    );
+    state
+        .active_streams
+        .lock()
+        .unwrap()
+        .insert(target_id, child);
 
     Ok("Started".into())
 }
-
 
 #[tauri::command]
 fn check_stream_alive(target_id: String, state: State<'_, StreamState>) -> Result<bool, String> {
@@ -958,7 +990,6 @@ fn restart_stream(
 
     start_stream(target_id, rtsp_url, state, log_state)
 }
-
 
 #[tauri::command]
 fn stop_stream(
@@ -2925,12 +2956,14 @@ async fn search_isapi_recordings(
                                                                     m.as_str().trim().to_string()
                                                                 })
                                                             });
-                                                        let unauthorized_status = parsed_status_string
-                                                            .as_deref()
-                                                            .unwrap_or_default()
-                                                            .to_ascii_lowercase();
+                                                        let unauthorized_status =
+                                                            parsed_status_string
+                                                                .as_deref()
+                                                                .unwrap_or_default()
+                                                                .to_ascii_lowercase();
                                                         let is_auth_rejection = code == 401
-                                                            && (unauthorized_status.contains("unauthorized")
+                                                            && (unauthorized_status
+                                                                .contains("unauthorized")
                                                                 || parsed_lock_status
                                                                     .as_deref()
                                                                     .map(|s| {
@@ -3882,29 +3915,58 @@ async fn download_isapi_playback_uri(
     cancel_state: State<'_, DownloadCancelState>,
     _ffmpeg_limiter: State<'_, FfmpegLimiterState>,
 ) -> Result<DownloadReport, String> {
-    if playback_uri.trim().is_empty() { return Err("Пустой playback_uri".into()); }
+    if playback_uri.trim().is_empty() {
+        return Err("Пустой playback_uri".into());
+    }
 
     let task_key = make_unique_task_key(task_id, "isapi");
     let started = std::time::Instant::now();
 
-    if let Ok(mut cancelled) = cancel_state.cancelled_tasks.lock() { cancelled.remove(&task_key); }
+    if let Ok(mut cancelled) = cancel_state.cancelled_tasks.lock() {
+        cancelled.remove(&task_key);
+    }
 
-    let mut filename = filename_hint.map(|s| sanitize_filename_component(&s)).filter(|s| !s.is_empty()).unwrap_or_else(|| format!("isapi_record_{}.mp4", Utc::now().timestamp()));
-    if !filename.contains('.') { filename.push_str(".mp4"); }
+    let mut filename = filename_hint
+        .map(|s| sanitize_filename_component(&s))
+        .filter(|s| !s.is_empty())
+        .unwrap_or_else(|| format!("isapi_record_{}.mp4", Utc::now().timestamp()));
+    if !filename.contains('.') {
+        filename.push_str(".mp4");
+    }
 
-    let path = get_vault_path().join("archives").join("isapi").join(&filename);
+    let path = get_vault_path()
+        .join("archives")
+        .join("isapi")
+        .join(&filename);
     let _ = std::fs::create_dir_all(path.parent().unwrap());
 
-    push_runtime_log(&log_state, format!("ISAPI SMART GET: {} [task:{}]", filename, task_key));
+    push_runtime_log(
+        &log_state,
+        format!("ISAPI SMART GET: {} [task:{}]", filename, task_key),
+    );
 
-    let client = reqwest::Client::builder().timeout(Duration::from_secs(60)).danger_accept_invalid_certs(true).user_agent("Mozilla/5.0 (X11; Linux x86_64; rv:140.0) Gecko/20100101 Firefox/140.0").build().map_err(|e| e.to_string())?;
+    let client = reqwest::Client::builder()
+        .timeout(Duration::from_secs(60))
+        .danger_accept_invalid_certs(true)
+        .cookie_store(true)
+        .user_agent("Mozilla/5.0 (X11; Linux x86_64; rv:140.0) Gecko/20100101 Firefox/140.0")
+        .build()
+        .map_err(|e| e.to_string())?;
 
     let parsed = reqwest::Url::parse(&playback_uri).map_err(|e| format!("Bad URI: {}", e))?;
 
     // Приоритет endpoint-хоста: если frontend передал source_host (внешний/доступный адрес NVR),
     // используем его для HTTP download endpoint, а playback_uri оставляем как payload.
-    let (host, port) = if let Some(src) = source_host.as_ref().map(|s| s.trim()).filter(|s| !s.is_empty()) {
-        let normalized = if src.contains("://") { src.to_string() } else { format!("http://{}", src) };
+    let (host, port) = if let Some(src) = source_host
+        .as_ref()
+        .map(|s| s.trim())
+        .filter(|s| !s.is_empty())
+    {
+        let normalized = if src.contains("://") {
+            src.to_string()
+        } else {
+            format!("http://{}", src)
+        };
         if let Ok(src_url) = reqwest::Url::parse(&normalized) {
             let h = src_url
                 .host_str()
@@ -3918,7 +3980,10 @@ async fn download_isapi_playback_uri(
             if h.is_empty() {
                 return Err("Bad source_host: empty host".into());
             }
-            let p = parts.next().and_then(|x| x.parse::<u16>().ok()).unwrap_or(2019);
+            let p = parts
+                .next()
+                .and_then(|x| x.parse::<u16>().ok())
+                .unwrap_or(2019);
             (h.to_string(), p)
         }
     } else {
@@ -3978,35 +4043,38 @@ async fn download_isapi_playback_uri(
 
     // Fallback для OEM/Novicam: некоторые прошивки принимают только «кривой» web-ui формат
     // c разделителем `&amp;` внутри playbackURI (вплоть до параметров вида amp;endtime).
-    let legacy_amp_playback_uri = reqwest::Url::parse(&clean_uri)
-        .ok()
-        .map(|u| {
-            let mut base = format!("{}://{}{}", u.scheme(), u.host_str().unwrap_or_default(), u.path());
-            let pairs: Vec<(String, String)> = u
-                .query_pairs()
-                .map(|(k, v)| {
-                    let mut vv = v.to_string().replace('+', "%20").replace(' ', "%20");
-                    if k == "starttime" || k == "endtime" {
-                        vv = vv.replace('+', "%20");
-                    }
-                    (k.into_owned(), vv)
-                })
-                .collect();
-            if !pairs.is_empty() {
-                let mut q = String::new();
-                for (i, (k, v)) in pairs.iter().enumerate() {
-                    if i > 0 {
-                        q.push_str("&amp;");
-                    }
-                    q.push_str(k);
-                    q.push('=');
-                    q.push_str(v);
+    let legacy_amp_playback_uri = reqwest::Url::parse(&clean_uri).ok().map(|u| {
+        let mut base = format!(
+            "{}://{}{}",
+            u.scheme(),
+            u.host_str().unwrap_or_default(),
+            u.path()
+        );
+        let pairs: Vec<(String, String)> = u
+            .query_pairs()
+            .map(|(k, v)| {
+                let mut vv = v.to_string().replace('+', "%20").replace(' ', "%20");
+                if k == "starttime" || k == "endtime" {
+                    vv = vv.replace('+', "%20");
                 }
-                base.push('?');
-                base.push_str(&q);
+                (k.into_owned(), vv)
+            })
+            .collect();
+        if !pairs.is_empty() {
+            let mut q = String::new();
+            for (i, (k, v)) in pairs.iter().enumerate() {
+                if i > 0 {
+                    q.push_str("&amp;");
+                }
+                q.push_str(k);
+                q.push('=');
+                q.push_str(v);
             }
-            base
-        });
+            base.push('?');
+            base.push_str(&q);
+        }
+        base
+    });
     let legacy_request_url = legacy_amp_playback_uri.map(|legacy_uri| {
         format!(
             "http://{}:{}{}?playbackURI={}&onlyVerification=true",
@@ -4021,7 +4089,9 @@ async fn download_isapi_playback_uri(
         let _ = parsed_uri.set_port(None);
         activex_playback_uri = parsed_uri.to_string();
     }
-    activex_playback_uri = activex_playback_uri.replace("T", "%20").replace("&", "&amp;");
+    activex_playback_uri = activex_playback_uri
+        .replace("T", "%20")
+        .replace("&", "&amp;");
     let activex_xml_payload = format!(
         "<?xml version='1.0'?>\r\n<downloadRequest><playbackURI>{}</playbackURI></downloadRequest>",
         activex_playback_uri
@@ -4035,7 +4105,12 @@ async fn download_isapi_playback_uri(
     let mut use_activex_xml_mode = false;
     let mut digest_cache: Option<String> = None;
 
-    let mut file = OpenOptions::new().create(true).write(true).truncate(true).open(&path).map_err(|e| e.to_string())?;
+    let mut file = OpenOptions::new()
+        .create(true)
+        .write(true)
+        .truncate(true)
+        .open(&path)
+        .map_err(|e| e.to_string())?;
     let progress_step = 2 * 1024 * 1024u64;
     let mut next_mark = progress_step;
 
@@ -4050,22 +4125,66 @@ async fn download_isapi_playback_uri(
 
     let heartbeat_client = client.clone();
     let heartbeat_url = format!("http://{}:{}/ISAPI/Security/sessionHeartbeat", host, port);
+    let heartbeat_fallback_url = format!("http://{}:{}/ISAPI/System/deviceInfo", host, port);
     let heartbeat_login = login.clone();
     let heartbeat_pass = pass.clone();
+    let heartbeat_request_path = request_path.to_string();
     let _heartbeat_guard = HeartbeatGuard(Some(tokio::spawn(async move {
+        let mut digest_challenge: Option<String> = None;
         loop {
-            tokio::time::sleep(Duration::from_secs(30)).await;
-            let hb_req = heartbeat_client
+            tokio::time::sleep(Duration::from_secs(25)).await;
+
+            let mut hb_req = heartbeat_client
                 .put(&heartbeat_url)
                 .header("X-Requested-With", "XMLHttpRequest")
                 .basic_auth(&heartbeat_login, Some(&heartbeat_pass));
-            let _ = hb_req.send().await;
+
+            if let Some(ref challenge) = digest_challenge {
+                if let Ok(mut prompt) = digest_auth::parse(challenge) {
+                    let mut ctx = digest_auth::AuthContext::new(
+                        heartbeat_login.clone(),
+                        heartbeat_pass.clone(),
+                        heartbeat_request_path.clone(),
+                    );
+                    ctx.method = digest_auth::HttpMethod::PUT;
+                    if let Ok(answer) = prompt.respond(&ctx) {
+                        hb_req = hb_req.header("Authorization", answer.to_string());
+                    }
+                }
+            }
+
+            match hb_req.send().await {
+                Ok(resp) => {
+                    if resp.status().as_u16() == 401 {
+                        if let Some(auth) = resp
+                            .headers()
+                            .get(reqwest::header::WWW_AUTHENTICATE)
+                            .and_then(|h| h.to_str().ok())
+                        {
+                            digest_challenge = Some(auth.to_string());
+                        }
+                    }
+                }
+                Err(_) => {
+                    let _ = heartbeat_client
+                        .get(&heartbeat_fallback_url)
+                        .basic_auth(&heartbeat_login, Some(&heartbeat_pass))
+                        .send()
+                        .await;
+                }
+            }
         }
     })));
 
     loop {
-        if cancel_state.cancelled_tasks.lock().unwrap().contains(&task_key) {
-            let _ = std::fs::remove_file(&path); return Err("Отменено".into());
+        if cancel_state
+            .cancelled_tasks
+            .lock()
+            .unwrap()
+            .contains(&task_key)
+        {
+            let _ = std::fs::remove_file(&path);
+            return Err("Отменено".into());
         }
 
         let active_request_url = if use_activex_xml_mode {
@@ -4092,7 +4211,10 @@ async fn download_isapi_playback_uri(
                 .header("X-Requested-With", "XMLHttpRequest")
                 .header(
                     "Referer",
-                    format!("http://{}:{}/doc/page/download.asp?fileType=record", host, port),
+                    format!(
+                        "http://{}:{}/doc/page/download.asp?fileType=record",
+                        host, port
+                    ),
                 )
         };
         if current_offset > 0 && !use_activex_xml_mode {
@@ -4101,9 +4223,15 @@ async fn download_isapi_playback_uri(
 
         if let Some(ref auth) = digest_cache {
             if let Ok(mut prompt) = digest_auth::parse(auth) {
-                let mut ctx = digest_auth::AuthContext::new(login.clone(), pass.clone(), request_path.to_string());
+                let mut ctx = digest_auth::AuthContext::new(
+                    login.clone(),
+                    pass.clone(),
+                    request_path.to_string(),
+                );
                 ctx.method = digest_auth::HttpMethod::GET;
-                if let Ok(answer) = prompt.respond(&ctx) { req = req.header("Authorization", answer.to_string()); }
+                if let Ok(answer) = prompt.respond(&ctx) {
+                    req = req.header("Authorization", answer.to_string());
+                }
             }
         } else {
             req = req.basic_auth(&login, Some(&pass));
@@ -4113,8 +4241,13 @@ async fn download_isapi_playback_uri(
             Ok(resp) => {
                 let status = resp.status().as_u16();
                 if status == 401 && digest_cache.is_none() {
-                    if let Some(auth) = resp.headers().get("WWW-Authenticate").and_then(|h| h.to_str().ok()) {
-                        digest_cache = Some(auth.to_string()); continue;
+                    if let Some(auth) = resp
+                        .headers()
+                        .get("WWW-Authenticate")
+                        .and_then(|h| h.to_str().ok())
+                    {
+                        digest_cache = Some(auth.to_string());
+                        continue;
                     }
                 }
                 if !resp.status().is_success() {
@@ -4124,7 +4257,10 @@ async fn download_isapi_playback_uri(
                                 use_legacy_amp_mode = true;
                                 retries = 0;
                                 digest_cache = None;
-                                push_runtime_log(&log_state, "ISAPI direct: switching to legacy amp; playbackURI mode");
+                                push_runtime_log(
+                                    &log_state,
+                                    "ISAPI direct: switching to legacy amp; playbackURI mode",
+                                );
                                 tokio::time::sleep(Duration::from_millis(400)).await;
                                 continue;
                             }
@@ -4133,48 +4269,91 @@ async fn download_isapi_playback_uri(
                             use_activex_xml_mode = true;
                             retries = 0;
                             digest_cache = None;
-                            push_runtime_log(&log_state, "ISAPI direct: switching to ActiveX XML-body mode");
+                            push_runtime_log(
+                                &log_state,
+                                "ISAPI direct: switching to ActiveX XML-body mode",
+                            );
                             tokio::time::sleep(Duration::from_millis(400)).await;
                             continue;
                         }
                     }
-                    if retries > 3 { return Err(format!("NVR HTTP Error {}", status)); }
-                    retries += 1; tokio::time::sleep(Duration::from_secs(3)).await; continue;
+                    if retries > 3 {
+                        return Err(format!("NVR HTTP Error {}", status));
+                    }
+                    retries += 1;
+                    tokio::time::sleep(Duration::from_secs(3)).await;
+                    continue;
                 }
 
                 retries = 0;
-                if total_size == 0 { total_size = resp.content_length().unwrap_or(0) + current_offset; }
+                if total_size == 0 {
+                    total_size = resp.content_length().unwrap_or(0) + current_offset;
+                }
 
                 use futures_util::StreamExt;
                 let mut stream = resp.bytes_stream();
                 while let Some(chunk) = stream.next().await {
-                    if cancel_state.cancelled_tasks.lock().unwrap().contains(&task_key) {
-                        let _ = std::fs::remove_file(&path); return Err("Отменено".into());
+                    if cancel_state
+                        .cancelled_tasks
+                        .lock()
+                        .unwrap()
+                        .contains(&task_key)
+                    {
+                        let _ = std::fs::remove_file(&path);
+                        return Err("Отменено".into());
                     }
                     if let Ok(data) = chunk {
                         std::io::Write::write_all(&mut file, &data).map_err(|e| e.to_string())?;
                         current_offset += data.len() as u64;
                         if current_offset >= next_mark {
-                            push_runtime_log(&log_state, format!("DOWNLOAD_PROGRESS|{}|{}|{}", task_key, current_offset, total_size.max(current_offset)));
+                            push_runtime_log(
+                                &log_state,
+                                format!(
+                                    "DOWNLOAD_PROGRESS|{}|{}|{}",
+                                    task_key,
+                                    current_offset,
+                                    total_size.max(current_offset)
+                                ),
+                            );
                             next_mark = current_offset + progress_step;
                         }
-                    } else { break; }
+                    } else {
+                        break;
+                    }
                 }
-                if current_offset >= total_size && total_size > 0 { break; }
+                if current_offset >= total_size && total_size > 0 {
+                    break;
+                }
             }
             Err(e) => {
-                if retries > 3 { return Err(format!("Сбой сети: {}", e)); }
-                retries += 1; tokio::time::sleep(Duration::from_secs(3)).await;
+                if retries > 3 {
+                    return Err(format!("Сбой сети: {}", e));
+                }
+                retries += 1;
+                tokio::time::sleep(Duration::from_secs(3)).await;
             }
         }
     }
 
-    push_runtime_log(&log_state, format!("ISAPI DOWNLOAD FINISHED: {} bytes", current_offset));
-    if let Ok(mut cancelled) = cancel_state.cancelled_tasks.lock() { cancelled.remove(&task_key); }
+    push_runtime_log(
+        &log_state,
+        format!("ISAPI DOWNLOAD FINISHED: {} bytes", current_offset),
+    );
+    if let Ok(mut cancelled) = cancel_state.cancelled_tasks.lock() {
+        cancelled.remove(&task_key);
+    }
 
-    Ok(DownloadReport { server_alias: "isapi_http".into(), filename, save_path: path.to_string_lossy().to_string(), bytes_written: current_offset, total_bytes: total_size.max(current_offset), duration_ms: started.elapsed().as_millis(), resumed: false, skipped_as_complete: false })
+    Ok(DownloadReport {
+        server_alias: "isapi_http".into(),
+        filename,
+        save_path: path.to_string_lossy().to_string(),
+        bytes_written: current_offset,
+        total_bytes: total_size.max(current_offset),
+        duration_ms: started.elapsed().as_millis(),
+        resumed: false,
+        skipped_as_complete: false,
+    })
 }
-
 
 #[tauri::command]
 async fn start_archive_export_job(
@@ -4367,7 +4546,10 @@ async fn download_isapi_via_rtsp(
         filename.push_str(".mp4");
     }
 
-    let path = get_vault_path().join("archives").join("isapi").join(&filename);
+    let path = get_vault_path()
+        .join("archives")
+        .join("isapi")
+        .join(&filename);
     let _ = std::fs::create_dir_all(path.parent().unwrap());
 
     let started = std::time::Instant::now();
@@ -4419,7 +4601,10 @@ async fn download_isapi_via_rtsp(
                 if !status.success() {
                     let _ = std::fs::remove_file(&path);
                     drop(permit);
-                    return Err(format!("FFmpeg RTSP capture failed with status: {}", status));
+                    return Err(format!(
+                        "FFmpeg RTSP capture failed with status: {}",
+                        status
+                    ));
                 }
                 break;
             }
@@ -4427,7 +4612,10 @@ async fn download_isapi_via_rtsp(
                 if let Ok(m) = std::fs::metadata(&path) {
                     let sz = m.len();
                     if sz > last_size + 1024 * 1024 {
-                        push_runtime_log(log_state, format!("DOWNLOAD_PROGRESS|{}|{}|0", task_key, sz));
+                        push_runtime_log(
+                            log_state,
+                            format!("DOWNLOAD_PROGRESS|{}|{}|0", task_key, sz),
+                        );
                         last_size = sz;
                     }
                 }
@@ -4459,7 +4647,6 @@ async fn download_isapi_via_rtsp(
         skipped_as_complete: false,
     })
 }
-
 
 async fn try_isapi_download_post_xml(
     client: &reqwest::Client,
@@ -4652,7 +4839,10 @@ async fn download_isapi_via_http(
     let started = std::time::Instant::now();
     push_runtime_log(
         log_state,
-        format!("ISAPI HTTP GET download started: {} [task:{}]", uri, task_key),
+        format!(
+            "ISAPI HTTP GET download started: {} [task:{}]",
+            uri, task_key
+        ),
     );
 
     let mut filename = filename_hint
@@ -4663,7 +4853,10 @@ async fn download_isapi_via_http(
         filename.push_str(".mp4");
     }
 
-    let path = get_vault_path().join("archives").join("isapi").join(&filename);
+    let path = get_vault_path()
+        .join("archives")
+        .join("isapi")
+        .join(&filename);
     let _ = std::fs::create_dir_all(path.parent().unwrap());
 
     let parsed_uri = reqwest::Url::parse(uri).map_err(|e| e.to_string())?;
@@ -4864,7 +5057,10 @@ async fn capture_archive_segment(
         filename.push_str(".mp4");
     }
 
-    let path = get_vault_path().join("archives").join("captures").join(&filename);
+    let path = get_vault_path()
+        .join("archives")
+        .join("captures")
+        .join(&filename);
     let _ = std::fs::create_dir_all(path.parent().unwrap());
     let output_path = path.to_string_lossy().to_string();
 
@@ -4878,7 +5074,10 @@ async fn capture_archive_segment(
     if final_url.to_lowercase().starts_with("rtsp://") {
         if let Ok(mut parsed) = reqwest::Url::parse(&final_url) {
             // Меняем веб-порт на стандартный RTSP (554)
-            if parsed.port() == Some(2019) || parsed.port() == Some(80) || parsed.port() == Some(8080) {
+            if parsed.port() == Some(2019)
+                || parsed.port() == Some(80)
+                || parsed.port() == Some(8080)
+            {
                 let _ = parsed.set_port(Some(554));
             }
             // Вшиваем логин и пароль
@@ -5089,7 +5288,9 @@ async fn capture_archive_segment(
         }
 
         if last_progress.elapsed() >= std::time::Duration::from_secs(2) {
-            let current_size = std::fs::metadata(&path).map(|m| m.len()).unwrap_or(last_size);
+            let current_size = std::fs::metadata(&path)
+                .map(|m| m.len())
+                .unwrap_or(last_size);
             if current_size > last_size {
                 push_runtime_log(
                     &log_state,
@@ -5127,19 +5328,45 @@ async fn capture_archive_segment(
     })
 }
 
-
 #[tauri::command]
 fn get_implementation_status() -> Result<ImplementationStatus, String> {
     let items = vec![
-        RoadmapItem { name: "Vault encryption + sled storage".into(), status: "completed".into() },
-        RoadmapItem { name: "Live stream engine (RTSP/MJPEG -> HLS)".into(), status: "completed".into() },
-        RoadmapItem { name: "Hub/Shodan/Videodvor discovery".into(), status: "completed".into() },
-        RoadmapItem { name: "FTP resilience (banner/retry/resume)".into(), status: "completed".into() },
-        RoadmapItem { name: "Automatic host service/port scanner".into(), status: "completed".into() },
-        RoadmapItem { name: "ISAPI/ONVIF archive extraction".into(), status: "completed".into() },
-        RoadmapItem { name: "Download manager UX (queue/cancel/persist)".into(), status: "completed".into() },
-        RoadmapItem { name: "Map filtering for >100 targets".into(), status: "completed".into() },
-        RoadmapItem { name: "Embedded runtime logs terminal".into(), status: "completed".into() },
+        RoadmapItem {
+            name: "Vault encryption + sled storage".into(),
+            status: "completed".into(),
+        },
+        RoadmapItem {
+            name: "Live stream engine (RTSP/MJPEG -> HLS)".into(),
+            status: "completed".into(),
+        },
+        RoadmapItem {
+            name: "Hub/Shodan/Videodvor discovery".into(),
+            status: "completed".into(),
+        },
+        RoadmapItem {
+            name: "FTP resilience (banner/retry/resume)".into(),
+            status: "completed".into(),
+        },
+        RoadmapItem {
+            name: "Automatic host service/port scanner".into(),
+            status: "completed".into(),
+        },
+        RoadmapItem {
+            name: "ISAPI/ONVIF archive extraction".into(),
+            status: "completed".into(),
+        },
+        RoadmapItem {
+            name: "Download manager UX (queue/cancel/persist)".into(),
+            status: "completed".into(),
+        },
+        RoadmapItem {
+            name: "Map filtering for >100 targets".into(),
+            status: "completed".into(),
+        },
+        RoadmapItem {
+            name: "Embedded runtime logs terminal".into(),
+            status: "completed".into(),
+        },
     ];
 
     let total = items.len();
@@ -5156,7 +5383,6 @@ fn get_implementation_status() -> Result<ImplementationStatus, String> {
         items,
     })
 }
-
 
 /// HTTP-скачивание файла по прямой ссылке с прогрессом
 /// Универсальный метод для ISAPI playback URI, HUB download links и любых HTTP-источников
@@ -5520,7 +5746,8 @@ async fn spider_full_scan(
 
     let scan_ports: [u16; 7] = [80, 554, 8000, 37777, 2019, 3702, 21];
 
-    let sweep_hosts = parse_ipv4_cidr_hosts(&target_url).unwrap_or_else(|| vec![single_target_host.clone()]);
+    let sweep_hosts =
+        parse_ipv4_cidr_hosts(&target_url).unwrap_or_else(|| vec![single_target_host.clone()]);
     if sweep_hosts.len() > 1 {
         push_runtime_log(
             &log_state,
@@ -5587,7 +5814,11 @@ async fn spider_full_scan(
                     server_banner = v.to_string();
                 }
             }
-            if let Some(v) = resp.headers().get("www-authenticate").and_then(|x| x.to_str().ok()) {
+            if let Some(v) = resp
+                .headers()
+                .get("www-authenticate")
+                .and_then(|x| x.to_str().ok())
+            {
                 if auth_banner.is_empty() {
                     auth_banner = v.to_string();
                 }
@@ -5599,7 +5830,12 @@ async fn spider_full_scan(
     }
 
     let rtsp_status = if open_ports.iter().any(|p| p.port == 554) {
-        match timeout(Duration::from_secs(2), TcpStream::connect((target_host.as_str(), 554))).await {
+        match timeout(
+            Duration::from_secs(2),
+            TcpStream::connect((target_host.as_str(), 554)),
+        )
+        .await
+        {
             Ok(Ok(mut stream)) => {
                 let rtsp_probe = format!(
                     "OPTIONS rtsp://{}:554/ RTSP/1.0\r\nCSeq: 1\r\nUser-Agent: HyperionSpider/1.0\r\n\r\n",
@@ -5627,7 +5863,11 @@ async fn spider_full_scan(
         "closed".to_string()
     };
 
-    let joined = format!("{} {}", server_banner.to_lowercase(), auth_banner.to_lowercase());
+    let joined = format!(
+        "{} {}",
+        server_banner.to_lowercase(),
+        auth_banner.to_lowercase()
+    );
     let vendor_guess = if joined.contains("app-webs") {
         "OEM Hikvision / Novicam".to_string()
     } else if joined.contains("dahua") || joined.contains("lighttpd") {
@@ -5657,14 +5897,20 @@ async fn spider_full_scan(
         &log_state,
         format!(
             "TARGET CARD | host={} | vendor={} | api={} | rtsp={}",
-            target_card.host, target_card.vendor_guess, target_card.api_guess, target_card.rtsp_status
+            target_card.host,
+            target_card.vendor_guess,
+            target_card.api_guess,
+            target_card.rtsp_status
         ),
     );
 
     // Phase 3/4/5 (безопасный audit-only режим: без брутфорса/эксплуатации)
-    let credential_policy_note = "Active weak-password guessing disabled (audit-safe mode).".to_string();
+    let credential_policy_note =
+        "Active weak-password guessing disabled (audit-safe mode).".to_string();
 
-    let firmware_vuln_note = if vendor_guess.contains("Hikvision") || vendor_guess.contains("Novicam") {
+    let firmware_vuln_note = if vendor_guess.contains("Hikvision")
+        || vendor_guess.contains("Novicam")
+    {
         "Firmware match: OEM Hikvision profile detected, recommend CVE baseline review (e.g. 2017-era auth bypass families).".to_string()
     } else if vendor_guess.contains("Dahua") {
         "Firmware match: Dahua profile detected, recommend NVD cross-check for current firmware branch.".to_string()
@@ -5673,7 +5919,12 @@ async fn spider_full_scan(
     };
 
     let open_share_note = if open_ports.iter().any(|p| p.port == 21) {
-        match timeout(Duration::from_secs(3), audit_ftp_anonymous_inventory(&target_host)).await {
+        match timeout(
+            Duration::from_secs(3),
+            audit_ftp_anonymous_inventory(&target_host),
+        )
+        .await
+        {
             Ok(Ok((entries, video_like))) => format!(
                 "FTP anonymous access detected: {} entries visible (video-like: {}).",
                 entries, video_like
@@ -5686,7 +5937,8 @@ async fn spider_full_scan(
     };
 
     let monitoring_note = if target_card.rtsp_status.starts_with("alive") {
-        "RTSP is live: snapshot telemetry can be scheduled after explicit operator authentication.".to_string()
+        "RTSP is live: snapshot telemetry can be scheduled after explicit operator authentication."
+            .to_string()
     } else {
         "RTSP telemetry unavailable in unauthenticated probe.".to_string()
     };
@@ -5714,13 +5966,21 @@ async fn spider_full_scan(
         SpiderModuleStatus {
             module: "credential_policy_auditor".into(),
             enabled: do_vuln_verification,
-            status: if do_vuln_verification { "passive".into() } else { "disabled".into() },
+            status: if do_vuln_verification {
+                "passive".into()
+            } else {
+                "disabled".into()
+            },
             details: credential_policy_note.clone(),
         },
         SpiderModuleStatus {
             module: "firmware_vulnerability_matcher".into(),
             enabled: do_vuln_verification,
-            status: if do_vuln_verification { "passive".into() } else { "disabled".into() },
+            status: if do_vuln_verification {
+                "passive".into()
+            } else {
+                "disabled".into()
+            },
             details: firmware_vuln_note.clone(),
         },
         SpiderModuleStatus {
@@ -5732,19 +5992,31 @@ async fn spider_full_scan(
         SpiderModuleStatus {
             module: "snapshot_refresh".into(),
             enabled: do_snapshot_refresh,
-            status: if do_snapshot_refresh { "scheduled".into() } else { "disabled".into() },
+            status: if do_snapshot_refresh {
+                "scheduled".into()
+            } else {
+                "disabled".into()
+            },
             details: snapshot_note.clone(),
         },
         SpiderModuleStatus {
             module: "topology_discovery".into(),
             enabled: do_topology_discovery,
-            status: if do_topology_discovery { "queued".into() } else { "disabled".into() },
+            status: if do_topology_discovery {
+                "queued".into()
+            } else {
+                "disabled".into()
+            },
             details: topology_note.clone(),
         },
         SpiderModuleStatus {
             module: "osint_import".into(),
             enabled: do_osint_import,
-            status: if do_osint_import { "configured".into() } else { "disabled".into() },
+            status: if do_osint_import {
+                "configured".into()
+            } else {
+                "disabled".into()
+            },
             details: if do_osint_import {
                 "External OSINT import is operator-controlled and requires configured API key in secure settings.".into()
             } else {
@@ -5779,11 +6051,21 @@ async fn spider_full_scan(
                     let mut fps = "?".to_string();
                     let mut bitrate = "?".to_string();
                     for line in txt.lines() {
-                        if let Some(v) = line.strip_prefix("codec_name=") { codec = v.to_string(); }
-                        if let Some(v) = line.strip_prefix("width=") { width = v.to_string(); }
-                        if let Some(v) = line.strip_prefix("height=") { height = v.to_string(); }
-                        if let Some(v) = line.strip_prefix("r_frame_rate=") { fps = v.to_string(); }
-                        if let Some(v) = line.strip_prefix("bit_rate=") { bitrate = v.to_string(); }
+                        if let Some(v) = line.strip_prefix("codec_name=") {
+                            codec = v.to_string();
+                        }
+                        if let Some(v) = line.strip_prefix("width=") {
+                            width = v.to_string();
+                        }
+                        if let Some(v) = line.strip_prefix("height=") {
+                            height = v.to_string();
+                        }
+                        if let Some(v) = line.strip_prefix("r_frame_rate=") {
+                            fps = v.to_string();
+                        }
+                        if let Some(v) = line.strip_prefix("bit_rate=") {
+                            bitrate = v.to_string();
+                        }
                     }
                     video_stream_info.push(SpiderVideoStreamInfo {
                         host: target_host.clone(),
@@ -5836,7 +6118,10 @@ async fn spider_full_scan(
                     .filter_map(|line| {
                         let cols: Vec<&str> = line.split_whitespace().collect();
                         if cols.len() >= 4 {
-                            Some(SpiderPassiveDevice { ip: cols[0].to_string(), mac: cols[3].to_string() })
+                            Some(SpiderPassiveDevice {
+                                ip: cols[0].to_string(),
+                                mac: cols[3].to_string(),
+                            })
                         } else {
                             None
                         }
@@ -5844,7 +6129,9 @@ async fn spider_full_scan(
                     .collect()
             })
             .unwrap_or_default()
-    } else { Vec::new() };
+    } else {
+        Vec::new()
+    };
 
     let mut uptime_info = Vec::new();
     if do_uptime_monitoring {
@@ -5856,7 +6143,10 @@ async fn spider_full_scan(
                 .and_then(|v| v.to_str().ok())
                 .map(|v| format!("HTTP date observed: {}", v))
                 .unwrap_or_else(|| "uptime unavailable via HTTP headers".to_string());
-            uptime_info.push(SpiderUptimeInfo { host: target_host.clone(), uptime_hint: hint });
+            uptime_info.push(SpiderUptimeInfo {
+                host: target_host.clone(),
+                uptime_hint: hint,
+            });
         }
     }
 
@@ -5887,43 +6177,71 @@ async fn spider_full_scan(
     module_statuses.push(SpiderModuleStatus {
         module: "video_stream_quality_analyzer".into(),
         enabled: do_video_stream_analyzer,
-        status: if do_video_stream_analyzer { "passive".into() } else { "disabled".into() },
+        status: if do_video_stream_analyzer {
+            "passive".into()
+        } else {
+            "disabled".into()
+        },
         details: "Short ffprobe metadata probe only (no recording).".into(),
     });
     module_statuses.push(SpiderModuleStatus {
         module: "credential_depth_audit".into(),
         enabled: do_credential_depth_audit,
-        status: if do_credential_depth_audit { "passive".into() } else { "disabled".into() },
+        status: if do_credential_depth_audit {
+            "passive".into()
+        } else {
+            "disabled".into()
+        },
         details: "Depth audit is read-only and requires pre-approved credentials.".into(),
     });
     module_statuses.push(SpiderModuleStatus {
         module: "passive_arp_discovery".into(),
         enabled: do_passive_arp_discovery,
-        status: if do_passive_arp_discovery { "captured".into() } else { "disabled".into() },
+        status: if do_passive_arp_discovery {
+            "captured".into()
+        } else {
+            "disabled".into()
+        },
         details: format!("devices discovered: {}", passive_devices.len()),
     });
     module_statuses.push(SpiderModuleStatus {
         module: "uptime_monitoring".into(),
         enabled: do_uptime_monitoring,
-        status: if do_uptime_monitoring { "passive".into() } else { "disabled".into() },
+        status: if do_uptime_monitoring {
+            "passive".into()
+        } else {
+            "disabled".into()
+        },
         details: "SNMP/HTTP hint collection only.".into(),
     });
     module_statuses.push(SpiderModuleStatus {
         module: "neighbor_topology_discovery".into(),
         enabled: do_neighbor_discovery,
-        status: if do_neighbor_discovery { "partial".into() } else { "disabled".into() },
+        status: if do_neighbor_discovery {
+            "partial".into()
+        } else {
+            "disabled".into()
+        },
         details: "LLDP/CDP discovery requires SNMP profile support.".into(),
     });
     module_statuses.push(SpiderModuleStatus {
         module: "threat_intelligence_enrichment".into(),
         enabled: do_threat_intel,
-        status: if do_threat_intel { "passive".into() } else { "disabled".into() },
+        status: if do_threat_intel {
+            "passive".into()
+        } else {
+            "disabled".into()
+        },
         details: format!("links attached: {}", threat_links.len()),
     });
     module_statuses.push(SpiderModuleStatus {
         module: "scheduled_audits".into(),
         enabled: do_scheduled_audits,
-        status: if do_scheduled_audits { "configured".into() } else { "disabled".into() },
+        status: if do_scheduled_audits {
+            "configured".into()
+        } else {
+            "disabled".into()
+        },
         details: "Scheduler metadata mode enabled (execution handled externally).".into(),
     });
 
@@ -6475,7 +6793,8 @@ async fn audit_ftp_anonymous_inventory(host: &str) -> Result<(usize, usize), Str
     tokio::task::spawn_blocking(move || {
         let addr = format!("{}:21", host);
         let mut ftp = FtpStream::connect(addr).map_err(|e| e.to_string())?;
-        ftp.login("anonymous", "anonymous").map_err(|e| e.to_string())?;
+        ftp.login("anonymous", "anonymous")
+            .map_err(|e| e.to_string())?;
         let list = ftp.nlst(Some("/")).map_err(|e| e.to_string())?;
         let mut video_like = 0usize;
         for name in &list {
@@ -6510,7 +6829,11 @@ fn parse_ipv4_cidr_hosts(input: &str) -> Option<Vec<String>> {
     }
 
     let base = u32::from(ip);
-    let mask = if prefix == 0 { 0 } else { u32::MAX << (32 - prefix) };
+    let mask = if prefix == 0 {
+        0
+    } else {
+        u32::MAX << (32 - prefix)
+    };
     let network = base & mask;
     let broadcast = network | !mask;
 
