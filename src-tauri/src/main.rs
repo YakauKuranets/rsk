@@ -924,7 +924,7 @@ fn start_stream(
     }
     candidate_urls.dedup();
 
-    let mut child: Option<Child> = None;
+    let mut child: Option<std::process::Child> = None;
     let mut last_lines = String::new();
     let mut active_url = rtsp_url.clone();
 
@@ -2768,8 +2768,6 @@ async fn search_isapi_recordings(
         let is_2019 = endpoint.contains(":2019");
         let mut endpoint_reachable = false;
         let mut endpoint_client_error = false;
-        let mut endpoint_invalid_request = false;
-        let mut endpoint_auth_rejected = false;
         let mut endpoint_last_error: Option<String> = None;
 
         for tid in &track_ids {
@@ -3043,17 +3041,6 @@ async fn search_isapi_recordings(
                                                                 })
                                                             });
 
-                                                        if parsed_status_code.as_deref()
-                                                            == Some("6")
-                                                            && parsed_status_string
-                                                                .as_deref()
-                                                                .unwrap_or_default()
-                                                                .to_ascii_lowercase()
-                                                                .contains("invalid")
-                                                        {
-                                                            endpoint_invalid_request = true;
-                                                        }
-
                                                         let parsed_lock_status = lock_status_re
                                                             .captures(&t)
                                                             .and_then(|c| {
@@ -3068,27 +3055,6 @@ async fn search_isapi_recordings(
                                                                     m.as_str().trim().to_string()
                                                                 })
                                                             });
-                                                        let unauthorized_status =
-                                                            parsed_status_string
-                                                                .as_deref()
-                                                                .unwrap_or_default()
-                                                                .to_ascii_lowercase();
-                                                        let is_auth_rejection = code == 401
-                                                            && (unauthorized_status
-                                                                .contains("unauthorized")
-                                                                || parsed_lock_status
-                                                                    .as_deref()
-                                                                    .map(|s| {
-                                                                        s.eq_ignore_ascii_case(
-                                                                            "lock",
-                                                                        )
-                                                                    })
-                                                                    .unwrap_or(false));
-
-                                                        if is_auth_rejection {
-                                                            endpoint_auth_rejected = true;
-                                                        }
-
                                                         endpoint_last_error = Some(format!(
                                                             "HTTP {} statusCode={:?} statusString={:?} lockStatus={:?} unlockTime={:?} body='{}'",
                                                             code,
@@ -3152,16 +3118,6 @@ async fn search_isapi_recordings(
                                         status_string_re.captures(&t).and_then(|c| {
                                             c.get(1).map(|m| m.as_str().trim().to_string())
                                         });
-
-                                    if parsed_status_code.as_deref() == Some("6")
-                                        && parsed_status_string
-                                            .as_deref()
-                                            .unwrap_or_default()
-                                            .to_ascii_lowercase()
-                                            .contains("invalid")
-                                    {
-                                        endpoint_invalid_request = true;
-                                    }
 
                                     endpoint_last_error = Some(format!(
                                         "HTTP {} statusCode={:?} statusString={:?} body='{}'",
