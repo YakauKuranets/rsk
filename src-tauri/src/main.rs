@@ -3982,6 +3982,30 @@ async fn download_isapi_playback_uri(
     let progress_step = 2 * 1024 * 1024u64;
     let mut next_mark = progress_step;
 
+    struct HeartbeatGuard(Option<tokio::task::JoinHandle<()>>);
+    impl Drop for HeartbeatGuard {
+        fn drop(&mut self) {
+            if let Some(task) = self.0.take() {
+                task.abort();
+            }
+        }
+    }
+
+    let heartbeat_client = client.clone();
+    let heartbeat_url = format!("http://{}:{}/ISAPI/Security/sessionHeartbeat", host, port);
+    let heartbeat_login = login.clone();
+    let heartbeat_pass = pass.clone();
+    let _heartbeat_guard = HeartbeatGuard(Some(tokio::spawn(async move {
+        loop {
+            tokio::time::sleep(Duration::from_secs(30)).await;
+            let hb_req = heartbeat_client
+                .put(&heartbeat_url)
+                .header("X-Requested-With", "XMLHttpRequest")
+                .basic_auth(&heartbeat_login, Some(&heartbeat_pass));
+            let _ = hb_req.send().await;
+        }
+    })));
+
     loop {
         if cancel_state.cancelled_tasks.lock().unwrap().contains(&task_key) {
             let _ = std::fs::remove_file(&path); return Err("Отменено".into());
