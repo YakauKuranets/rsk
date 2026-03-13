@@ -701,12 +701,14 @@ fn save_target(target_id: String, payload: String) -> Result<String, String> {
     let encrypted_data = cipher
         .encrypt(Nonce::from_slice(b"nemesis_salt"), payload.as_bytes())
         .map_err(|_| "Encryption error".to_string())?;
-    let keys = db
-        .iter()
-        .keys()
-        .filter_map(Result::ok)
-        .filter_map(|key_bytes| String::from_utf8(key_bytes.to_vec()).ok())
-        .collect::<Vec<_>>();
+    db.insert(target_id.as_bytes(), encrypted_data)
+        .map_err(|e: sled::Error| e.to_string())?;
+    Ok("Saved".into())
+}
+
+#[tauri::command]
+fn read_target(target_id: String) -> Result<String, String> {
+    let db = sled::open(get_vault_path().join("targets_vault"))
         .map_err(|e: sled::Error| e.to_string())?;
     if let Some(data) = db
         .get(target_id.as_bytes())
@@ -723,6 +725,7 @@ fn save_target(target_id: String, payload: String) -> Result<String, String> {
 }
 
 #[tauri::command]
+fn get_all_targets() -> Result<Vec<String>, String> {
     let db = sled::open(get_vault_path().join("targets_vault"))
         .map_err(|e: sled::Error| e.to_string())?;
     let mut keys = Vec::new();
