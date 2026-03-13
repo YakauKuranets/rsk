@@ -963,7 +963,7 @@ fn start_stream(
                 "-rtsp_transport",
                 "tcp",
                 "-fflags",
-                "nobuffer+genpts+flush_packets",
+                "+genpts",
                 "-i",
                 &candidate,
                 "-an",
