@@ -5476,7 +5476,7 @@ async fn spider_full_scan(
         if !open_ports.is_empty() {
             discovered_targets.push(SpiderDiscoveredTarget {
                 host: host.clone(),
-                open_ports,
+                open_ports: open_ports.clone(),
             });
         }
     }
