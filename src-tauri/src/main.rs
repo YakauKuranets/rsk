@@ -949,6 +949,7 @@ fn start_stream(
     let mut child: Option<std::process::Child> = None;
     let mut last_lines = String::new();
     let mut active_url = rtsp_url.clone();
+    let mut failed_candidates = 0usize;
 
     for candidate in candidate_urls {
         let log_file = std::fs::File::create(&log_file_path).map_err(|e| e.to_string())?;
@@ -997,6 +998,7 @@ fn start_stream(
 
         match proc.try_wait() {
             Ok(Some(_)) => {
+                failed_candidates += 1;
                 let err_log = std::fs::read_to_string(&log_file_path).unwrap_or_default();
                 last_lines = err_log
                     .lines()
@@ -1007,10 +1009,6 @@ fn start_stream(
                     .rev()
                     .collect::<Vec<_>>()
                     .join(" | ");
-                push_runtime_log(
-                    &log_state,
-                    format!("FFmpeg retry next URL after failure: {}", candidate),
-                );
             }
             Ok(None) => {
                 active_url = candidate;
@@ -1036,7 +1034,10 @@ fn start_stream(
     if active_url != rtsp_url {
         push_runtime_log(
             &log_state,
-            format!("FFmpeg stream fallback selected URL: {}", active_url),
+            format!(
+                "FFmpeg stream fallback selected URL: {} (failed candidates: {})",
+                active_url, failed_candidates
+            ),
         );
     }
 
