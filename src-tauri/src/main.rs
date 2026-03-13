@@ -2659,8 +2659,9 @@ async fn search_isapi_recordings(
         let mut endpoint_invalid_request = false;
         let mut endpoint_auth_rejected = false;
         let mut endpoint_last_error: Option<String> = None;
+        let mut endpoint_fast_reject = false;
 
-        for tid in &track_ids {
+        'track_loop: for tid in &track_ids {
             let xml_variants = vec![
                 (
                     "CMSearchDescription-webui-form",
@@ -3149,10 +3150,8 @@ async fn search_isapi_recordings(
                                 diag_request
                             ),
                         );
-                        return Err(format!(
-                            "ISAPI ContentMgmt/search отклонён устройством как invalid request ({}). {}",
-                            reason, diag_request
-                        ));
+                        endpoint_fast_reject = true;
+                        break 'track_loop;
                     }
 
                     if is_2019 && endpoint_reachable && endpoint_auth_rejected {
@@ -3166,10 +3165,8 @@ async fn search_isapi_recordings(
                                 reason
                             ),
                         );
-                        return Err(format!(
-                            "ISAPI ContentMgmt/search отклонён авторизацией на порту 2019 ({}). Проверьте логин/пароль и дождитесь окончания lock таймера.",
-                            reason
-                        ));
+                        endpoint_fast_reject = true;
+                        break 'track_loop;
                     }
 
                     if let Some(text) = text {
@@ -3293,6 +3290,19 @@ async fn search_isapi_recordings(
             }
         }
 
+        if is_2019 && endpoint_fast_reject {
+            push_runtime_log(
+                &log_state,
+                format!(
+                    "ISAPI search[{run_id}]: :2019 отклоняет запросы ({}). Продолжаю fallback-порты.",
+                    endpoint_last_error
+                        .clone()
+                        .unwrap_or_else(|| "no_detailed_reason".to_string())
+                ),
+            );
+            continue;
+        }
+
         if is_2019 && endpoint_reachable && endpoint_client_error {
             let reason = endpoint_last_error.unwrap_or_else(|| {
                 "Устройство вернуло client-error на 2019 порту для всех проверенных ISAPI-шаблонов"
@@ -3301,14 +3311,11 @@ async fn search_isapi_recordings(
             push_runtime_log(
                 &log_state,
                 format!(
-                    "ISAPI search[{run_id}]: порт 2019 доступен, но запросы отклоняются. Пропускаю медленный перебор fallback-портов. {}",
+                    "ISAPI search[{run_id}]: порт 2019 доступен, но запросы отклоняются. Перехожу к fallback-портам. {}",
                     reason
                 ),
             );
-            return Err(format!(
-                "ISAPI порт 2019 доступен, но ContentMgmt/search отклоняет запросы ({}). Проверьте совместимость XML-шаблона/прошивки.",
-                reason
-            ));
+            continue;
         }
     }
 
