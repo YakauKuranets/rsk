@@ -17,7 +17,7 @@ use std::fs::OpenOptions;
 use std::net::{TcpStream as StdTcpStream, ToSocketAddrs};
 use std::path::PathBuf;
 use std::process::{Command, Stdio};
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, OnceLock};
 mod archive;
 mod archive_ai;
@@ -7937,6 +7937,9 @@ fn main() {
         .manage(FfmpegLimiterState {
             semaphore: Arc::new(Semaphore::new(2)),
         })
+        .manage(archive_ai::AiState {
+            is_running: Arc::new(AtomicBool::new(false)),
+        })
         .invoke_handler(tauri::generate_handler![
             save_target,
             read_target,
@@ -7972,6 +7975,7 @@ fn main() {
             archive::start_archive_export_job,
             archive::probe_archive_export_endpoints,
             archive_ai::start_archive_analysis,
+            archive_ai::stop_archive_analysis,
             get_implementation_status,
             // ☢️ ПРОТОКОЛ NEMESIS (nexus.rs)
             run_nexus_protocol,

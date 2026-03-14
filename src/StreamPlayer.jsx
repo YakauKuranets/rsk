@@ -155,9 +155,14 @@ export default function StreamPlayer({ streamUrl, cameraName, terminal, channel,
     return () => container.removeEventListener('wheel', handleWheel);
   }, [playingRecord, tab]);
 
-  const stopAiAnalysis = () => {
-    setAiAnalyzing(false);
-    // В будущем здесь будет: invoke('stop_archive_analysis');
+  const stopAiAnalysis = async () => {
+    try {
+      await invoke('stop_archive_analysis');
+    } catch (err) {
+      alert('Ошибка остановки ИИ: ' + err);
+    } finally {
+      setAiAnalyzing(false);
+    }
   };
 
   const handleSearchArchive = async () => {
