@@ -653,6 +653,10 @@ pub async fn start_hub_stream(
             "ultrafast",
             "-tune",
             "zerolatency",
+            "-pix_fmt",        // <-- ПРИНУДИТЕЛЬНЫЙ ФОРМАТ ПИКСЕЛЕЙ
+            "yuv420p",         // <-- СТАНДАРТ ДЛЯ WEB
+            "-profile:v",      // <-- ПРОФИЛЬ КОДЕКА
+            "main",            // <-- ПОДДЕРЖИВАЕТСЯ ВСЕМИ ПЛЕЕРАМИ
             "-max_muxing_queue_size",
             "1024",
             "-an",
@@ -1033,6 +1037,10 @@ pub async fn start_stream(
             "ultrafast",
             "-tune",
             "zerolatency",
+            "-pix_fmt",        // <-- ПРИНУДИТЕЛЬНЫЙ ФОРМАТ ПИКСЕЛЕЙ
+            "yuv420p",         // <-- СТАНДАРТ ДЛЯ WEB
+            "-profile:v",      // <-- ПРОФИЛЬ КОДЕКА
+            "main",            // <-- ПОДДЕРЖИВАЕТСЯ ВСЕМИ ПЛЕЕРАМИ
             "-max_muxing_queue_size",
             "1024",
             "-an",
