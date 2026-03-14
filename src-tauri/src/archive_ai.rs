@@ -102,32 +102,28 @@ pub async fn start_archive_analysis(
                         }
                     }
 
-                    // Скармливаем кадр нейросети
-                    if let Ok(outputs) = session.run(ort::inputs!["images" => tensor.view()].unwrap()) {
-                        if let Ok(output_tensor) = outputs[0].try_extract_tensor::<f32>() {
-                            let view = output_tensor.view();
+                    // Скармливаем кадр нейросети (убрали .unwrap(), так как макрос теперь возвращает готовый Vec)
+                    if let Ok(outputs) = session.run(ort::inputs!["images" => tensor.view()]) {
+                        // В ort v2 try_extract_tensor возвращает кортеж (Shape, &[f32])
+                        if let Ok((_shape, slice)) = outputs[0].try_extract_tensor::<f32>() {
                             let mut found_person = false;
                             let mut max_conf = 0.0f32;
 
-                            // YOLOv8 возвращает 8400 рамок (анкоров). Перебираем их.
+                            // YOLOv8 возвращает плоский массив.
+                            // Матрица имеет форму [1, 84, 8400].
+                            // Нам нужна строка с индексом 4 (вероятность класса 'person').
+                            // Чтобы найти её в плоском массиве &[f32], используем смещение: 4 * 8400
                             for i in 0..8400 {
-                                // Индекс 4 - это вероятность того, что в рамке ЧЕЛОВЕК (Class 0)
-                                let person_conf = view[[0, 4, i]];
-                                if person_conf > 0.65 {
-                                    // Порог уверенности 65%
+                                let person_conf = slice[4 * 8400 + i];
+                                if person_conf > 0.65 { // Порог уверенности 65%
                                     found_person = true;
-                                    if person_conf > max_conf {
-                                        max_conf = person_conf;
-                                    }
+                                    if person_conf > max_conf { max_conf = person_conf; }
                                 }
                             }
 
                             // Если реально нашли человека - отправляем метку во фронтенд!
                             if found_person {
-                                println!(
-                                    "[AI MODULE] 👤 Найден человек на {} мс (Уверенность: {:.2})",
-                                    current_ms, max_conf
-                                );
+                                println!("[AI MODULE] 👤 Найден человек на {} мс (Уверенность: {:.2})", current_ms, max_conf);
                                 let event = AiEvent {
                                     timestamp_ms: current_ms,
                                     class: "person".to_string(),
