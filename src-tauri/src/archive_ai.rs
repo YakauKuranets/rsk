@@ -26,6 +26,8 @@ pub async fn start_archive_analysis(
     state: State<'_, AiState>,
     playback_uri: String,
     duration_ms: u64,
+    login: String,
+    pass: String,
 ) -> Result<(), String> {
     // Сначала глушим предыдущий процесс (если он был запущен)
     state.is_running.store(false, Ordering::SeqCst);
@@ -57,11 +59,14 @@ pub async fn start_archive_analysis(
 
         println!("[AI MODULE] 🟢 YOLOv8 готова. Запускаем перехват кадров FFmpeg...");
 
+        // Вклеиваем логин и пароль в RTSP ссылку для прохождения авторизации
+        let auth_uri = playback_uri.replace("rtsp://", &format!("rtsp://{}:{}@", login, pass));
+
         // Запускаем FFmpeg в фоне для вытягивания сырых кадров
         let mut child = Command::new("ffmpeg")
             .args(&[
                 "-rtsp_transport", "tcp", // ВАЖНО: Заставляем FFmpeg использовать надежный TCP
-                "-i", &playback_uri,
+                "-i", &auth_uri, // <--- ИСПОЛЬЗУЕМ ССЫЛКУ С ПАРОЛЕМ
                 "-r", "2",
                 "-f", "image2pipe",
                 "-pix_fmt", "rgb24",

@@ -82,7 +82,9 @@ export default function StreamPlayer({ streamUrl, cameraName, terminal, channel,
     try {
       await invoke('start_archive_analysis', {
         playbackUri: playingRecord.playbackUri,
-        durationMs: durationMs
+        durationMs: durationMs,
+        login: terminal?.login || 'admin',
+        pass: terminal?.password || ''
       });
     } catch (err) {
       alert("Ошибка запуска ИИ: " + err);
