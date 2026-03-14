@@ -138,8 +138,9 @@ export default function StreamPlayer({ streamUrl, cameraName, terminal, channel,
       const appWindow = getCurrentWindow();
       const newState = !isPinned;
       await appWindow.setAlwaysOnTop(newState);
-      setIsPinned(newState);
+      setIsPinned(newState); // Если всё ок, меняем цвет кнопки
     } catch (err) {
+      alert("Ошибка закрепления окна Tauri:\n" + err);
       console.error('Tauri window pin error:', err);
     }
   };
