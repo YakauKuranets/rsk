@@ -416,6 +416,24 @@ export default function App() {
     }
   };
 
+  const handlePlayArchive = async (playbackUri) => {
+    if (!activeTargetId) return;
+    setLoading(true);
+    setRadarStatus('ПОДКЛЮЧЕНИЕ К АРХИВУ...');
+    try {
+      await invoke('stop_stream', { targetId: activeTargetId });
+      await new Promise(r => setTimeout(r, 500)); // Ждем завершения FFmpeg
+
+      const wsUrl = await invoke('start_stream', { targetId: activeTargetId, rtspUrl: playbackUri });
+      setStreamRtspUrl(playbackUri); // Сохраняем, чтобы кнопка "Обновить" работала для архива
+      setActiveStream(null); // Форсируем перерисовку плеера
+      setTimeout(() => setActiveStream(wsUrl), 50);
+    } catch (err) {
+      alert('Ошибка запуска архива: ' + err);
+    }
+    setLoading(false);
+  };
+
   const handleHubSearch = async () => {
     try {
         setLoading(true);
@@ -1267,8 +1285,10 @@ const handleSecurityAudit = async () => {
           <StreamPlayer
             streamUrl={activeStream}
             cameraName={activeCameraName}
+            terminal={streamTerminal}
             onRefresh={handleRefreshStream}
             onClose={handleStopStream}
+            onPlayArchive={handlePlayArchive}
           />
         )}
       </div>

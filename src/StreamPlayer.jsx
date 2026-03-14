@@ -1,9 +1,16 @@
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import mpegts from 'mpegts.js';
+import { invoke } from '@tauri-apps/api/core';
 
-export default function StreamPlayer({ streamUrl, cameraName, onRefresh, onClose }) {
+export default function StreamPlayer({ streamUrl, cameraName, terminal, onRefresh, onClose, onPlayArchive }) {
   const videoRef = useRef(null);
   const playerRef = useRef(null);
+
+  // Состояния для Архива
+  const [tab, setTab] = useState('live'); // 'live' | 'archive'
+  const [archiveDate, setArchiveDate] = useState(() => new Date().toISOString().split('T')[0]);
+  const [records, setRecords] = useState([]);
+  const [loadingArchive, setLoadingArchive] = useState(false);
 
   useEffect(() => {
     if (streamUrl && videoRef.current) {
@@ -17,16 +24,10 @@ export default function StreamPlayer({ streamUrl, cameraName, onRefresh, onClose
 
         player.attachMediaElement(videoRef.current);
         player.load();
-
-        // Запускаем видео и ловим возможные ошибки автоплея
-        player.play().catch(e => console.error('[PLAYER] Play error:', e));
-
+        player.play().catch(e => console.error("[PLAYER] Play error:", e));
         playerRef.current = player;
-      } else {
-        console.error('[PLAYER] MSE is not supported in this browser');
       }
 
-      // Автоматическая очистка при смене URL или закрытии компонента
       return () => {
         if (playerRef.current) {
           playerRef.current.destroy();
@@ -36,37 +37,101 @@ export default function StreamPlayer({ streamUrl, cameraName, onRefresh, onClose
     }
   }, [streamUrl]);
 
+  const handleSearchArchive = async () => {
+    if (!terminal || terminal.type === 'hub') return alert('Поиск архива доступен только для прямых NVR/Камер (ISAPI)');
+    setLoadingArchive(true);
+    try {
+      const fromTime = `${archiveDate}T00:00:00Z`;
+      const toTime = `${archiveDate}T23:59:59Z`;
+      const result = await invoke('search_isapi_recordings', {
+        host: terminal.host,
+        login: terminal.login || 'admin',
+        pass: terminal.password || '',
+        fromTime,
+        toTime,
+      });
+      setRecords(result || []);
+    } catch (e) {
+      alert('Ошибка поиска: ' + e);
+    } finally {
+      setLoadingArchive(false);
+    }
+  };
+
+  const formatTime = (isoString) => {
+    if (!isoString) return '';
+    const date = new Date(isoString);
+    return date.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+  };
+
   if (!streamUrl) return null;
 
   return (
-    <div style={{ position: 'absolute', bottom: 20, left: 20, width: '520px', border: '2px solid #00f0ff', zIndex: 1000, backgroundColor: '#050505', boxShadow: '0 0 20px rgba(0,240,255,0.3)' }}>
-      <div style={{ background: '#00f0ff', color: '#000', padding: '5px 8px', fontSize: '12px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontWeight: 'bold' }}>
-        <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>LIVE: {cameraName}</span>
-        <div style={{ display: 'flex', gap: '8px', marginLeft: '10px', flexShrink: 0 }}>
-          <span
-            onClick={onRefresh}
-            style={{ cursor: 'pointer', padding: '2px 8px', backgroundColor: 'rgba(0,0,0,0.2)', borderRadius: '3px', fontSize: '11px', userSelect: 'none' }}
-            title="Перезапустить поток"
-          >
-            ↻ ОБНОВИТЬ
-          </span>
-          <span
-            onClick={onClose}
-            style={{ cursor: 'pointer', padding: '2px 8px', backgroundColor: 'rgba(255,0,0,0.3)', borderRadius: '3px', fontSize: '11px', userSelect: 'none' }}
-            title="Закрыть поток"
-          >
-            ✖ ЗАКРЫТЬ
-          </span>
+    <div style={{ position: 'absolute', bottom: 20, left: 20, width: '520px', border: '2px solid #00f0ff', zIndex: 1000, backgroundColor: '#050505', boxShadow: '0 0 20px rgba(0,240,255,0.3)', display: 'flex', flexDirection: 'column' }}>
+
+      {/* Шапка плеера с вкладками */}
+      <div style={{ background: '#00f0ff', color: '#000', padding: '0', fontSize: '12px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontWeight: 'bold' }}>
+        <div style={{ display: 'flex' }}>
+          <div onClick={() => setTab('live')} style={{ padding: '6px 12px', cursor: 'pointer', backgroundColor: tab === 'live' ? 'transparent' : 'rgba(0,0,0,0.2)' }}>
+            ⏺ LIVE
+          </div>
+          <div onClick={() => setTab('archive')} style={{ padding: '6px 12px', cursor: 'pointer', backgroundColor: tab === 'archive' ? 'transparent' : 'rgba(0,0,0,0.2)' }}>
+            📁 АРХИВ
+          </div>
+        </div>
+
+        <div style={{ display: 'flex', gap: '8px', marginRight: '8px' }}>
+          <span onClick={onRefresh} style={{ cursor: 'pointer', padding: '2px 8px', backgroundColor: 'rgba(0,0,0,0.2)', borderRadius: '3px', fontSize: '11px' }}>↻ ОБНОВИТЬ</span>
+          <span onClick={onClose} style={{ cursor: 'pointer', padding: '2px 8px', backgroundColor: 'rgba(255,0,0,0.3)', borderRadius: '3px', fontSize: '11px' }}>✖ ЗАКРЫТЬ</span>
         </div>
       </div>
 
-      {/* Контейнер видео с правильными пропорциями */}
+      {/* Контейнер видео */}
       <video
         ref={videoRef}
         style={{ width: '100%', aspectRatio: '16/9', display: 'block', backgroundColor: '#000', objectFit: 'contain' }}
         muted
         autoPlay
       />
+
+      {/* Панель архива (Открывается при выборе вкладки) */}
+      {tab === 'archive' && (
+        <div style={{ backgroundColor: '#0a0a0c', borderTop: '1px solid #00f0ff', padding: '10px' }}>
+          <div style={{ display: 'flex', gap: '8px', marginBottom: '10px' }}>
+            <input
+              type="date"
+              value={archiveDate}
+              onChange={(e) => setArchiveDate(e.target.value)}
+              style={{ flex: 1, backgroundColor: '#000', color: '#00f0ff', border: '1px solid #00f0ff', padding: '6px', fontSize: '12px', colorScheme: 'dark' }}
+            />
+            <button
+              onClick={handleSearchArchive}
+              disabled={loadingArchive}
+              style={{ backgroundColor: '#1a4a4a', color: '#00f0ff', border: '1px solid #00f0ff', padding: '6px 15px', cursor: 'pointer', fontWeight: 'bold', fontSize: '11px' }}
+            >
+              {loadingArchive ? 'ПОИСК...' : 'НАЙТИ'}
+            </button>
+          </div>
+
+          <div style={{ maxHeight: '150px', overflowY: 'auto', border: '1px solid #222', padding: '5px' }}>
+            {records.length === 0 && !loadingArchive && <div style={{ color: '#555', fontSize: '11px', textAlign: 'center', padding: '10px' }}>Нет записей за эту дату</div>}
+            {records.map((rec, idx) => (
+              <div key={idx} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '6px', borderBottom: '1px solid #111' }}>
+                <span style={{ color: '#aaa', fontSize: '11px' }}>
+                  {formatTime(rec.startTime)} — {formatTime(rec.endTime)}
+                </span>
+                <button
+                  onClick={() => onPlayArchive(rec.playbackUri)}
+                  disabled={!rec.playbackUri}
+                  style={{ backgroundColor: '#00f0ff', color: '#000', border: 'none', padding: '3px 8px', cursor: 'pointer', fontSize: '10px', fontWeight: 'bold', opacity: rec.playbackUri ? 1 : 0.5 }}
+                >
+                  ▶ ПЛЕЙ
+                </button>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
     </div>
   );
 }
