@@ -20,6 +20,7 @@ use std::process::{Command, Stdio};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, OnceLock};
 mod archive;
+mod archive_ai;
 mod nexus;
 mod streaming;
 use suppaftp::FtpStream;
@@ -7970,6 +7971,7 @@ fn main() {
             archive::download_isapi_playback_uri,
             archive::start_archive_export_job,
             archive::probe_archive_export_endpoints,
+            archive_ai::start_archive_analysis,
             get_implementation_status,
             // ☢️ ПРОТОКОЛ NEMESIS (nexus.rs)
             run_nexus_protocol,

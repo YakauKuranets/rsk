@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import mpegts from 'mpegts.js';
 import { invoke } from '@tauri-apps/api/core';
+import { listen } from '@tauri-apps/api/event';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 
 export default function StreamPlayer({ streamUrl, cameraName, terminal, channel, hubCookie, onRefresh, onClose, onPlayArchive }) {
@@ -17,6 +18,11 @@ export default function StreamPlayer({ streamUrl, cameraName, terminal, channel,
   const [playingRecord, setPlayingRecord] = useState(null);
   const [seekOffsetMs, setSeekOffsetMs] = useState(0);
   const [progressPercent, setProgressPercent] = useState(0);
+
+  // Стейты для ИИ и Таймлайна
+  const [aiAnalyzing, setAiAnalyzing] = useState(false);
+  const [archiveEvents, setArchiveEvents] = useState([]);
+  const [timelineZoom, setTimelineZoom] = useState(1);
   
   // Новые стейты для UI
   const [isFullscreen, setIsFullscreen] = useState(false);
@@ -55,6 +61,55 @@ export default function StreamPlayer({ streamUrl, cameraName, terminal, channel,
       };
     }
   }, [streamUrl]);
+
+
+  const startAiAnalysis = async () => {
+    if (!playingRecord || !playingRecord.playbackUri) return;
+    setAiAnalyzing(true);
+    setArchiveEvents([]); 
+
+    const startMs = new Date(playingRecord.startTime).getTime();
+    const endMs = new Date(playingRecord.endTime).getTime();
+    const durationMs = endMs - startMs;
+
+    try {
+      await invoke('start_archive_analysis', {
+        playbackUri: playingRecord.playbackUri,
+        durationMs: durationMs
+      });
+    } catch (err) {
+      alert("Ошибка запуска ИИ: " + err);
+      setAiAnalyzing(false);
+    }
+  };
+
+  useEffect(() => {
+    let unlistenEvent;
+    let unlistenDone;
+
+    const setupListeners = async () => {
+      unlistenEvent = await listen('ai-archive-event', (event) => {
+        const { timestamp_ms, class: objClass } = event.payload;
+        if (!playingRecord) return;
+
+        const startMs = new Date(playingRecord.startTime).getTime();
+        const absoluteTime = new Date(startMs + timestamp_ms).toISOString();
+
+        setArchiveEvents(prev => [...prev, { time: absoluteTime, type: objClass === 'person' ? 'motion' : 'line' }]);
+      });
+
+      unlistenDone = await listen('ai-archive-done', () => {
+        setAiAnalyzing(false);
+      });
+    };
+
+    if (playingRecord) setupListeners();
+
+    return () => {
+      if (unlistenEvent) unlistenEvent();
+      if (unlistenDone) unlistenDone();
+    };
+  }, [playingRecord]);
 
   const handleSearchArchive = async () => {
     if (!terminal) return alert('Ошибка: данные камеры не переданы в плеер!');
@@ -211,35 +266,79 @@ export default function StreamPlayer({ streamUrl, cameraName, terminal, channel,
         onTimeUpdate={handleTimeUpdate}
       />
 
-      {/* Кастомный Таймлайн */}
+      {/* Кастомный Таймлайн с Аналитикой и Зумом */}
       {playingRecord && tab === 'archive' && (
         <div style={{ backgroundColor: '#111', padding: '5px 10px', borderTop: '1px solid #333' }}>
+
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+            <button
+              onClick={startAiAnalysis}
+              disabled={aiAnalyzing || !playingRecord}
+              style={{
+                backgroundColor: aiAnalyzing ? '#555' : '#7000ff',
+                color: '#fff', border: '1px solid #a055ff', padding: '4px 10px', fontSize: '10px', fontWeight: 'bold', cursor: aiAnalyzing ? 'wait' : 'pointer', borderRadius: '3px', boxShadow: aiAnalyzing ? 'none' : '0 0 8px #7000ff'
+              }}
+            >
+              {aiAnalyzing ? '🧠 СКАНИРОВАНИЕ...' : '🧠 УМНЫЙ АНАЛИЗ'}
+            </button>
+
+            <div style={{ display: 'flex', gap: '5px', alignItems: 'center' }}>
+              <span style={{ color: '#aaa', fontSize: '10px' }}>ЗУМ:</span>
+              {[1, 2, 5, 10].map(z => (
+                <button
+                  key={z} onClick={() => setTimelineZoom(z)}
+                  style={{ backgroundColor: timelineZoom === z ? '#00f0ff' : '#222', color: timelineZoom === z ? '#000' : '#00f0ff', border: '1px solid #00f0ff', padding: '2px 6px', fontSize: '10px', cursor: 'pointer' }}
+                >
+                  {z}x
+                </button>
+              ))}
+            </div>
+          </div>
+
           <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '9px', color: '#00f0ff', marginBottom: '4px' }}>
             <span>{formatTime(playingRecord.startTime)}</span>
-            <span>НАЖМИТЕ НА ПОЛОСУ ДЛЯ ПЕРЕМОТКИ</span>
             <span>{formatTime(playingRecord.endTime)}</span>
           </div>
-          <div
-            onClick={(e) => {
-              if (!playingRecord || !playingRecord.playbackUri) return;
-              const rect = e.currentTarget.getBoundingClientRect();
-              const percent = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
-              const startMs = new Date(playingRecord.startTime).getTime();
-              const endMs = new Date(playingRecord.endTime).getTime();
-              const targetMs = startMs + (endMs - startMs) * percent;
 
-              setSeekOffsetMs(targetMs - startMs);
-              setProgressPercent(percent * 100);
+          <div style={{ width: '100%', overflowX: 'auto', backgroundColor: '#000', border: '1px solid #333' }}>
+            <div
+              onClick={(e) => {
+                if (!playingRecord || !playingRecord.playbackUri) return;
+                const rect = e.currentTarget.getBoundingClientRect();
+                const percent = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
+                const startMs = new Date(playingRecord.startTime).getTime();
+                const endMs = new Date(playingRecord.endTime).getTime();
+                const targetMs = startMs + (endMs - startMs) * percent;
 
-              const targetDate = new Date(targetMs);
-              const isapiTime = targetDate.toISOString().replace(/[-:]/g, '').split('.')[0] + 'Z';
-              const newUri = playingRecord.playbackUri.replace(/starttime=[^&]+/i, `starttime=${isapiTime}`);
+                setSeekOffsetMs(targetMs - startMs);
+                setProgressPercent(percent * 100);
 
-              onPlayArchive(newUri);
-            }}
-            style={{ width: '100%', height: '12px', backgroundColor: '#333', cursor: 'pointer', position: 'relative', borderRadius: '2px' }}
-          >
-            <div style={{ position: 'absolute', top: 0, left: 0, height: '100%', width: `${progressPercent}%`, backgroundColor: '#00f0ff', pointerEvents: 'none', transition: 'width 0.2s linear' }} />
+                const targetDate = new Date(targetMs);
+                const isapiTime = targetDate.toISOString().replace(/[-:]/g, '').split('.')[0] + 'Z';
+                const newUri = playingRecord.playbackUri.replace(/starttime=[^&]+/i, `starttime=${isapiTime}`);
+                onPlayArchive(newUri);
+              }}
+              style={{ width: `${timelineZoom * 100}%`, height: '16px', backgroundColor: '#222', cursor: 'pointer', position: 'relative' }}
+            >
+              <div style={{ position: 'absolute', top: 0, left: 0, height: '100%', width: `${progressPercent}%`, backgroundColor: '#00f0ff', pointerEvents: 'none', transition: 'width 0.2s linear', opacity: 0.5 }} />
+
+              {archiveEvents.map((evt, idx) => {
+                const startMs = new Date(playingRecord.startTime).getTime();
+                const endMs = new Date(playingRecord.endTime).getTime();
+                const evtMs = new Date(evt.time).getTime();
+                const posPercent = ((evtMs - startMs) / (endMs - startMs)) * 100;
+
+                if (posPercent >= 0 && posPercent <= 100) {
+                  return (
+                    <div
+                      key={idx}
+                      style={{ position: 'absolute', left: `${posPercent}%`, top: 0, height: '100%', width: '2px', backgroundColor: '#ff0044', boxShadow: `0 0 5px #ff0044`, pointerEvents: 'none' }}
+                    />
+                  );
+                }
+                return null;
+              })}
+            </div>
           </div>
         </div>
       )}
