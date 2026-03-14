@@ -11,6 +11,9 @@ export default function StreamPlayer({ streamUrl, cameraName, terminal, channel,
   const [records, setRecords] = useState([]);
   const [loadingArchive, setLoadingArchive] = useState(false);
 
+  // НОВОЕ: Сохраняем текущий проигрываемый кусок архива для перемотки
+  const [playingRecord, setPlayingRecord] = useState(null);
+
   useEffect(() => {
     if (streamUrl && videoRef.current) {
       if (mpegts.getFeatureList().mseLivePlayback) {
@@ -123,6 +126,45 @@ export default function StreamPlayer({ streamUrl, cameraName, terminal, channel,
         autoPlay
       />
 
+      {/* Кастомный Таймлайн для перемотки Архива */}
+      {playingRecord && tab === 'archive' && (
+        <div style={{ backgroundColor: '#111', padding: '5px 10px', borderTop: '1px solid #333' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '9px', color: '#00f0ff', marginBottom: '4px' }}>
+            <span>{formatTime(playingRecord.startTime)}</span>
+            <span>НАЖМИТЕ НА ПОЛОСУ ДЛЯ ПЕРЕМОТКИ</span>
+            <span>{formatTime(playingRecord.endTime)}</span>
+          </div>
+          <div
+            onClick={(e) => {
+              if (!playingRecord || !playingRecord.playbackUri) return;
+
+              // Высчитываем процент клика
+              const rect = e.currentTarget.getBoundingClientRect();
+              const percent = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
+
+              // Высчитываем миллисекунды
+              const startMs = new Date(playingRecord.startTime).getTime();
+              const endMs = new Date(playingRecord.endTime).getTime();
+              const targetMs = startMs + (endMs - startMs) * percent;
+
+              // Форматируем в ISAPI формат: YYYYMMDDTHHMMSSZ
+              const targetDate = new Date(targetMs);
+              const isapiTime = targetDate.toISOString().replace(/[-:]/g, '').split('.')[0] + 'Z';
+
+              // Подменяем starttime в URL
+              const newUri = playingRecord.playbackUri.replace(/starttime=[^&]+/i, `starttime=${isapiTime}`);
+
+              console.log('[SEEK] Перемотка на:', targetDate.toLocaleString(), newUri);
+              onPlayArchive(newUri);
+            }}
+            style={{ width: '100%', height: '12px', backgroundColor: '#333', cursor: 'pointer', position: 'relative', borderRadius: '2px' }}
+          >
+            {/* Визуальная подсказка */}
+            <div style={{ position: 'absolute', top: 0, left: 0, height: '100%', width: '0%', backgroundColor: '#00f0ff', pointerEvents: 'none' }} />
+          </div>
+        </div>
+      )}
+
       {/* Панель архива (Открывается при выборе вкладки) */}
       {tab === 'archive' && (
         <div style={{ backgroundColor: '#0a0a0c', borderTop: '1px solid #00f0ff', padding: '10px' }}>
@@ -150,7 +192,10 @@ export default function StreamPlayer({ streamUrl, cameraName, terminal, channel,
                   {rec.label ? rec.label : `${formatTime(rec.startTime)} — ${formatTime(rec.endTime)}`}
                 </span>
                 <button
-                  onClick={() => onPlayArchive(rec.playbackUri)}
+                  onClick={() => {
+                    setPlayingRecord(rec);
+                    onPlayArchive(rec.playbackUri);
+                  }}
                   disabled={!rec.playbackUri}
                   style={{ backgroundColor: '#00f0ff', color: '#000', border: 'none', padding: '3px 8px', cursor: 'pointer', fontSize: '10px', fontWeight: 'bold', opacity: rec.playbackUri ? 1 : 0.5 }}
                 >
