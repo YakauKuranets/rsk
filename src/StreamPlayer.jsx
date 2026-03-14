@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import mpegts from 'mpegts.js';
 import { invoke } from '@tauri-apps/api/core';
+import { getCurrentWindow } from '@tauri-apps/api/window';
 
 export default function StreamPlayer({ streamUrl, cameraName, terminal, channel, hubCookie, onRefresh, onClose, onPlayArchive }) {
   const containerRef = useRef(null);
@@ -19,6 +20,7 @@ export default function StreamPlayer({ streamUrl, cameraName, terminal, channel,
   
   // Новые стейты для UI
   const [isFullscreen, setIsFullscreen] = useState(false);
+  const [isPinned, setIsPinned] = useState(false);
 
   // Слушатель перехода в полноэкранный режим
   useEffect(() => {
@@ -131,11 +133,14 @@ export default function StreamPlayer({ streamUrl, cameraName, terminal, channel,
     }
   };
 
-  const togglePiP = async () => {
-    if (document.pictureInPictureElement) {
-      await document.exitPictureInPicture();
-    } else if (videoRef.current) {
-      await videoRef.current.requestPictureInPicture().catch(err => console.error("PiP error:", err));
+  const togglePin = async () => {
+    try {
+      const appWindow = getCurrentWindow();
+      const newState = !isPinned;
+      await appWindow.setAlwaysOnTop(newState);
+      setIsPinned(newState);
+    } catch (err) {
+      console.error('Tauri window pin error:', err);
     }
   };
 
@@ -170,8 +175,19 @@ export default function StreamPlayer({ streamUrl, cameraName, terminal, channel,
         </div>
 
         <div style={{ display: 'flex', gap: '6px', marginRight: '8px' }}>
-          <span onClick={togglePiP} style={{ cursor: 'pointer', padding: '2px 8px', backgroundColor: 'rgba(0,0,0,0.2)', borderRadius: '3px', fontSize: '11px' }} title="Открепить видео (Поверх окон)">
-            🔲 PiP
+          <span 
+            onClick={togglePin} 
+            style={{ 
+              cursor: 'pointer', 
+              padding: '2px 8px', 
+              backgroundColor: isPinned ? 'rgba(0,240,255,0.4)' : 'rgba(0,0,0,0.2)', 
+              borderRadius: '3px', 
+              fontSize: '11px',
+              color: isPinned ? '#fff' : 'inherit'
+            }} 
+            title="Закрепить окно поверх остальных программ"
+          >
+            {isPinned ? '📌 ОТКРЕПИТЬ' : '📌 ПОВЕРХ ОКОН'}
           </span>
           <span onClick={toggleFullscreen} style={{ cursor: 'pointer', padding: '2px 8px', backgroundColor: 'rgba(0,0,0,0.2)', borderRadius: '3px', fontSize: '11px' }} title="На весь экран">
             {isFullscreen ? '🗗 СВЕРНУТЬ' : '⛶ ПОЛНЫЙ'}
