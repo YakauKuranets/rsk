@@ -215,8 +215,10 @@ export default function StreamPlayer({ streamUrl, cameraName, terminal, channel,
 
   const formatTime = (isoString) => {
     if (!isoString) return '';
-    const date = new Date(isoString);
-    return date.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+    const d = new Date(isoString);
+    const pad = (n) => n.toString().padStart(2, '0');
+    // Используем жестко getUTC методы, чтобы избежать сдвига +3 часа браузером
+    return `${pad(d.getUTCHours())}:${pad(d.getUTCMinutes())}:${pad(d.getUTCSeconds())}`;
   };
 
   const handleTimeUpdate = () => {
@@ -300,8 +302,13 @@ export default function StreamPlayer({ streamUrl, cameraName, terminal, channel,
     const markers = [];
     for (let time = 0; time <= durationMs; time += actualStep) {
       const date = new Date(startMs + time);
-      // Если шаг меньше минуты - показываем секунды, иначе только часы:минуты
-      const label = actualStep < 60000 ? date.toISOString().substr(11, 8) : date.toISOString().substr(11, 5);
+      const pad = (n) => n.toString().padStart(2, '0');
+
+      const h = pad(date.getUTCHours());
+      const m = pad(date.getUTCMinutes());
+      const s = pad(date.getUTCSeconds());
+
+      const label = actualStep < 60000 ? `${h}:${m}:${s}` : `${h}:${m}`;
       markers.push({ percent: (time / durationMs) * 100, label });
     }
     return markers;
