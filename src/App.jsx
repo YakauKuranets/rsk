@@ -422,11 +422,25 @@ export default function App() {
     setRadarStatus('ПОДКЛЮЧЕНИЕ К АРХИВУ...');
     try {
       await invoke('stop_stream', { targetId: activeTargetId });
-      await new Promise(r => setTimeout(r, 500)); // Ждем завершения FFmpeg
+      // Небольшая пауза, чтобы FFmpeg точно успел освободить ресурсы
+      await new Promise(r => setTimeout(r, 500));
 
-      const wsUrl = await invoke('start_stream', { targetId: activeTargetId, rtspUrl: playbackUri });
-      setStreamRtspUrl(playbackUri); // Сохраняем, чтобы кнопка "Обновить" работала для архива
-      setActiveStream(null); // Форсируем перерисовку плеера
+      let finalUri = playbackUri;
+
+      // Внедряем логин и пароль в RTSP ссылку (защита от 401 Unauthorized)
+      if (streamTerminal && streamTerminal.login && finalUri.startsWith('rtsp://')) {
+        const user = encodeURIComponent(streamTerminal.login);
+        const pass = encodeURIComponent(streamTerminal.password || '');
+        // Заменяем rtsp:// на rtsp://user:pass@
+        finalUri = finalUri.replace('rtsp://', `rtsp://${user}:${pass}@`);
+      }
+
+      // Если это запись с Хаба (HTTP), FFmpeg может потребовать куки,
+      // но для базовых HTTP ссылок Хаба мы пока передаем как есть (через start_stream)
+      const wsUrl = await invoke('start_stream', { targetId: activeTargetId, rtspUrl: finalUri });
+
+      setStreamRtspUrl(finalUri);
+      setActiveStream(null); // Форсируем перерисовку компонента плеера
       setTimeout(() => setActiveStream(wsUrl), 50);
     } catch (err) {
       alert('Ошибка запуска архива: ' + err);
