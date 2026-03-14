@@ -645,18 +645,14 @@ pub async fn start_hub_stream(
             ),
             "-rtsp_transport",
             "tcp",
-            "-stimeout",
-            "5000000",                     // 5 секунд таймаут при отвале сети
-            "-analyzeduration",
-            "2000000",                     // СТРОГО 2 секунды на анализ потока (хватит для H.265)
-            "-probesize",
-            "5000000",                     // 5 МБ буфера для поиска ключевого кадра
-            "-max_delay",
-            "500000",                      // 0.5 сек для сглаживания сетевого джиттера RTSP
             "-fflags",
-            "nobuffer+genpts+discardcorrupt",
-            "-flags",
-            "low_delay",
+            "+genpts+discardcorrupt",
+            "-err_detect",
+            "ignore_err",
+            "-analyzeduration",
+            "10000000",
+            "-probesize",
+            "10000000",
             "-i",
             &url,
             "-c:v",
@@ -1047,18 +1043,14 @@ pub async fn start_stream(
         .args([
             "-rtsp_transport",
             "tcp",
-            "-stimeout",
-            "5000000",                     // 5 секунд таймаут при отвале сети
-            "-analyzeduration",
-            "2000000",                     // СТРОГО 2 секунды на анализ потока (хватит для H.265)
-            "-probesize",
-            "5000000",                     // 5 МБ буфера для поиска ключевого кадра
-            "-max_delay",
-            "500000",                      // 0.5 сек для сглаживания сетевого джиттера RTSP
             "-fflags",
-            "nobuffer+genpts+discardcorrupt",
-            "-flags",
-            "low_delay",
+            "+genpts+discardcorrupt",
+            "-err_detect",
+            "ignore_err",
+            "-analyzeduration",
+            "10000000",
+            "-probesize",
+            "10000000",
             "-i",
             &rtsp_url,
             "-c:v",
