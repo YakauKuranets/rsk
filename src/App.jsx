@@ -378,42 +378,21 @@ export default function App() {
 
   // --- ОБНОВИТЬ СТРИМ (кнопка в плеере) ---
   const handleRefreshStream = async () => {
-    if (!activeTargetId) return;
+    if (!activeTargetId || !streamRtspUrl) return;
+    setLoading(true);
+    setRadarStatus('ПЕРЕЗАПУСК ПОТОКА...');
+    try {
+      await invoke('stop_stream', { targetId: activeTargetId });
+      await new Promise(r => setTimeout(r, 500));
+      const wsUrl = await invoke('start_stream', { targetId: activeTargetId, rtspUrl: streamRtspUrl });
 
-    // Если есть RTSP URL — полный перезапуск FFmpeg
-    if (streamRtspUrl) {
-      setLoading(true);
-      setRadarStatus('ПЕРЕЗАПУСК ПОТОКА...');
+      // ИСПРАВЛЕНИЕ: Также убираем setActiveStream(null) и таймауты
+      setActiveStream(wsUrl);
 
-      try {
-        await invoke('stop_stream', { targetId: activeTargetId });
-
-        // Пауза чтобы FFmpeg гарантированно завершился
-        await new Promise(r => setTimeout(r, 500));
-
-        // Если это hub-стрим — перезапускаем через hub
-        if (streamTerminal && streamTerminal.type === 'hub') {
-          const wsUrl = await invoke('start_hub_stream', {
-            targetId: activeTargetId,
-            userId: streamTerminal.hub_id.toString(),
-            channelId: streamChannel.index.toString(),
-            cookie: hubConfig.cookie
-          });
-          setActiveStream(wsUrl);
-        } else {
-          const wsUrl = await invoke('start_stream', { targetId: activeTargetId, rtspUrl: streamRtspUrl });
-          setActiveStream(wsUrl);
-        }
-        setLoading(false);
-      } catch (err) {
-        alert('Ошибка перезапуска: ' + err);
-        setLoading(false);
-      }
-    } else {
-      // Простой refresh — пересоздаём плеер с тем же URL
-      setActiveStream(null);
-      setTimeout(() => setActiveStream(activeStream), 300);
+    } catch (err) {
+      alert('Ошибка перезапуска: ' + err);
     }
+    setLoading(false);
   };
 
   const handlePlayArchive = async (playbackUri) => {
@@ -427,21 +406,20 @@ export default function App() {
 
       let finalUri = playbackUri;
 
-      // Внедряем логин и пароль в RTSP ссылку (защита от 401 Unauthorized)
+      // Внедряем креды в RTSP ссылку
       if (streamTerminal && streamTerminal.login && finalUri.startsWith('rtsp://')) {
         const user = encodeURIComponent(streamTerminal.login);
         const pass = encodeURIComponent(streamTerminal.password || '');
-        // Заменяем rtsp:// на rtsp://user:pass@
         finalUri = finalUri.replace('rtsp://', `rtsp://${user}:${pass}@`);
       }
 
-      // Если это запись с Хаба (HTTP), FFmpeg может потребовать куки,
-      // но для базовых HTTP ссылок Хаба мы пока передаем как есть (через start_stream)
       const wsUrl = await invoke('start_stream', { targetId: activeTargetId, rtspUrl: finalUri });
-
       setStreamRtspUrl(finalUri);
-      setActiveStream(null); // Форсируем перерисовку компонента плеера
-      setTimeout(() => setActiveStream(wsUrl), 50);
+
+      // ИСПРАВЛЕНИЕ: Передаем новый URL без предварительного null.
+      // Плеер не будет уничтожен, и вкладка "Архив" с таймлайном останутся открытыми!
+      setActiveStream(wsUrl);
+
     } catch (err) {
       alert('Ошибка запуска архива: ' + err);
     }
