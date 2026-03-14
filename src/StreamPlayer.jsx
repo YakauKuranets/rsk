@@ -57,7 +57,10 @@ export default function StreamPlayer({ streamUrl, cameraName, onRefresh, onClose
           </span>
         </div>
       </div>
-      <div ref={videoContainerRef}></div>
+      <div
+        ref={videoContainerRef}
+        style={{ width: '100%', aspectRatio: '16/9', backgroundColor: '#05070a' }}
+      ></div>
     </div>
   );
 }
