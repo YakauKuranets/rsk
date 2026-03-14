@@ -645,16 +645,18 @@ pub async fn start_hub_stream(
             ),
             "-rtsp_transport",
             "tcp",
+            "-stimeout",
+            "5000000",                     // 5 секунд таймаут при отвале сети
             "-analyzeduration",
-            "100000", // Тратить на анализ всего 0.1 сек (вместо 5 сек)
+            "2000000",                     // СТРОГО 2 секунды на анализ потока (хватит для H.265)
             "-probesize",
-            "100000", // Анализировать только первые 100КБ
+            "5000000",                     // 5 МБ буфера для поиска ключевого кадра
+            "-max_delay",
+            "500000",                      // 0.5 сек для сглаживания сетевого джиттера RTSP
             "-fflags",
-            "nobuffer+genpts+discardcorrupt", // Отключить буферизацию
+            "nobuffer+genpts+discardcorrupt",
             "-flags",
             "low_delay",
-            "-err_detect",
-            "ignore_err",
             "-i",
             &url,
             "-c:v",
@@ -1045,16 +1047,18 @@ pub async fn start_stream(
         .args([
             "-rtsp_transport",
             "tcp",
+            "-stimeout",
+            "5000000",                     // 5 секунд таймаут при отвале сети
             "-analyzeduration",
-            "100000", // Тратить на анализ всего 0.1 сек (вместо 5 сек)
+            "2000000",                     // СТРОГО 2 секунды на анализ потока (хватит для H.265)
             "-probesize",
-            "100000", // Анализировать только первые 100КБ
+            "5000000",                     // 5 МБ буфера для поиска ключевого кадра
+            "-max_delay",
+            "500000",                      // 0.5 сек для сглаживания сетевого джиттера RTSP
             "-fflags",
-            "nobuffer+genpts+discardcorrupt", // Отключить буферизацию
+            "nobuffer+genpts+discardcorrupt",
             "-flags",
             "low_delay",
-            "-err_detect",
-            "ignore_err",
             "-i",
             &rtsp_url,
             "-c:v",
