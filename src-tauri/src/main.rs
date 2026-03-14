@@ -645,14 +645,16 @@ pub async fn start_hub_stream(
             ),
             "-rtsp_transport",
             "tcp",
+            "-analyzeduration",
+            "100000", // Тратить на анализ всего 0.1 сек (вместо 5 сек)
+            "-probesize",
+            "100000", // Анализировать только первые 100КБ
             "-fflags",
-            "+genpts+discardcorrupt",
+            "nobuffer+genpts+discardcorrupt", // Отключить буферизацию
+            "-flags",
+            "low_delay",
             "-err_detect",
             "ignore_err",
-            "-analyzeduration",
-            "10000000",
-            "-probesize",
-            "10000000",
             "-i",
             &url,
             "-c:v",
@@ -1043,14 +1045,16 @@ pub async fn start_stream(
         .args([
             "-rtsp_transport",
             "tcp",
+            "-analyzeduration",
+            "100000", // Тратить на анализ всего 0.1 сек (вместо 5 сек)
+            "-probesize",
+            "100000", // Анализировать только первые 100КБ
             "-fflags",
-            "+genpts+discardcorrupt",
+            "nobuffer+genpts+discardcorrupt", // Отключить буферизацию
+            "-flags",
+            "low_delay",
             "-err_detect",
             "ignore_err",
-            "-analyzeduration",
-            "10000000",
-            "-probesize",
-            "10000000",
             "-i",
             &rtsp_url,
             "-c:v",
