@@ -167,6 +167,18 @@ export default function StreamPlayer({ streamUrl, cameraName, terminal, channel,
     }
   };
 
+  const withRtspAuth = (uri) => {
+    if (!uri || typeof uri !== 'string') return uri;
+    if (!uri.toLowerCase().startsWith('rtsp://')) return uri;
+
+    const hasCreds = /^rtsp:\/\/[^/]*@/i.test(uri);
+    if (hasCreds) return uri;
+
+    const login = terminal?.login || 'admin';
+    const pass = terminal?.password || '';
+    return uri.replace('rtsp://', `rtsp://${encodeURIComponent(login)}:${encodeURIComponent(pass)}@`);
+  };
+
   const handleSearchArchive = async () => {
     if (!terminal) return alert('Ошибка: данные камеры не переданы в плеер!');
 
@@ -187,7 +199,7 @@ export default function StreamPlayer({ streamUrl, cameraName, terminal, channel,
         const videoRoutes = results.filter(r => r.isVideo).map(r => ({
           startTime: `${archiveDate}T00:00:00Z`,
           endTime: `${archiveDate}T23:59:59Z`,
-          playbackUri: r.url,
+          playbackUri: withRtspAuth(r.url),
           label: r.verdict || 'Запись Хаба'
         }));
 
@@ -206,7 +218,7 @@ export default function StreamPlayer({ streamUrl, cameraName, terminal, channel,
         });
 
         if (!result || result.length === 0) alert('Нет записей за эту дату (ISAPI).');
-        setRecords(result || []);
+        setRecords((result || []).map(rec => ({ ...rec, playbackUri: withRtspAuth(rec.playbackUri) })));
       }
     } catch(e) {
       alert('Ошибка поиска: ' + e);

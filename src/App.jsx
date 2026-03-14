@@ -406,8 +406,9 @@ export default function App() {
 
       let finalUri = playbackUri;
 
-      // Внедряем креды в RTSP ссылку
-      if (streamTerminal && streamTerminal.login && finalUri.startsWith('rtsp://')) {
+      // Внедряем креды в RTSP ссылку только если их там ещё нет
+      const hasCreds = /^rtsp:\/\/[^/]*@/i.test(finalUri);
+      if (streamTerminal && streamTerminal.login && finalUri.startsWith('rtsp://') && !hasCreds) {
         const user = encodeURIComponent(streamTerminal.login);
         const pass = encodeURIComponent(streamTerminal.password || '');
         finalUri = finalUri.replace('rtsp://', `rtsp://${user}:${pass}@`);
