@@ -215,6 +215,8 @@ export default function StreamPlayer({ streamUrl, cameraName, terminal, channel,
           pass: terminal.password || '',
           fromTime,
           toTime,
+          // Передаем правильный индекс камеры (или 1 по умолчанию)
+          cameraChannelId: channel && channel.index ? parseInt(channel.index, 10) : 1
         });
 
         if (!result || result.length === 0) alert('Нет записей за эту дату (ISAPI).');
