@@ -8,6 +8,7 @@ export default function StreamPlayer({ streamUrl, cameraName, terminal, channel,
   const containerRef = useRef(null);
   const videoRef = useRef(null);
   const playerRef = useRef(null);
+  const timelineContainerRef = useRef(null);
 
   const [tab, setTab] = useState('live');
   const [archiveDate, setArchiveDate] = useState(() => new Date().toISOString().split('T')[0]);
@@ -22,7 +23,7 @@ export default function StreamPlayer({ streamUrl, cameraName, terminal, channel,
   // Стейты для ИИ и Таймлайна
   const [aiAnalyzing, setAiAnalyzing] = useState(false);
   const [archiveEvents, setArchiveEvents] = useState([]);
-  const [timelineZoom, setTimelineZoom] = useState(1);
+  const [timelineZoom, setTimelineZoom] = useState(1.0);
   
   // Новые стейты для UI
   const [isFullscreen, setIsFullscreen] = useState(false);
@@ -110,6 +111,48 @@ export default function StreamPlayer({ streamUrl, cameraName, terminal, channel,
       if (unlistenDone) unlistenDone();
     };
   }, [playingRecord]);
+
+  // Плавный зум таймлайна колесиком мыши
+  useEffect(() => {
+    const container = timelineContainerRef.current;
+    if (!container) return;
+
+    const handleWheel = (e) => {
+      e.preventDefault(); // Блокируем стандартную прокрутку страницы
+
+      setTimelineZoom(prevZoom => {
+        // Определяем направление скролла (вверх - приблизить, вниз - отдалить)
+        const zoomFactor = e.deltaY < 0 ? 1.25 : 0.8;
+        // Ограничиваем зум: от 1x (весь архив) до 1000x (детально до секунд)
+        const newZoom = Math.max(1, Math.min(prevZoom * zoomFactor, 1000));
+
+        // Математика для сохранения позиции под курсором мыши
+        const rect = container.getBoundingClientRect();
+        const mouseX = e.clientX - rect.left;
+        const scrollX = container.scrollLeft;
+        const currentTotalWidth = container.scrollWidth;
+        const ratio = (mouseX + scrollX) / currentTotalWidth;
+
+        // Применяем новый скролл после обновления ширины (в следующем кадре)
+        setTimeout(() => {
+          if (timelineContainerRef.current) {
+            const newTotalWidth = timelineContainerRef.current.scrollWidth;
+            timelineContainerRef.current.scrollLeft = (newTotalWidth * ratio) - mouseX;
+          }
+        }, 0);
+
+        return newZoom;
+      });
+    };
+
+    container.addEventListener('wheel', handleWheel, { passive: false });
+    return () => container.removeEventListener('wheel', handleWheel);
+  }, [playingRecord, tab]);
+
+  const stopAiAnalysis = () => {
+    setAiAnalyzing(false);
+    // В будущем здесь будет: invoke('stop_archive_analysis');
+  };
 
   const handleSearchArchive = async () => {
     if (!terminal) return alert('Ошибка: данные камеры не переданы в плеер!');
@@ -266,33 +309,27 @@ export default function StreamPlayer({ streamUrl, cameraName, terminal, channel,
         onTimeUpdate={handleTimeUpdate}
       />
 
-      {/* Кастомный Таймлайн с Аналитикой и Зумом */}
+      {/* Продвинутый Таймлайн с Mouse Wheel Zoom */}
       {playingRecord && tab === 'archive' && (
         <div style={{ backgroundColor: '#111', padding: '5px 10px', borderTop: '1px solid #333' }}>
 
+          {/* Панель управления */}
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
             <button
-              onClick={startAiAnalysis}
-              disabled={aiAnalyzing || !playingRecord}
+              onClick={aiAnalyzing ? stopAiAnalysis : startAiAnalysis}
               style={{
-                backgroundColor: aiAnalyzing ? '#555' : '#7000ff',
-                color: '#fff', border: '1px solid #a055ff', padding: '4px 10px', fontSize: '10px', fontWeight: 'bold', cursor: aiAnalyzing ? 'wait' : 'pointer', borderRadius: '3px', boxShadow: aiAnalyzing ? 'none' : '0 0 8px #7000ff'
+                backgroundColor: aiAnalyzing ? '#ff0044' : '#7000ff',
+                color: '#fff', border: aiAnalyzing ? '1px solid #ff0044' : '1px solid #a055ff',
+                padding: '4px 10px', fontSize: '10px', fontWeight: 'bold', cursor: 'pointer', borderRadius: '3px',
+                boxShadow: aiAnalyzing ? '0 0 8px #ff0044' : '0 0 8px #7000ff'
               }}
             >
-              {aiAnalyzing ? '🧠 СКАНИРОВАНИЕ...' : '🧠 УМНЫЙ АНАЛИЗ'}
+              {aiAnalyzing ? '🛑 ОСТАНОВИТЬ ИИ' : '🧠 УМНЫЙ АНАЛИЗ'}
             </button>
 
-            <div style={{ display: 'flex', gap: '5px', alignItems: 'center' }}>
-              <span style={{ color: '#aaa', fontSize: '10px' }}>ЗУМ:</span>
-              {[1, 2, 5, 10].map(z => (
-                <button
-                  key={z} onClick={() => setTimelineZoom(z)}
-                  style={{ backgroundColor: timelineZoom === z ? '#00f0ff' : '#222', color: timelineZoom === z ? '#000' : '#00f0ff', border: '1px solid #00f0ff', padding: '2px 6px', fontSize: '10px', cursor: 'pointer' }}
-                >
-                  {z}x
-                </button>
-              ))}
-            </div>
+            <span style={{ color: '#aaa', fontSize: '10px' }}>
+              ЗУМ: {timelineZoom.toFixed(1)}x (Крутите колесико мыши по полосе)
+            </span>
           </div>
 
           <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '9px', color: '#00f0ff', marginBottom: '4px' }}>
@@ -300,9 +337,14 @@ export default function StreamPlayer({ streamUrl, cameraName, terminal, channel,
             <span>{formatTime(playingRecord.endTime)}</span>
           </div>
 
-          <div style={{ width: '100%', overflowX: 'auto', backgroundColor: '#000', border: '1px solid #333' }}>
+          {/* Контейнер таймлайна с Ref для перехвата скролла */}
+          <div
+            ref={timelineContainerRef}
+            style={{ width: '100%', overflowX: 'auto', overflowY: 'hidden', backgroundColor: '#000', border: '1px solid #333', position: 'relative' }}
+          >
             <div
               onClick={(e) => {
+                // ПЕРЕМОТКА: Разрешена всегда, даже при работающем ИИ!
                 if (!playingRecord || !playingRecord.playbackUri) return;
                 const rect = e.currentTarget.getBoundingClientRect();
                 const percent = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
@@ -316,12 +358,19 @@ export default function StreamPlayer({ streamUrl, cameraName, terminal, channel,
                 const targetDate = new Date(targetMs);
                 const isapiTime = targetDate.toISOString().replace(/[-:]/g, '').split('.')[0] + 'Z';
                 const newUri = playingRecord.playbackUri.replace(/starttime=[^&]+/i, `starttime=${isapiTime}`);
+
                 onPlayArchive(newUri);
               }}
-              style={{ width: `${timelineZoom * 100}%`, height: '16px', backgroundColor: '#222', cursor: 'pointer', position: 'relative' }}
+              style={{
+                width: `${timelineZoom * 100}%`,
+                height: '24px',
+                backgroundColor: '#222', cursor: 'pointer', position: 'relative'
+              }}
             >
-              <div style={{ position: 'absolute', top: 0, left: 0, height: '100%', width: `${progressPercent}%`, backgroundColor: '#00f0ff', pointerEvents: 'none', transition: 'width 0.2s linear', opacity: 0.5 }} />
+              {/* Полоса просмотренного */}
+              <div style={{ position: 'absolute', top: 0, left: 0, height: '100%', width: `${progressPercent}%`, backgroundColor: '#00f0ff', pointerEvents: 'none', transition: 'width 0.2s linear', opacity: 0.3 }} />
 
+              {/* Метки событий от ИИ */}
               {archiveEvents.map((evt, idx) => {
                 const startMs = new Date(playingRecord.startTime).getTime();
                 const endMs = new Date(playingRecord.endTime).getTime();
@@ -332,7 +381,12 @@ export default function StreamPlayer({ streamUrl, cameraName, terminal, channel,
                   return (
                     <div
                       key={idx}
-                      style={{ position: 'absolute', left: `${posPercent}%`, top: 0, height: '100%', width: '2px', backgroundColor: '#ff0044', boxShadow: `0 0 5px #ff0044`, pointerEvents: 'none' }}
+                      style={{
+                        position: 'absolute', left: `${posPercent}%`, top: 0, height: '100%', width: '2px',
+                        backgroundColor: evt.type === 'motion' ? '#ff0044' : '#ffaa00',
+                        boxShadow: `0 0 5px ${evt.type === 'motion' ? '#ff0044' : '#ffaa00'}`,
+                        pointerEvents: 'none'
+                      }}
                     />
                   );
                 }
