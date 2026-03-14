@@ -11,11 +11,10 @@ export default function StreamPlayer({ streamUrl, cameraName, terminal, channel,
   const [records, setRecords] = useState([]);
   const [loadingArchive, setLoadingArchive] = useState(false);
 
-  // НОВОЕ: Сохраняем текущий проигрываемый кусок архива для перемотки
+  // Состояния для Архива и Ползунка
   const [playingRecord, setPlayingRecord] = useState(null);
-  // НОВЫЕ СОСТОЯНИЯ ДЛЯ ПОЛЗУНКА:
-  const [seekOffsetMs, setSeekOffsetMs] = useState(0); // Запоминаем смещение при перемотке
-  const [progressPercent, setProgressPercent] = useState(0); // Текущая ширина синей полосы
+  const [seekOffsetMs, setSeekOffsetMs] = useState(0);
+  const [progressPercent, setProgressPercent] = useState(0);
 
   useEffect(() => {
     if (streamUrl && videoRef.current) {
@@ -50,7 +49,6 @@ export default function StreamPlayer({ streamUrl, cameraName, terminal, channel,
 
     try {
       if (terminal.type === 'hub') {
-        // УМНЫЙ ПОИСК ПО ХАБУ (videodvor.by)
         const adminHash = hubCookie ? hubCookie.split('admin=')[1]?.split(';')[0]?.trim() : '';
         const results = await invoke('recon_hub_archive_routes', {
           userId: terminal.hub_id.toString(),
@@ -60,7 +58,6 @@ export default function StreamPlayer({ streamUrl, cameraName, terminal, channel,
           targetFtpPath: null,
         });
 
-        // Отбираем только рабочие видео-роуты
         const videoRoutes = results.filter(r => r.isVideo).map(r => ({
           startTime: `${archiveDate}T00:00:00Z`,
           endTime: `${archiveDate}T23:59:59Z`,
@@ -72,7 +69,6 @@ export default function StreamPlayer({ streamUrl, cameraName, terminal, channel,
         setRecords(videoRoutes);
 
       } else {
-        // ПОИСК ПО ПРЯМОЙ КАМЕРЕ (ISAPI)
         const fromTime = `${archiveDate}T00:00:00Z`;
         const toTime = `${archiveDate}T23:59:59Z`;
         const result = await invoke('search_isapi_recordings', {
@@ -99,6 +95,22 @@ export default function StreamPlayer({ streamUrl, cameraName, terminal, channel,
     return date.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
   };
 
+  // Функция для обновления ползунка в реальном времени
+  const handleTimeUpdate = () => {
+    if (playingRecord && tab === 'archive' && videoRef.current) {
+      const startMs = new Date(playingRecord.startTime).getTime();
+      const endMs = new Date(playingRecord.endTime).getTime();
+      const durationMs = endMs - startMs;
+
+      if (durationMs > 0) {
+        // Смещение от клика перемотки + время с момента загрузки потока
+        const currentMs = seekOffsetMs + (videoRef.current.currentTime * 1000);
+        const percent = Math.min(100, Math.max(0, (currentMs / durationMs) * 100));
+        setProgressPercent(percent);
+      }
+    }
+  };
+
   if (!streamUrl) return null;
 
   return (
@@ -121,25 +133,13 @@ export default function StreamPlayer({ streamUrl, cameraName, terminal, channel,
         </div>
       </div>
 
-      {/* Контейнер видео */}
+      {/* Контейнер видео с привязанным onTimeUpdate */}
       <video
         ref={videoRef}
         style={{ width: '100%', aspectRatio: '16/9', display: 'block', backgroundColor: '#000', objectFit: 'contain' }}
         muted
         autoPlay
-        onTimeUpdate={(e) => {
-          if (playingRecord && tab === 'archive') {
-            const startMs = new Date(playingRecord.startTime).getTime();
-            const endMs = new Date(playingRecord.endTime).getTime();
-            const durationMs = endMs - startMs;
-
-            // Текущее время = смещение от перемотки + сколько секунд прошло с момента запуска потока
-            const currentMs = seekOffsetMs + (e.target.currentTime * 1000);
-            const percent = Math.min(100, Math.max(0, (currentMs / durationMs) * 100));
-
-            setProgressPercent(percent);
-          }
-        }}
+        onTimeUpdate={handleTimeUpdate}
       />
 
       {/* Кастомный Таймлайн для перемотки Архива */}
@@ -154,24 +154,20 @@ export default function StreamPlayer({ streamUrl, cameraName, terminal, channel,
             onClick={(e) => {
               if (!playingRecord || !playingRecord.playbackUri) return;
 
-              // Высчитываем процент клика
               const rect = e.currentTarget.getBoundingClientRect();
               const percent = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
 
-              // Высчитываем миллисекунды
               const startMs = new Date(playingRecord.startTime).getTime();
               const endMs = new Date(playingRecord.endTime).getTime();
               const targetMs = startMs + (endMs - startMs) * percent;
 
-              // Обновляем состояния для UI моментально
+              // Запоминаем куда прыгнули, чтобы ползунок продолжил ползти отсюда
               setSeekOffsetMs(targetMs - startMs);
               setProgressPercent(percent * 100);
 
-              // Форматируем в ISAPI формат: YYYYMMDDTHHMMSSZ
               const targetDate = new Date(targetMs);
               const isapiTime = targetDate.toISOString().replace(/[-:]/g, '').split('.')[0] + 'Z';
 
-              // Подменяем starttime в URL
               const newUri = playingRecord.playbackUri.replace(/starttime=[^&]+/i, `starttime=${isapiTime}`);
 
               console.log('[SEEK] Перемотка на:', targetDate.toLocaleString(), newUri);
@@ -179,13 +175,13 @@ export default function StreamPlayer({ streamUrl, cameraName, terminal, channel,
             }}
             style={{ width: '100%', height: '12px', backgroundColor: '#333', cursor: 'pointer', position: 'relative', borderRadius: '2px' }}
           >
-            {/* АНИМИРОВАННАЯ визуальная подсказка */}
-            <div style={{ position: 'absolute', top: 0, left: 0, height: '100%', width: `${progressPercent}%`, backgroundColor: '#00f0ff', pointerEvents: 'none' }} />
+            {/* Визуальная синяя подсказка */}
+            <div style={{ position: 'absolute', top: 0, left: 0, height: '100%', width: `${progressPercent}%`, backgroundColor: '#00f0ff', pointerEvents: 'none', transition: 'width 0.2s linear' }} />
           </div>
         </div>
       )}
 
-      {/* Панель архива (Открывается при выборе вкладки) */}
+      {/* Панель архива */}
       {tab === 'archive' && (
         <div style={{ backgroundColor: '#0a0a0c', borderTop: '1px solid #00f0ff', padding: '10px' }}>
           <div style={{ display: 'flex', gap: '8px', marginBottom: '10px' }}>
@@ -214,7 +210,7 @@ export default function StreamPlayer({ streamUrl, cameraName, terminal, channel,
                 <button
                   onClick={() => {
                     setPlayingRecord(rec);
-                    setSeekOffsetMs(0); // Сброс при новом видео
+                    setSeekOffsetMs(0); // Обязательно сбрасываем при новом запуске!
                     setProgressPercent(0);
                     onPlayArchive(rec.playbackUri);
                   }}
