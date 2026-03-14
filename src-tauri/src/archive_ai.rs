@@ -1,8 +1,10 @@
+use std::io::Read;
+use std::process::{Command, Stdio};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
+use ndarray::Array;
 use ort::session::{builder::GraphOptimizationLevel, Session};
-use rand::Rng;
 use serde::Serialize;
 use tauri::{AppHandle, Emitter, State};
 use tokio::time::{sleep, Duration};
@@ -37,16 +39,8 @@ pub async fn start_archive_analysis(
     println!("[AI MODULE] Запуск анализа архива: {}", playback_uri);
 
     tokio::spawn(async move {
-        println!("[AI MODULE] Инициализация движка ONNX Runtime...");
-
-        // Инициализируем глобальную среду ONNX (игнорируем ошибку, если уже инициализировано)
-        let _ = ort::init().with_name("hyperion_vision").commit();
-
-        // Пытаемся загрузить веса модели в оперативную память.
-        // ОЖИДАЕТСЯ, ЧТО ПАПКА Vault НАХОДИТСЯ РЯДОМ С ИСПОЛНЯЕМЫМ ФАЙЛОМ
+        // Загружаем сессию ONNX (ИИ)
         let model_path = "../Vault/Models/yolov8s.onnx";
-
-        // Используем локальное замыкание, чтобы элегантно обрабатывать ошибки через `?`
         let session_result = (|| -> ort::Result<Session> {
             Session::builder()?
                 .with_optimization_level(GraphOptimizationLevel::Level3)?
@@ -54,45 +48,110 @@ pub async fn start_archive_analysis(
                 .commit_from_file(model_path)
         })();
 
-        let _session = match session_result {
-            Ok(s) => {
-                println!("[AI MODULE] 🟢 УСПЕХ: YOLOv8 загружена в ОЗУ!");
-                Some(s)
-            }
+        let mut session = match session_result {
+            Ok(s) => s,
             Err(e) => {
-                eprintln!(
-                    "[AI MODULE] 🔴 ОШИБКА загрузки модели: {}. Проверьте, лежит ли файл по пути: {}",
-                    e, model_path
-                );
-                None
+                eprintln!("[AI MODULE] 🔴 Ошибка загрузки модели: {}", e);
+                return;
             }
         };
 
+        println!("[AI MODULE] 🟢 YOLOv8 готова. Запускаем перехват кадров FFmpeg...");
+
+        // Запускаем FFmpeg в фоне для вытягивания сырых кадров
+        let mut child = Command::new("ffmpeg")
+            .args(&[
+                "-i",
+                &playback_uri,
+                "-r",
+                "2", // Анализируем 2 кадра в секунду
+                "-f",
+                "image2pipe",
+                "-pix_fmt",
+                "rgb24",
+                "-s",
+                "640x640", // YOLOv8 ожидает именно 640x640
+                "-vcodec",
+                "rawvideo",
+                "-",
+            ])
+            .stdout(Stdio::piped())
+            .stderr(Stdio::null()) // Скрываем спам от FFmpeg
+            .spawn()
+            .expect("Не удалось запустить FFmpeg");
+
+        let mut stdout = child.stdout.take().expect("Нет доступа к stdout FFmpeg");
+        let frame_size = 640 * 640 * 3; // Размер сырого RGB кадра
+        let mut buffer = vec![0u8; frame_size];
+
         let mut current_ms = 0;
-        let step = 5000;
+        let step_ms = 500; // 2 FPS = шаг в 500 миллисекунд
 
-        while current_ms < duration_ms {
-            // KILL SWITCH: Проверяем, не нажал ли пользователь кнопку СТОП
-            if !is_running_flag.load(Ordering::SeqCst) {
-                println!("[AI MODULE] Анализ принудительно прерван пользователем.");
-                break;
+        // Читаем поток кадров, пока пользователь не нажмет СТОП
+        while is_running_flag.load(Ordering::SeqCst) {
+            match stdout.read_exact(&mut buffer) {
+                Ok(_) => {
+                    // Конвертируем RGB-массив в тензор [1, 3, 640, 640] и нормализуем (0.0 - 1.0)
+                    let mut tensor = Array::zeros((1, 3, 640, 640));
+                    for y in 0..640 {
+                        for x in 0..640 {
+                            let offset = (y * 640 + x) * 3;
+                            tensor[[0, 0, y, x]] = buffer[offset] as f32 / 255.0; // R
+                            tensor[[0, 1, y, x]] = buffer[offset + 1] as f32 / 255.0; // G
+                            tensor[[0, 2, y, x]] = buffer[offset + 2] as f32 / 255.0; // B
+                        }
+                    }
+
+                    // Скармливаем кадр нейросети
+                    if let Ok(outputs) = session.run(ort::inputs!["images" => tensor.view()].unwrap()) {
+                        if let Ok(output_tensor) = outputs[0].try_extract_tensor::<f32>() {
+                            let view = output_tensor.view();
+                            let mut found_person = false;
+                            let mut max_conf = 0.0f32;
+
+                            // YOLOv8 возвращает 8400 рамок (анкоров). Перебираем их.
+                            for i in 0..8400 {
+                                // Индекс 4 - это вероятность того, что в рамке ЧЕЛОВЕК (Class 0)
+                                let person_conf = view[[0, 4, i]];
+                                if person_conf > 0.65 {
+                                    // Порог уверенности 65%
+                                    found_person = true;
+                                    if person_conf > max_conf {
+                                        max_conf = person_conf;
+                                    }
+                                }
+                            }
+
+                            // Если реально нашли человека - отправляем метку во фронтенд!
+                            if found_person {
+                                println!(
+                                    "[AI MODULE] 👤 Найден человек на {} мс (Уверенность: {:.2})",
+                                    current_ms, max_conf
+                                );
+                                let event = AiEvent {
+                                    timestamp_ms: current_ms,
+                                    class: "person".to_string(),
+                                    confidence: max_conf,
+                                };
+                                let _ = app.emit("ai-archive-event", &event);
+                            }
+                        }
+                    }
+                    current_ms += step_ms;
+                    if current_ms > duration_ms {
+                        break;
+                    }
+                }
+                Err(_) => {
+                    println!("[AI MODULE] Конец видеопотока или ошибка чтения.");
+                    break;
+                }
             }
-
-            sleep(Duration::from_millis(100)).await;
-
-            if rand::random::<f32>() > 0.85 {
-                let event = AiEvent {
-                    timestamp_ms: current_ms,
-                    class: "person".to_string(),
-                    confidence: rand::thread_rng().gen_range(0.80..0.99),
-                };
-                let _ = app.emit("ai-archive-event", &event);
-            }
-            current_ms += step;
         }
 
+        let _ = child.kill(); // Убиваем FFmpeg, если пользователь нажал СТОП
         is_running_flag.store(false, Ordering::SeqCst);
-        println!("[AI MODULE] Процесс сканирования завершен.");
+        println!("[AI MODULE] Сканирование остановлено.");
         let _ = app.emit("ai-archive-done", ());
     });
 
