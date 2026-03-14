@@ -13,6 +13,9 @@ export default function StreamPlayer({ streamUrl, cameraName, terminal, channel,
 
   // НОВОЕ: Сохраняем текущий проигрываемый кусок архива для перемотки
   const [playingRecord, setPlayingRecord] = useState(null);
+  // НОВЫЕ СОСТОЯНИЯ ДЛЯ ПОЛЗУНКА:
+  const [seekOffsetMs, setSeekOffsetMs] = useState(0); // Запоминаем смещение при перемотке
+  const [progressPercent, setProgressPercent] = useState(0); // Текущая ширина синей полосы
 
   useEffect(() => {
     if (streamUrl && videoRef.current) {
@@ -124,6 +127,19 @@ export default function StreamPlayer({ streamUrl, cameraName, terminal, channel,
         style={{ width: '100%', aspectRatio: '16/9', display: 'block', backgroundColor: '#000', objectFit: 'contain' }}
         muted
         autoPlay
+        onTimeUpdate={(e) => {
+          if (playingRecord && tab === 'archive') {
+            const startMs = new Date(playingRecord.startTime).getTime();
+            const endMs = new Date(playingRecord.endTime).getTime();
+            const durationMs = endMs - startMs;
+
+            // Текущее время = смещение от перемотки + сколько секунд прошло с момента запуска потока
+            const currentMs = seekOffsetMs + (e.target.currentTime * 1000);
+            const percent = Math.min(100, Math.max(0, (currentMs / durationMs) * 100));
+
+            setProgressPercent(percent);
+          }
+        }}
       />
 
       {/* Кастомный Таймлайн для перемотки Архива */}
@@ -147,6 +163,10 @@ export default function StreamPlayer({ streamUrl, cameraName, terminal, channel,
               const endMs = new Date(playingRecord.endTime).getTime();
               const targetMs = startMs + (endMs - startMs) * percent;
 
+              // Обновляем состояния для UI моментально
+              setSeekOffsetMs(targetMs - startMs);
+              setProgressPercent(percent * 100);
+
               // Форматируем в ISAPI формат: YYYYMMDDTHHMMSSZ
               const targetDate = new Date(targetMs);
               const isapiTime = targetDate.toISOString().replace(/[-:]/g, '').split('.')[0] + 'Z';
@@ -159,8 +179,8 @@ export default function StreamPlayer({ streamUrl, cameraName, terminal, channel,
             }}
             style={{ width: '100%', height: '12px', backgroundColor: '#333', cursor: 'pointer', position: 'relative', borderRadius: '2px' }}
           >
-            {/* Визуальная подсказка */}
-            <div style={{ position: 'absolute', top: 0, left: 0, height: '100%', width: '0%', backgroundColor: '#00f0ff', pointerEvents: 'none' }} />
+            {/* АНИМИРОВАННАЯ визуальная подсказка */}
+            <div style={{ position: 'absolute', top: 0, left: 0, height: '100%', width: `${progressPercent}%`, backgroundColor: '#00f0ff', pointerEvents: 'none' }} />
           </div>
         </div>
       )}
@@ -194,6 +214,8 @@ export default function StreamPlayer({ streamUrl, cameraName, terminal, channel,
                 <button
                   onClick={() => {
                     setPlayingRecord(rec);
+                    setSeekOffsetMs(0); // Сброс при новом видео
+                    setProgressPercent(0);
                     onPlayArchive(rec.playbackUri);
                   }}
                   disabled={!rec.playbackUri}
