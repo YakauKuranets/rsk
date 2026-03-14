@@ -2,12 +2,11 @@ import React, { useEffect, useRef, useState } from 'react';
 import mpegts from 'mpegts.js';
 import { invoke } from '@tauri-apps/api/core';
 
-export default function StreamPlayer({ streamUrl, cameraName, terminal, onRefresh, onClose, onPlayArchive }) {
+export default function StreamPlayer({ streamUrl, cameraName, terminal, channel, hubCookie, onRefresh, onClose, onPlayArchive }) {
   const videoRef = useRef(null);
   const playerRef = useRef(null);
 
-  // Состояния для Архива
-  const [tab, setTab] = useState('live'); // 'live' | 'archive'
+  const [tab, setTab] = useState('live');
   const [archiveDate, setArchiveDate] = useState(() => new Date().toISOString().split('T')[0]);
   const [records, setRecords] = useState([]);
   const [loadingArchive, setLoadingArchive] = useState(false);
@@ -38,20 +37,50 @@ export default function StreamPlayer({ streamUrl, cameraName, terminal, onRefres
   }, [streamUrl]);
 
   const handleSearchArchive = async () => {
-    if (!terminal || terminal.type === 'hub') return alert('Поиск архива доступен только для прямых NVR/Камер (ISAPI)');
+    if (!terminal) return alert('Ошибка: данные камеры не переданы в плеер! Проверьте App.jsx');
+
     setLoadingArchive(true);
+    setRecords([]);
+
     try {
-      const fromTime = `${archiveDate}T00:00:00Z`;
-      const toTime = `${archiveDate}T23:59:59Z`;
-      const result = await invoke('search_isapi_recordings', {
-        host: terminal.host,
-        login: terminal.login || 'admin',
-        pass: terminal.password || '',
-        fromTime,
-        toTime,
-      });
-      setRecords(result || []);
-    } catch (e) {
+      if (terminal.type === 'hub') {
+        // УМНЫЙ ПОИСК ПО ХАБУ (videodvor.by)
+        const adminHash = hubCookie ? hubCookie.split('admin=')[1]?.split(';')[0]?.trim() : '';
+        const results = await invoke('recon_hub_archive_routes', {
+          userId: terminal.hub_id.toString(),
+          channelId: channel ? channel.index.toString() : '0',
+          adminHash: adminHash || '',
+          targetDate: archiveDate,
+          targetFtpPath: null,
+        });
+
+        // Отбираем только рабочие видео-роуты
+        const videoRoutes = results.filter(r => r.isVideo).map(r => ({
+          startTime: `${archiveDate}T00:00:00Z`,
+          endTime: `${archiveDate}T23:59:59Z`,
+          playbackUri: r.url,
+          label: r.verdict || 'Запись Хаба'
+        }));
+
+        if (videoRoutes.length === 0) alert('Записей на Хабе за эту дату не найдено.');
+        setRecords(videoRoutes);
+
+      } else {
+        // ПОИСК ПО ПРЯМОЙ КАМЕРЕ (ISAPI)
+        const fromTime = `${archiveDate}T00:00:00Z`;
+        const toTime = `${archiveDate}T23:59:59Z`;
+        const result = await invoke('search_isapi_recordings', {
+          host: terminal.host,
+          login: terminal.login || 'admin',
+          pass: terminal.password || '',
+          fromTime,
+          toTime,
+        });
+
+        if (!result || result.length === 0) alert('Нет записей за эту дату (ISAPI).');
+        setRecords(result || []);
+      }
+    } catch(e) {
       alert('Ошибка поиска: ' + e);
     } finally {
       setLoadingArchive(false);
@@ -118,7 +147,7 @@ export default function StreamPlayer({ streamUrl, cameraName, terminal, onRefres
             {records.map((rec, idx) => (
               <div key={idx} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '6px', borderBottom: '1px solid #111' }}>
                 <span style={{ color: '#aaa', fontSize: '11px' }}>
-                  {formatTime(rec.startTime)} — {formatTime(rec.endTime)}
+                  {rec.label ? rec.label : `${formatTime(rec.startTime)} — ${formatTime(rec.endTime)}`}
                 </span>
                 <button
                   onClick={() => onPlayArchive(rec.playbackUri)}

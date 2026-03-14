@@ -1286,6 +1286,8 @@ const handleSecurityAudit = async () => {
             streamUrl={activeStream}
             cameraName={activeCameraName}
             terminal={streamTerminal}
+            channel={streamChannel}
+            hubCookie={hubConfig.cookie}
             onRefresh={handleRefreshStream}
             onClose={handleStopStream}
             onPlayArchive={handlePlayArchive}
