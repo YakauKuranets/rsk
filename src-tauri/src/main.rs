@@ -645,6 +645,14 @@ pub async fn start_hub_stream(
             ),
             "-rtsp_transport",
             "tcp",
+            "-fflags",
+            "+genpts+discardcorrupt",
+            "-err_detect",
+            "ignore_err",
+            "-analyzeduration",
+            "10000000",
+            "-probesize",
+            "10000000",
             "-i",
             &url,
             "-c:v",
@@ -657,6 +665,12 @@ pub async fn start_hub_stream(
             "yuv420p",         // <-- СТАНДАРТ ДЛЯ WEB
             "-profile:v",      // <-- ПРОФИЛЬ КОДЕКА
             "main",            // <-- ПОДДЕРЖИВАЕТСЯ ВСЕМИ ПЛЕЕРАМИ
+            "-g",
+            "25",
+            "-keyint_min",
+            "25",
+            "-sc_threshold",
+            "0",
             "-max_muxing_queue_size",
             "1024",
             "-an",
@@ -1029,6 +1043,14 @@ pub async fn start_stream(
         .args([
             "-rtsp_transport",
             "tcp",
+            "-fflags",
+            "+genpts+discardcorrupt",
+            "-err_detect",
+            "ignore_err",
+            "-analyzeduration",
+            "10000000",
+            "-probesize",
+            "10000000",
             "-i",
             &rtsp_url,
             "-c:v",
@@ -1041,6 +1063,12 @@ pub async fn start_stream(
             "yuv420p",         // <-- СТАНДАРТ ДЛЯ WEB
             "-profile:v",      // <-- ПРОФИЛЬ КОДЕКА
             "main",            // <-- ПОДДЕРЖИВАЕТСЯ ВСЕМИ ПЛЕЕРАМИ
+            "-g",
+            "25",
+            "-keyint_min",
+            "25",
+            "-sc_threshold",
+            "0",
             "-max_muxing_queue_size",
             "1024",
             "-an",
