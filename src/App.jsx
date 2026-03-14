@@ -4,8 +4,8 @@ import { MapContainer, TileLayer, Marker, Popup, useMap } from 'react-leaflet';
 import 'leaflet/dist/leaflet.css';
 import './App.css';
 import L from 'leaflet';
-import mpegts from 'mpegts.js';
 import NemesisArchiveTerminal from './NemesisArchiveTerminal';
+import StreamPlayer from './StreamPlayer';
 
 import icon from 'leaflet/dist/images/marker-icon.png';
 import iconShadow from 'leaflet/dist/images/marker-shadow.png';
@@ -163,8 +163,6 @@ export default function App() {
     cookie: "login=mvd; admin=d32e003ac0909010c412e0930b621f8f; PHPSESSID=d8qtnapeqlgrism37hkarq9mk5",
   };
 
-  const videoContainerRef = useRef(null);
-  const playerRef = useRef(null);
   const pollIntervalRef = useRef(null);
   const healthCheckRef = useRef(null);
   const activeTargetIdRef = useRef(null);
@@ -253,43 +251,6 @@ export default function App() {
     };
   }, []);
 
-  useEffect(() => {
-    if (activeStream && streamType === 'ws-flv' && videoContainerRef.current) {
-      if (!mpegts.getFeatureList().mseLivePlayback) {
-        console.warn('[PLAYER] mpegts.js live playback is not supported by this browser');
-        return;
-      }
-
-      videoContainerRef.current.innerHTML = '';
-
-      const videoElement = document.createElement('video');
-      videoElement.autoplay = true;
-      videoElement.controls = true;
-      videoElement.muted = true;
-      videoElement.style.width = '100%';
-      videoContainerRef.current.appendChild(videoElement);
-
-      const player = mpegts.createPlayer({
-        type: 'flv',
-        isLive: true,
-        url: activeStream,
-        hasAudio: false,
-      });
-      player.attachMediaElement(videoElement);
-      player.load();
-      player.play().catch(() => {});
-      playerRef.current = player;
-
-      return () => {
-        if (playerRef.current) {
-          playerRef.current.unload();
-          playerRef.current.detachMediaElement();
-          playerRef.current.destroy();
-          playerRef.current = null;
-        }
-      };
-    }
-  }, [activeStream, streamType]);
 
   useEffect(() => {
     activeTargetIdRef.current = activeTargetId;
@@ -418,12 +379,6 @@ export default function App() {
   // --- ОБНОВИТЬ СТРИМ (кнопка в плеере) ---
   const handleRefreshStream = async () => {
     if (!activeTargetId) return;
-
-    // Уничтожаем текущий плеер
-    if (playerRef.current) {
-      playerRef.current.destroy();
-      playerRef.current = null;
-    }
 
     // Если есть RTSP URL — полный перезапуск FFmpeg
     if (streamRtspUrl) {
@@ -1309,30 +1264,12 @@ const handleSecurityAudit = async () => {
         </MapContainer>
 
         {activeStream && (
-          <div style={{ position: 'absolute', bottom: 20, left: 20, width: '520px', border: '2px solid #00f0ff', zIndex: 1000, backgroundColor: '#000', boxShadow: '0 0 20px rgba(0,240,255,0.3)' }}>
-            <div style={{ background: '#00f0ff', color: '#000', padding: '5px 8px', fontSize: '12px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontWeight: 'bold' }}>
-              <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>LIVE: {activeCameraName}</span>
-              <div style={{ display: 'flex', gap: '8px', marginLeft: '10px', flexShrink: 0 }}>
-                <span
-                  onClick={handleRefreshStream}
-                  style={{ cursor: 'pointer', padding: '2px 8px', backgroundColor: 'rgba(0,0,0,0.2)', borderRadius: '3px', fontSize: '11px', userSelect: 'none' }}
-                  title="Перезапустить поток"
-                >
-                  ↻ ОБНОВИТЬ
-                </span>
-                <span
-                  onClick={handleStopStream}
-                  style={{ cursor: 'pointer', padding: '2px 8px', backgroundColor: 'rgba(255,0,0,0.3)', borderRadius: '3px', fontSize: '11px', userSelect: 'none' }}
-                  title="Закрыть поток"
-                >
-                  ✖ ЗАКРЫТЬ
-                </span>
-              </div>
-            </div>
-
-            {/* КОНТЕЙНЕР ПЛЕЕРА */}
-            <div data-vjs-player ref={videoContainerRef}></div>
-          </div>
+          <StreamPlayer
+            streamUrl={activeStream}
+            cameraName={activeCameraName}
+            onRefresh={handleRefreshStream}
+            onClose={handleStopStream}
+          />
         )}
       </div>
 
