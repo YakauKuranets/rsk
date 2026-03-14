@@ -1,6 +1,7 @@
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
+use ort::{GraphOptimizationLevel, Session};
 use rand::Rng;
 use serde::Serialize;
 use tauri::{AppHandle, Emitter, State};
@@ -36,6 +37,33 @@ pub async fn start_archive_analysis(
     println!("[AI MODULE] Запуск анализа архива: {}", playback_uri);
 
     tokio::spawn(async move {
+        println!("[AI MODULE] Инициализация движка ONNX Runtime...");
+
+        // Инициализируем глобальную среду ONNX (игнорируем ошибку, если уже инициализировано)
+        let _ = ort::init().with_name("hyperion_vision").commit();
+
+        // Пытаемся загрузить веса модели в оперативную память.
+        // ОЖИДАЕТСЯ, ЧТО ПАПКА Vault НАХОДИТСЯ РЯДОМ С ИСПОЛНЯЕМЫМ ФАЙЛОМ
+        let model_path = "../Vault/Models/yolov8s.onnx";
+
+        let _session = match Session::builder()
+            .and_then(|b| b.with_optimization_level(GraphOptimizationLevel::Level3))
+            .and_then(|b| b.with_intra_threads(4)) // Выделяем 4 потока вашего Ryzen
+            .and_then(|b| b.commit_from_file(model_path))
+        {
+            Ok(s) => {
+                println!("[AI MODULE] 🟢 УСПЕХ: YOLOv8 загружена в ОЗУ!");
+                Some(s)
+            }
+            Err(e) => {
+                eprintln!(
+                    "[AI MODULE] 🔴 ОШИБКА загрузки модели: {}. Проверьте, лежит ли файл по пути: {}",
+                    e, model_path
+                );
+                None
+            }
+        };
+
         let mut current_ms = 0;
         let step = 5000;
 
