@@ -102,11 +102,11 @@ pub async fn start_archive_analysis(
                         }
                     }
 
-                    // Явно упаковываем матрицу в формат Value, который требует новая версия ort
-                    let input_value = ort::Value::from_array(tensor).unwrap();
+                    // В ort v2 матрицы упаковываются через ort::value::Tensor
+                    let input_tensor = ort::value::Tensor::from_array(tensor).unwrap();
 
                     // Скармливаем упакованный кадр нейросети
-                    if let Ok(outputs) = session.run(ort::inputs!["images" => input_value]) {
+                    if let Ok(outputs) = session.run(ort::inputs!["images" => input_tensor]) {
                         // В ort v2 try_extract_tensor возвращает кортеж (Shape, &[f32])
                         if let Ok((_shape, slice)) = outputs[0].try_extract_tensor::<f32>() {
                             let mut found_person = false;
