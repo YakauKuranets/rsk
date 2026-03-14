@@ -60,22 +60,17 @@ pub async fn start_archive_analysis(
         // Запускаем FFmpeg в фоне для вытягивания сырых кадров
         let mut child = Command::new("ffmpeg")
             .args(&[
-                "-i",
-                &playback_uri,
-                "-r",
-                "2", // Анализируем 2 кадра в секунду
-                "-f",
-                "image2pipe",
-                "-pix_fmt",
-                "rgb24",
-                "-s",
-                "640x640", // YOLOv8 ожидает именно 640x640
-                "-vcodec",
-                "rawvideo",
-                "-",
+                "-rtsp_transport", "tcp", // ВАЖНО: Заставляем FFmpeg использовать надежный TCP
+                "-i", &playback_uri,
+                "-r", "2",
+                "-f", "image2pipe",
+                "-pix_fmt", "rgb24",
+                "-s", "640x640",
+                "-vcodec", "rawvideo",
+                "-"
             ])
             .stdout(Stdio::piped())
-            .stderr(Stdio::null()) // Скрываем спам от FFmpeg
+            .stderr(Stdio::inherit()) // ВАЖНО: Теперь ошибки FFmpeg будут лететь прямо в консоль!
             .spawn()
             .expect("Не удалось запустить FFmpeg");
 
