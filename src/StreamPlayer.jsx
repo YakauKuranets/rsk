@@ -24,6 +24,12 @@ export default function StreamPlayer({ streamUrl, cameraName, terminal, channel,
   const [aiAnalyzing, setAiAnalyzing] = useState(false);
   const [archiveEvents, setArchiveEvents] = useState([]);
   const [timelineZoom, setTimelineZoom] = useState(1.0);
+
+  // Стейты для перетаскивания (Drag-to-Pan)
+  const [isDragging, setIsDragging] = useState(false);
+  const [dragMoved, setDragMoved] = useState(false);
+  const [startX, setStartX] = useState(0);
+  const [dragScrollLeft, setDragScrollLeft] = useState(0);
   
   // Новые стейты для UI
   const [isFullscreen, setIsFullscreen] = useState(false);
@@ -243,6 +249,59 @@ export default function StreamPlayer({ streamUrl, cameraName, terminal, channel,
     }
   };
 
+
+  // Обработчики Drag-to-Pan
+  const handleMouseDown = (e) => {
+    if (!timelineContainerRef.current) return;
+    setIsDragging(true);
+    setDragMoved(false);
+    setStartX(e.pageX - timelineContainerRef.current.offsetLeft);
+    setDragScrollLeft(timelineContainerRef.current.scrollLeft);
+  };
+
+  const handleMouseLeave = () => setIsDragging(false);
+  const handleMouseUp = () => setIsDragging(false);
+
+  const handleMouseMove = (e) => {
+    if (!isDragging || !timelineContainerRef.current) return;
+    e.preventDefault();
+    const x = e.pageX - timelineContainerRef.current.offsetLeft;
+    const walk = x - startX;
+    if (Math.abs(walk) > 5) setDragMoved(true); // Если сдвинули больше 5px, значит это свайп, а не клик
+    timelineContainerRef.current.scrollLeft = dragScrollLeft - walk;
+  };
+
+  // Генератор динамической шкалы времени
+  const generateTimeMarkers = () => {
+    if (!playingRecord) return [];
+    const startMs = new Date(playingRecord.startTime).getTime();
+    const durationMs = new Date(playingRecord.endTime).getTime() - startMs;
+    if (durationMs <= 0) return [];
+
+    const visibleDurationMs = durationMs / timelineZoom;
+    const stepMsTarget = visibleDurationMs / 10; // Хотим видеть около 10 меток на экране
+
+    // Доступные шаги: 1с, 5с, 10с, 30с, 1м, 5м, 10м, 30м, 1ч, 2ч, 4ч
+    const niceSteps = [1000, 5000, 10000, 30000, 60000, 300000, 600000, 1800000, 3600000, 7200000, 14400000];
+    let actualStep = niceSteps[niceSteps.length - 1];
+
+    for (let step of niceSteps) {
+      if (stepMsTarget <= step) {
+        actualStep = step;
+        break;
+      }
+    }
+
+    const markers = [];
+    for (let time = 0; time <= durationMs; time += actualStep) {
+      const date = new Date(startMs + time);
+      // Если шаг меньше минуты - показываем секунды, иначе только часы:минуты
+      const label = actualStep < 60000 ? date.toISOString().substr(11, 8) : date.toISOString().substr(11, 5);
+      markers.push({ percent: (time / durationMs) * 100, label });
+    }
+    return markers;
+  };
+
   if (!streamUrl) return null;
 
   return (
@@ -309,11 +368,10 @@ export default function StreamPlayer({ streamUrl, cameraName, terminal, channel,
         onTimeUpdate={handleTimeUpdate}
       />
 
-      {/* Продвинутый Таймлайн с Mouse Wheel Zoom */}
+      {/* ПРО-Таймлайн: Wheel Zoom + Drag-to-Pan + Динамическая Шкала */}
       {playingRecord && tab === 'archive' && (
-        <div style={{ backgroundColor: '#111', padding: '5px 10px', borderTop: '1px solid #333' }}>
+        <div style={{ backgroundColor: '#111', padding: '5px 10px', borderTop: '1px solid #333', userSelect: 'none' }}>
 
-          {/* Панель управления */}
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
             <button
               onClick={aiAnalyzing ? stopAiAnalysis : startAiAnalysis}
@@ -328,70 +386,90 @@ export default function StreamPlayer({ streamUrl, cameraName, terminal, channel,
             </button>
 
             <span style={{ color: '#aaa', fontSize: '10px' }}>
-              ЗУМ: {timelineZoom.toFixed(1)}x (Крутите колесико мыши по полосе)
+              ЗУМ: {timelineZoom.toFixed(1)}x (Колесико: Масштаб | ЛКМ: Двигать)
             </span>
           </div>
 
-          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '9px', color: '#00f0ff', marginBottom: '4px' }}>
-            <span>{formatTime(playingRecord.startTime)}</span>
-            <span>{formatTime(playingRecord.endTime)}</span>
-          </div>
-
-          {/* Контейнер таймлайна с Ref для перехвата скролла */}
+          {/* Главный контейнер (Скрываем системный скроллбар) */}
           <div
             ref={timelineContainerRef}
-            style={{ width: '100%', overflowX: 'auto', overflowY: 'hidden', backgroundColor: '#000', border: '1px solid #333', position: 'relative' }}
+            onMouseDown={handleMouseDown}
+            onMouseLeave={handleMouseLeave}
+            onMouseUp={handleMouseUp}
+            onMouseMove={handleMouseMove}
+            style={{
+              width: '100%',
+              overflowX: 'hidden',
+              overflowY: 'hidden',
+              backgroundColor: '#0a0a0c',
+              border: '1px solid #333',
+              position: 'relative',
+              cursor: isDragging ? 'grabbing' : 'grab'
+            }}
           >
-            <div
-              onClick={(e) => {
-                // ПЕРЕМОТКА: Разрешена всегда, даже при работающем ИИ!
-                if (!playingRecord || !playingRecord.playbackUri) return;
-                const rect = e.currentTarget.getBoundingClientRect();
-                const percent = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
-                const startMs = new Date(playingRecord.startTime).getTime();
-                const endMs = new Date(playingRecord.endTime).getTime();
-                const targetMs = startMs + (endMs - startMs) * percent;
+            <div style={{ width: `${timelineZoom * 100}%`, position: 'relative' }}>
 
-                setSeekOffsetMs(targetMs - startMs);
-                setProgressPercent(percent * 100);
+              {/* Линейка времени */}
+              <div style={{ position: 'relative', width: '100%', height: '18px', borderBottom: '1px solid #222' }}>
+                {generateTimeMarkers().map((marker, idx) => (
+                  <div key={idx} style={{
+                    position: 'absolute', left: `${marker.percent}%`, borderLeft: '1px solid #444',
+                    height: '18px', paddingLeft: '3px', fontSize: '9px', color: '#888',
+                    pointerEvents: 'none'
+                  }}>
+                    {marker.label}
+                  </div>
+                ))}
+              </div>
 
-                const targetDate = new Date(targetMs);
-                const isapiTime = targetDate.toISOString().replace(/[-:]/g, '').split('.')[0] + 'Z';
-                const newUri = playingRecord.playbackUri.replace(/starttime=[^&]+/i, `starttime=${isapiTime}`);
+              {/* Полоса видео */}
+              <div
+                onClick={(e) => {
+                  if (dragMoved || !playingRecord || !playingRecord.playbackUri) return;
 
-                onPlayArchive(newUri);
-              }}
-              style={{
-                width: `${timelineZoom * 100}%`,
-                height: '24px',
-                backgroundColor: '#222', cursor: 'pointer', position: 'relative'
-              }}
-            >
-              {/* Полоса просмотренного */}
-              <div style={{ position: 'absolute', top: 0, left: 0, height: '100%', width: `${progressPercent}%`, backgroundColor: '#00f0ff', pointerEvents: 'none', transition: 'width 0.2s linear', opacity: 0.3 }} />
+                  const rect = e.currentTarget.getBoundingClientRect();
+                  const percent = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
+                  const startMs = new Date(playingRecord.startTime).getTime();
+                  const endMs = new Date(playingRecord.endTime).getTime();
+                  const targetMs = startMs + (endMs - startMs) * percent;
 
-              {/* Метки событий от ИИ */}
-              {archiveEvents.map((evt, idx) => {
-                const startMs = new Date(playingRecord.startTime).getTime();
-                const endMs = new Date(playingRecord.endTime).getTime();
-                const evtMs = new Date(evt.time).getTime();
-                const posPercent = ((evtMs - startMs) / (endMs - startMs)) * 100;
+                  setSeekOffsetMs(targetMs - startMs);
+                  setProgressPercent(percent * 100);
 
-                if (posPercent >= 0 && posPercent <= 100) {
-                  return (
-                    <div
-                      key={idx}
-                      style={{
-                        position: 'absolute', left: `${posPercent}%`, top: 0, height: '100%', width: '2px',
-                        backgroundColor: evt.type === 'motion' ? '#ff0044' : '#ffaa00',
-                        boxShadow: `0 0 5px ${evt.type === 'motion' ? '#ff0044' : '#ffaa00'}`,
-                        pointerEvents: 'none'
-                      }}
-                    />
-                  );
-                }
-                return null;
-              })}
+                  const targetDate = new Date(targetMs);
+                  const isapiTime = targetDate.toISOString().replace(/[-:]/g, '').split('.')[0] + 'Z';
+                  const newUri = playingRecord.playbackUri.replace(/starttime=[^&]+/i, `starttime=${isapiTime}`);
+
+                  onPlayArchive(newUri);
+                }}
+                style={{ height: '28px', backgroundColor: '#1a1a1a', cursor: 'pointer', position: 'relative' }}
+              >
+                {/* Синяя полоса прогресса */}
+                <div style={{ position: 'absolute', top: 0, left: 0, height: '100%', width: `${progressPercent}%`, backgroundColor: '#00f0ff', pointerEvents: 'none', transition: 'width 0.2s linear', opacity: 0.25 }} />
+
+                {/* Метки событий от ИИ */}
+                {archiveEvents.map((evt, idx) => {
+                  const startMs = new Date(playingRecord.startTime).getTime();
+                  const endMs = new Date(playingRecord.endTime).getTime();
+                  const evtMs = new Date(evt.time).getTime();
+                  const posPercent = ((evtMs - startMs) / (endMs - startMs)) * 100;
+
+                  if (posPercent >= 0 && posPercent <= 100) {
+                    return (
+                      <div
+                        key={idx}
+                        style={{
+                          position: 'absolute', left: `${posPercent}%`, top: 0, height: '100%', width: '2px',
+                          backgroundColor: evt.type === 'motion' ? '#ff0044' : '#ffaa00',
+                          boxShadow: `0 0 5px ${evt.type === 'motion' ? '#ff0044' : '#ffaa00'}`,
+                          pointerEvents: 'none'
+                        }}
+                      />
+                    );
+                  }
+                  return null;
+                })}
+              </div>
             </div>
           </div>
         </div>
