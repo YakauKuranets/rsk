@@ -3,6 +3,7 @@ import mpegts from 'mpegts.js';
 import { invoke } from '@tauri-apps/api/core';
 
 export default function StreamPlayer({ streamUrl, cameraName, terminal, channel, hubCookie, onRefresh, onClose, onPlayArchive }) {
+  const containerRef = useRef(null);
   const videoRef = useRef(null);
   const playerRef = useRef(null);
 
@@ -15,6 +16,18 @@ export default function StreamPlayer({ streamUrl, cameraName, terminal, channel,
   const [playingRecord, setPlayingRecord] = useState(null);
   const [seekOffsetMs, setSeekOffsetMs] = useState(0);
   const [progressPercent, setProgressPercent] = useState(0);
+  
+  // Новые стейты для UI
+  const [isFullscreen, setIsFullscreen] = useState(false);
+
+  // Слушатель перехода в полноэкранный режим
+  useEffect(() => {
+    const handleFullscreenChange = () => {
+      setIsFullscreen(!!document.fullscreenElement);
+    };
+    document.addEventListener('fullscreenchange', handleFullscreenChange);
+    return () => document.removeEventListener('fullscreenchange', handleFullscreenChange);
+  }, []);
 
   useEffect(() => {
     if (streamUrl && videoRef.current) {
@@ -42,7 +55,7 @@ export default function StreamPlayer({ streamUrl, cameraName, terminal, channel,
   }, [streamUrl]);
 
   const handleSearchArchive = async () => {
-    if (!terminal) return alert('Ошибка: данные камеры не переданы в плеер! Проверьте App.jsx');
+    if (!terminal) return alert('Ошибка: данные камеры не переданы в плеер!');
 
     setLoadingArchive(true);
     setRecords([]);
@@ -95,7 +108,6 @@ export default function StreamPlayer({ streamUrl, cameraName, terminal, channel,
     return date.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
   };
 
-  // Функция для обновления ползунка в реальном времени
   const handleTimeUpdate = () => {
     if (playingRecord && tab === 'archive' && videoRef.current) {
       const startMs = new Date(playingRecord.startTime).getTime();
@@ -103,7 +115,6 @@ export default function StreamPlayer({ streamUrl, cameraName, terminal, channel,
       const durationMs = endMs - startMs;
 
       if (durationMs > 0) {
-        // Смещение от клика перемотки + время с момента загрузки потока
         const currentMs = seekOffsetMs + (videoRef.current.currentTime * 1000);
         const percent = Math.min(100, Math.max(0, (currentMs / durationMs) * 100));
         setProgressPercent(percent);
@@ -111,11 +122,42 @@ export default function StreamPlayer({ streamUrl, cameraName, terminal, channel,
     }
   };
 
+  // --- НОВЫЕ ФУНКЦИИ УПРАВЛЕНИЯ ---
+  const toggleFullscreen = () => {
+    if (!document.fullscreenElement) {
+      containerRef.current?.requestFullscreen().catch(err => console.error(err));
+    } else {
+      document.exitFullscreen().catch(err => console.error(err));
+    }
+  };
+
+  const togglePiP = async () => {
+    if (document.pictureInPictureElement) {
+      await document.exitPictureInPicture();
+    } else if (videoRef.current) {
+      await videoRef.current.requestPictureInPicture().catch(err => console.error("PiP error:", err));
+    }
+  };
+
   if (!streamUrl) return null;
 
   return (
-    <div style={{ position: 'absolute', bottom: 20, left: 20, width: '520px', border: '2px solid #00f0ff', zIndex: 1000, backgroundColor: '#050505', boxShadow: '0 0 20px rgba(0,240,255,0.3)', display: 'flex', flexDirection: 'column' }}>
-
+    <div 
+      ref={containerRef}
+      style={{ 
+        position: isFullscreen ? 'fixed' : 'absolute', 
+        bottom: isFullscreen ? 0 : 20, 
+        left: isFullscreen ? 0 : 20, 
+        width: isFullscreen ? '100vw' : '520px', 
+        height: isFullscreen ? '100vh' : 'auto',
+        border: isFullscreen ? 'none' : '2px solid #00f0ff', 
+        zIndex: 9999, 
+        backgroundColor: '#050505', 
+        boxShadow: isFullscreen ? 'none' : '0 0 20px rgba(0,240,255,0.3)', 
+        display: 'flex', 
+        flexDirection: 'column' 
+      }}
+    >
       {/* Шапка плеера с вкладками */}
       <div style={{ background: '#00f0ff', color: '#000', padding: '0', fontSize: '12px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontWeight: 'bold' }}>
         <div style={{ display: 'flex' }}>
@@ -127,22 +169,32 @@ export default function StreamPlayer({ streamUrl, cameraName, terminal, channel,
           </div>
         </div>
 
-        <div style={{ display: 'flex', gap: '8px', marginRight: '8px' }}>
-          <span onClick={onRefresh} style={{ cursor: 'pointer', padding: '2px 8px', backgroundColor: 'rgba(0,0,0,0.2)', borderRadius: '3px', fontSize: '11px' }}>↻ ОБНОВИТЬ</span>
-          <span onClick={onClose} style={{ cursor: 'pointer', padding: '2px 8px', backgroundColor: 'rgba(255,0,0,0.3)', borderRadius: '3px', fontSize: '11px' }}>✖ ЗАКРЫТЬ</span>
+        <div style={{ display: 'flex', gap: '6px', marginRight: '8px' }}>
+          <span onClick={togglePiP} style={{ cursor: 'pointer', padding: '2px 8px', backgroundColor: 'rgba(0,0,0,0.2)', borderRadius: '3px', fontSize: '11px' }} title="Открепить видео (Поверх окон)">
+            🔲 PiP
+          </span>
+          <span onClick={toggleFullscreen} style={{ cursor: 'pointer', padding: '2px 8px', backgroundColor: 'rgba(0,0,0,0.2)', borderRadius: '3px', fontSize: '11px' }} title="На весь экран">
+            {isFullscreen ? '🗗 СВЕРНУТЬ' : '⛶ ПОЛНЫЙ'}
+          </span>
+          <span onClick={onRefresh} style={{ cursor: 'pointer', padding: '2px 8px', backgroundColor: 'rgba(0,0,0,0.2)', borderRadius: '3px', fontSize: '11px' }} title="Перезапустить поток">
+            ↻
+          </span>
+          <span onClick={onClose} style={{ cursor: 'pointer', padding: '2px 8px', backgroundColor: 'rgba(255,0,0,0.3)', borderRadius: '3px', fontSize: '11px' }}>
+            ✖
+          </span>
         </div>
       </div>
 
-      {/* Контейнер видео с привязанным onTimeUpdate */}
+      {/* Контейнер видео */}
       <video
         ref={videoRef}
-        style={{ width: '100%', aspectRatio: '16/9', display: 'block', backgroundColor: '#000', objectFit: 'contain' }}
+        style={{ width: '100%', flexGrow: 1, maxHeight: isFullscreen ? (tab === 'archive' ? 'calc(100vh - 250px)' : 'calc(100vh - 30px)') : 'auto', aspectRatio: isFullscreen ? 'auto' : '16/9', display: 'block', backgroundColor: '#000', objectFit: 'contain' }}
         muted
         autoPlay
         onTimeUpdate={handleTimeUpdate}
       />
 
-      {/* Кастомный Таймлайн для перемотки Архива */}
+      {/* Кастомный Таймлайн */}
       {playingRecord && tab === 'archive' && (
         <div style={{ backgroundColor: '#111', padding: '5px 10px', borderTop: '1px solid #333' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '9px', color: '#00f0ff', marginBottom: '4px' }}>
@@ -153,29 +205,23 @@ export default function StreamPlayer({ streamUrl, cameraName, terminal, channel,
           <div
             onClick={(e) => {
               if (!playingRecord || !playingRecord.playbackUri) return;
-
               const rect = e.currentTarget.getBoundingClientRect();
               const percent = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
-
               const startMs = new Date(playingRecord.startTime).getTime();
               const endMs = new Date(playingRecord.endTime).getTime();
               const targetMs = startMs + (endMs - startMs) * percent;
 
-              // Запоминаем куда прыгнули, чтобы ползунок продолжил ползти отсюда
               setSeekOffsetMs(targetMs - startMs);
               setProgressPercent(percent * 100);
 
               const targetDate = new Date(targetMs);
               const isapiTime = targetDate.toISOString().replace(/[-:]/g, '').split('.')[0] + 'Z';
-
               const newUri = playingRecord.playbackUri.replace(/starttime=[^&]+/i, `starttime=${isapiTime}`);
 
-              console.log('[SEEK] Перемотка на:', targetDate.toLocaleString(), newUri);
               onPlayArchive(newUri);
             }}
             style={{ width: '100%', height: '12px', backgroundColor: '#333', cursor: 'pointer', position: 'relative', borderRadius: '2px' }}
           >
-            {/* Визуальная синяя подсказка */}
             <div style={{ position: 'absolute', top: 0, left: 0, height: '100%', width: `${progressPercent}%`, backgroundColor: '#00f0ff', pointerEvents: 'none', transition: 'width 0.2s linear' }} />
           </div>
         </div>
@@ -184,7 +230,7 @@ export default function StreamPlayer({ streamUrl, cameraName, terminal, channel,
       {/* Панель архива */}
       {tab === 'archive' && (
         <div style={{ backgroundColor: '#0a0a0c', borderTop: '1px solid #00f0ff', padding: '10px' }}>
-          <div style={{ display: 'flex', gap: '8px', marginBottom: '10px' }}>
+          <div style={{ display: 'flex', gap: '8px', marginBottom: '10px', maxWidth: '500px' }}>
             <input
               type="date"
               value={archiveDate}
@@ -200,7 +246,7 @@ export default function StreamPlayer({ streamUrl, cameraName, terminal, channel,
             </button>
           </div>
 
-          <div style={{ maxHeight: '150px', overflowY: 'auto', border: '1px solid #222', padding: '5px' }}>
+          <div style={{ maxHeight: isFullscreen ? '200px' : '150px', overflowY: 'auto', border: '1px solid #222', padding: '5px' }}>
             {records.length === 0 && !loadingArchive && <div style={{ color: '#555', fontSize: '11px', textAlign: 'center', padding: '10px' }}>Нет записей за эту дату</div>}
             {records.map((rec, idx) => (
               <div key={idx} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '6px', borderBottom: '1px solid #111' }}>
@@ -210,7 +256,7 @@ export default function StreamPlayer({ streamUrl, cameraName, terminal, channel,
                 <button
                   onClick={() => {
                     setPlayingRecord(rec);
-                    setSeekOffsetMs(0); // Обязательно сбрасываем при новом запуске!
+                    setSeekOffsetMs(0);
                     setProgressPercent(0);
                     onPlayArchive(rec.playbackUri);
                   }}
