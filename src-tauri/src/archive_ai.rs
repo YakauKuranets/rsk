@@ -3,7 +3,6 @@ use std::process::{Command, Stdio};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
-use ndarray::Array;
 use ort::session::{builder::GraphOptimizationLevel, Session};
 use serde::Serialize;
 use tauri::{AppHandle, Emitter, State};
@@ -91,19 +90,25 @@ pub async fn start_archive_analysis(
         while is_running_flag.load(Ordering::SeqCst) {
             match stdout.read_exact(&mut buffer) {
                 Ok(_) => {
-                    // Конвертируем RGB-массив в тензор [1, 3, 640, 640] и нормализуем (0.0 - 1.0)
-                    let mut tensor = Array::zeros((1, 3, 640, 640));
+                    // Создаем стандартный плоский массив Rust под размер [3 канала, 640 высота, 640 ширина]
+                    let mut tensor_data = vec![0.0f32; 3 * 640 * 640];
                     for y in 0..640 {
                         for x in 0..640 {
-                            let offset = (y * 640 + x) * 3;
-                            tensor[[0, 0, y, x]] = buffer[offset] as f32 / 255.0; // R
-                            tensor[[0, 1, y, x]] = buffer[offset + 1] as f32 / 255.0; // G
-                            tensor[[0, 2, y, x]] = buffer[offset + 2] as f32 / 255.0; // B
+                            let pixel_offset = (y * 640 + x) * 3;
+                            let spatial_offset = y * 640 + x;
+
+                            // Заполняем каналы (R, G, B) последовательно (формат NCHW)
+                            tensor_data[0 * 640 * 640 + spatial_offset] = buffer[pixel_offset] as f32 / 255.0; // R
+                            tensor_data[1 * 640 * 640 + spatial_offset] =
+                                buffer[pixel_offset + 1] as f32 / 255.0; // G
+                            tensor_data[2 * 640 * 640 + spatial_offset] =
+                                buffer[pixel_offset + 2] as f32 / 255.0; // B
                         }
                     }
 
-                    // В ort v2 матрицы упаковываются через ort::value::Tensor
-                    let input_tensor = ort::value::Tensor::from_array(tensor).unwrap();
+                    // ort v2 умеет создавать тензоры напрямую из кортежа (формат, вектор), минуя ndarray!
+                    let input_tensor =
+                        ort::value::Tensor::from_array(([1, 3, 640, 640], tensor_data)).unwrap();
 
                     // Скармливаем упакованный кадр нейросети
                     if let Ok(outputs) = session.run(ort::inputs!["images" => input_tensor]) {
