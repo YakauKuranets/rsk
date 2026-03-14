@@ -1,7 +1,7 @@
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
-use ort::{GraphOptimizationLevel, Session};
+use ort::session::{builder::GraphOptimizationLevel, Session};
 use rand::Rng;
 use serde::Serialize;
 use tauri::{AppHandle, Emitter, State};
@@ -46,11 +46,15 @@ pub async fn start_archive_analysis(
         // ОЖИДАЕТСЯ, ЧТО ПАПКА Vault НАХОДИТСЯ РЯДОМ С ИСПОЛНЯЕМЫМ ФАЙЛОМ
         let model_path = "../Vault/Models/yolov8s.onnx";
 
-        let _session = match Session::builder()
-            .and_then(|b| b.with_optimization_level(GraphOptimizationLevel::Level3))
-            .and_then(|b| b.with_intra_threads(4)) // Выделяем 4 потока вашего Ryzen
-            .and_then(|b| b.commit_from_file(model_path))
-        {
+        // Используем локальное замыкание, чтобы элегантно обрабатывать ошибки через `?`
+        let session_result = (|| -> ort::Result<Session> {
+            Session::builder()?
+                .with_optimization_level(GraphOptimizationLevel::Level3)?
+                .with_intra_threads(4)?
+                .commit_from_file(model_path)
+        })();
+
+        let _session = match session_result {
             Ok(s) => {
                 println!("[AI MODULE] 🟢 УСПЕХ: YOLOv8 загружена в ОЗУ!");
                 Some(s)
