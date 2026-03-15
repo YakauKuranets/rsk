@@ -656,6 +656,10 @@ pub async fn start_hub_stream(
             "-rtsp_transport",
             "tcp",
             "-fflags",
+            "nobuffer",
+            "-flags",
+            "low_delay",
+            "-fflags",
             "+genpts+discardcorrupt",
             "-err_detect",
             "ignore_err",
@@ -839,6 +843,19 @@ async fn probe_rtsp_path(host: String, login: String, pass: String) -> Result<St
         .to_string();
 
     let urls = vec![
+        // Приоритетные пути из NEMESIS фуззера (для меток/автопилота)
+        format!(
+            "rtsp://{}:{}@{}:554/ch1/main/av_stream",
+            login, pass, rtsp_host
+        ),
+        format!(
+            "rtsp://{}:{}@{}:554/cam/realmonitor?channel=1&subtype=0",
+            login, pass, rtsp_host
+        ),
+        format!(
+            "rtsp://{}:{}@{}:554/Streaming/Channels/101",
+            login, pass, rtsp_host
+        ),
         // Стандартные (Hikvision, Dahua, Generic)
         format!(
             "rtsp://{}:{}@{}:554/Streaming/Channels/{}01",
@@ -1090,6 +1107,10 @@ pub async fn start_stream(
         .args([
             "-rtsp_transport",
             "tcp",
+            "-fflags",
+            "nobuffer",
+            "-flags",
+            "low_delay",
             "-fflags",
             "+genpts+discardcorrupt",
             "-err_detect",
