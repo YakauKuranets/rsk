@@ -660,13 +660,13 @@ pub async fn start_hub_stream(
             "-timeout",
             "5000000",
             "-fflags",
-            "nobuffer+genpts+discardcorrupt",
+            "+genpts+discardcorrupt",
             "-flags",
             "low_delay",
             "-analyzeduration",
-            "500000",
+            "2000000",
             "-probesize",
-            "500000",
+            "2000000",
             "-i",
             &url,
             "-c:v",
@@ -676,11 +676,11 @@ pub async fn start_hub_stream(
             "-tune",
             "zerolatency",
             "-profile:v",
-            "main",
+            "baseline",
             "-pix_fmt",
             "yuv420p",
             "-g",
-            "25",
+            "30",
             "-an",
             "-f",
             "flv",
@@ -1101,38 +1101,39 @@ pub async fn start_stream(
 
     let mut child = tokio::process::Command::new("ffmpeg")
         .args([
-            // --- ВХОД (Очистка грязного H.265) ---
             "-rtsp_transport",
             "tcp",
             "-allowed_media_types",
             "video",
             "-timeout",
-            "5000000", // Исправленный флаг таймаута для FFmpeg 8.x
+            "5000000",
+            // Убираем nobuffer, чтобы декодер мог собрать HEVC кадр
             "-fflags",
-            "nobuffer+genpts+discardcorrupt", // discardcorrupt спасет от зависаний на старте
+            "+genpts+discardcorrupt",
             "-flags",
             "low_delay",
+            // Даем 2 Мегабайта/2 секунды на поиск первого I-кадра (критично для H.265)
             "-analyzeduration",
-            "500000", // 0.5 сек для захвата первого IDR-кадра
+            "2000000",
             "-probesize",
-            "500000",
+            "2000000",
             "-i",
             &rtsp_url,
-            // --- ПЕРЕКОДИРОВАНИЕ (H.265 -> H.264 для WEB) ---
+            // Перекодирование
             "-c:v",
             "libx264",
             "-preset",
             "ultrafast",
             "-tune",
             "zerolatency",
+            // Baseline профиль работает в браузерах намного стабильнее
             "-profile:v",
-            "main",
+            "baseline",
             "-pix_fmt",
             "yuv420p",
             "-g",
-            "25", // Принудительные ключевые кадры раз в секунду
-            // --- ВЫХОД ---
-            "-an", // Глушим звук аппаратно
+            "30", // Форсируем ключевой кадр для веб-плеера каждую секунду
+            "-an",
             "-f",
             "flv",
             "-flvflags",
