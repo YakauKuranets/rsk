@@ -657,16 +657,16 @@ pub async fn start_hub_stream(
             "tcp",
             "-allowed_media_types",
             "video",
+            "-timeout",
+            "5000000",
             "-fflags",
             "nobuffer+genpts+discardcorrupt",
             "-flags",
             "low_delay",
             "-analyzeduration",
-            "100000",
+            "500000",
             "-probesize",
-            "100000",
-            "-timeout",
-            "5000000",
+            "500000",
             "-i",
             &url,
             "-c:v",
@@ -1101,24 +1101,24 @@ pub async fn start_stream(
 
     let mut child = tokio::process::Command::new("ffmpeg")
         .args([
-            // --- СВЕРХБЫСТРЫЙ ВХОД ---
+            // --- ВХОД (Очистка грязного H.265) ---
             "-rtsp_transport",
             "tcp",
             "-allowed_media_types",
             "video",
+            "-timeout",
+            "5000000", // Исправленный флаг таймаута для FFmpeg 8.x
             "-fflags",
-            "nobuffer+genpts+discardcorrupt",
+            "nobuffer+genpts+discardcorrupt", // discardcorrupt спасет от зависаний на старте
             "-flags",
             "low_delay",
             "-analyzeduration",
-            "100000",
+            "500000", // 0.5 сек для захвата первого IDR-кадра
             "-probesize",
-            "100000",
-            "-timeout",
-            "5000000",
+            "500000",
             "-i",
             &rtsp_url,
-            // --- УЛЬТРАБЫСТРОЕ ПЕРЕКОДИРОВАНИЕ H.265 -> H.264 ---
+            // --- ПЕРЕКОДИРОВАНИЕ (H.265 -> H.264 для WEB) ---
             "-c:v",
             "libx264",
             "-preset",
@@ -1130,9 +1130,9 @@ pub async fn start_stream(
             "-pix_fmt",
             "yuv420p",
             "-g",
-            "25",
+            "25", // Принудительные ключевые кадры раз в секунду
             // --- ВЫХОД ---
-            "-an",
+            "-an", // Глушим звук аппаратно
             "-f",
             "flv",
             "-flvflags",
