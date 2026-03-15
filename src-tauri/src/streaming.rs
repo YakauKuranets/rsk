@@ -2,7 +2,7 @@ use super::*;
 
 #[tauri::command]
 pub async fn probe_rtsp_path(host: String, login: String, pass: String) -> Result<String, String> {
-    super::probe_rtsp_path(host, login, pass).await
+    crate::fuzzer::probe_rtsp_path(host, login, pass).await
 }
 
 #[tauri::command]
