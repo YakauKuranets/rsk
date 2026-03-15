@@ -6654,6 +6654,7 @@ fn main() {
             download_http_archive,
             recon_hub_archive_routes,
             spider::spider_full_scan,
+            spider::fuzz_cctv_api,
             relay_ping,
             relay_list_files,
             relay_download_file

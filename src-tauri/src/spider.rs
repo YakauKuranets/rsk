@@ -133,6 +133,15 @@ pub struct SpiderThreatLink {
     pub url: String,
 }
 
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SpiderApiFuzzResult {
+    pub protocol: String,
+    pub endpoint: String,
+    pub status_code: i32,
+    pub verdict: String,
+}
+
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SpiderReport {
@@ -153,6 +162,7 @@ pub struct SpiderReport {
     pub all_headers: HashMap<String, Vec<String>>,
     pub sitemap: Vec<String>,
     pub saved_html_dir: String,
+    pub api_fuzz_results: Vec<SpiderApiFuzzResult>,
     pub duration_sec: u64,
 }
 
@@ -784,6 +794,7 @@ pub async fn spider_full_scan(
             all_headers: HashMap::new(),
             sitemap: Vec::new(),
             saved_html_dir: String::new(),
+            api_fuzz_results: Vec::new(),
             duration_sec,
         });
     }
@@ -1282,6 +1293,8 @@ pub async fn spider_full_scan(
     let mut sitemap: Vec<String> = visited.into_iter().collect();
     sitemap.sort();
 
+    let api_fuzz_results = fuzz_cctv_api_internal(&client, &target_url, "generic").await;
+
     let duration_sec = started.elapsed().as_secs();
     push_runtime_log(
         &log_state,
@@ -1313,8 +1326,164 @@ pub async fn spider_full_scan(
         all_headers,
         sitemap,
         saved_html_dir: html_dir.to_string_lossy().to_string(),
+        api_fuzz_results,
         duration_sec,
     })
+}
+
+#[tauri::command]
+pub async fn fuzz_cctv_api(
+    target_input: String,
+    attack_type: Option<String>,
+) -> Result<Vec<SpiderApiFuzzResult>, String> {
+    let client = reqwest::Client::builder()
+        .timeout(Duration::from_secs(8))
+        .danger_accept_invalid_certs(true)
+        .user_agent("Mozilla/5.0 Nemesis/1.0")
+        .build()
+        .map_err(|e| e.to_string())?;
+
+    let mode = attack_type.unwrap_or_else(|| "generic".to_string());
+    Ok(fuzz_cctv_api_internal(&client, &target_input, &mode).await)
+}
+
+async fn fuzz_cctv_api_internal(
+    client: &reqwest::Client,
+    target_input: &str,
+    attack_type: &str,
+) -> Vec<SpiderApiFuzzResult> {
+    let base = normalize_target_base(target_input);
+
+    let commands: Vec<String> = vec![
+        "g.sys.ability",
+        "g.sys.net.rtsp",
+        "g.net.rtsp",
+        "get.network.rtsp",
+        "g.sys.devinfo",
+        "g.rec.session",
+    ]
+    .into_iter()
+    .map(String::from)
+    .collect();
+
+    let probes: Vec<(String, String)> = match attack_type {
+        "tdkcgi" => commands
+            .into_iter()
+            .map(|cmd| {
+                (
+                    "TDKCGI".to_string(),
+                    format!("{}/cgi-bin/hi3510/param.cgi?cmd={}", base, cmd),
+                )
+            })
+            .collect(),
+        "rtsp" => vec![
+            ("RTSP".to_string(), format!("{}/live/ch0", base)),
+            (
+                "RTSP".to_string(),
+                format!("{}/cam/realmonitor?channel=1&subtype=0", base),
+            ),
+            (
+                "RTSP".to_string(),
+                format!("{}/Streaming/Channels/101", base),
+            ),
+        ],
+        "ftp" => vec![
+            ("FTP".to_string(), format!("{}/", base)),
+            ("FTP".to_string(), format!("{}/video0/", base)),
+            ("FTP".to_string(), format!("{}/archive/", base)),
+        ],
+        _ => vec![
+            ("GENERIC".to_string(), format!("{}/api/v1", base)),
+            ("GENERIC".to_string(), format!("{}/api/v2", base)),
+            ("GENERIC".to_string(), format!("{}/status", base)),
+            ("GENERIC".to_string(), format!("{}/graphql", base)),
+        ],
+    };
+
+    let mut out = Vec::new();
+    for (protocol, endpoint) in probes {
+        let (status_code, verdict) = if protocol == "RTSP" {
+            let host = reqwest::Url::parse(&endpoint)
+                .ok()
+                .and_then(|u| u.host_str().map(|h| h.to_string()))
+                .unwrap_or_else(|| target_input.to_string());
+            match timeout(
+                Duration::from_secs(2),
+                TcpStream::connect((host.as_str(), 554)),
+            )
+            .await
+            {
+                Ok(Ok(_)) => (200, "RTSP port open".to_string()),
+                _ => (0, "RTSP port closed/unreachable".to_string()),
+            }
+        } else if protocol == "FTP" {
+            let host = reqwest::Url::parse(&endpoint)
+                .ok()
+                .and_then(|u| u.host_str().map(|h| h.to_string()))
+                .unwrap_or_else(|| target_input.to_string());
+            match timeout(
+                Duration::from_secs(2),
+                TcpStream::connect((host.as_str(), 21)),
+            )
+            .await
+            {
+                Ok(Ok(_)) => (200, "FTP port open".to_string()),
+                _ => (0, "FTP port closed/unreachable".to_string()),
+            }
+        } else {
+            match client.get(&endpoint).send().await {
+                Ok(resp) => {
+                    let code = resp.status().as_u16() as i32;
+                    let verdict = match code {
+                        200..=299 => "reachable",
+                        401 => "auth required",
+                        403 => "forbidden",
+                        404 => "not found",
+                        _ => "responded",
+                    };
+                    (code, verdict.to_string())
+                }
+                Err(_) => (0, "request failed".to_string()),
+            }
+        };
+
+        out.push(SpiderApiFuzzResult {
+            protocol,
+            endpoint,
+            status_code,
+            verdict,
+        });
+    }
+
+    out
+}
+
+fn normalize_target_base(target_input: &str) -> String {
+    let raw = target_input.trim();
+    if raw.is_empty() {
+        return "http://127.0.0.1".to_string();
+    }
+
+    let with_scheme = if raw.contains("://") {
+        raw.to_string()
+    } else {
+        format!("http://{}", raw)
+    };
+
+    if let Ok(url) = reqwest::Url::parse(&with_scheme) {
+        let mut base = format!(
+            "{}://{}",
+            url.scheme(),
+            url.host_str().unwrap_or("127.0.0.1")
+        );
+        if let Some(port) = url.port() {
+            base.push(':');
+            base.push_str(&port.to_string());
+        }
+        base
+    } else {
+        with_scheme
+    }
 }
 
 // ===== ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ ПАУКА =====

