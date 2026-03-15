@@ -19,138 +19,138 @@ use suppaftp::FtpStream;
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
-struct SpiderPage {
-    url: String,
-    status_code: u16,
-    content_type: String,
-    content_length: u64,
-    title: String,
-    links_found: usize,
-    depth: u32,
+pub struct SpiderPage {
+    pub url: String,
+    pub status_code: u16,
+    pub content_type: String,
+    pub content_length: u64,
+    pub title: String,
+    pub links_found: usize,
+    pub depth: u32,
 }
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
-struct SpiderJsEndpoint {
-    source_script: String,
-    endpoint: String,
-    method: String,  // GET/POST/AJAX/FETCH/WS
-    context: String, // Строка кода вокруг найденного endpoint
+pub struct SpiderJsEndpoint {
+    pub source_script: String,
+    pub endpoint: String,
+    pub method: String,  // GET/POST/AJAX/FETCH/WS
+    pub context: String, // Строка кода вокруг найденного endpoint
 }
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
-struct SpiderDirResult {
-    path: String,
-    status_code: u16,
-    content_length: u64,
-    content_type: String,
-    verdict: String,
+pub struct SpiderDirResult {
+    pub path: String,
+    pub status_code: u16,
+    pub content_length: u64,
+    pub content_type: String,
+    pub verdict: String,
 }
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
-struct TechFingerprint {
-    key: String,
-    value: String,
-    source: String,
+pub struct TechFingerprint {
+    pub key: String,
+    pub value: String,
+    pub source: String,
 }
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
-struct SpiderOpenPort {
-    port: u16,
-    service: String,
+pub struct SpiderOpenPort {
+    pub port: u16,
+    pub service: String,
 }
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
-struct SpiderTargetCard {
-    host: String,
-    open_ports: Vec<SpiderOpenPort>,
-    vendor_guess: String,
-    api_guess: String,
-    rtsp_status: String,
+pub struct SpiderTargetCard {
+    pub host: String,
+    pub open_ports: Vec<SpiderOpenPort>,
+    pub vendor_guess: String,
+    pub api_guess: String,
+    pub rtsp_status: String,
 }
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
-struct SpiderDiscoveredTarget {
-    host: String,
-    open_ports: Vec<SpiderOpenPort>,
+pub struct SpiderDiscoveredTarget {
+    pub host: String,
+    pub open_ports: Vec<SpiderOpenPort>,
 }
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
-struct SpiderModuleStatus {
-    module: String,
-    enabled: bool,
-    status: String,
-    details: String,
+pub struct SpiderModuleStatus {
+    pub module: String,
+    pub enabled: bool,
+    pub status: String,
+    pub details: String,
 }
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
-struct SpiderVideoStreamInfo {
-    host: String,
-    status: String,
-    codec: String,
-    resolution: String,
-    fps: String,
-    bitrate: String,
+pub struct SpiderVideoStreamInfo {
+    pub host: String,
+    pub status: String,
+    pub codec: String,
+    pub resolution: String,
+    pub fps: String,
+    pub bitrate: String,
 }
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
-struct SpiderPassiveDevice {
-    ip: String,
-    mac: String,
+pub struct SpiderPassiveDevice {
+    pub ip: String,
+    pub mac: String,
 }
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
-struct SpiderUptimeInfo {
-    host: String,
-    uptime_hint: String,
+pub struct SpiderUptimeInfo {
+    pub host: String,
+    pub uptime_hint: String,
 }
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
-struct SpiderNeighborInfo {
-    host: String,
-    neighbor: String,
-    details: String,
+pub struct SpiderNeighborInfo {
+    pub host: String,
+    pub neighbor: String,
+    pub details: String,
 }
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
-struct SpiderThreatLink {
-    cve: String,
-    title: String,
-    url: String,
+pub struct SpiderThreatLink {
+    pub cve: String,
+    pub title: String,
+    pub url: String,
 }
 
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
-struct SpiderReport {
-    target: String,
-    pages_crawled: usize,
-    pages: Vec<SpiderPage>,
-    js_endpoints: Vec<SpiderJsEndpoint>,
-    dir_results: Vec<SpiderDirResult>,
-    tech_stack: Vec<TechFingerprint>,
-    target_card: SpiderTargetCard,
-    discovered_targets: Vec<SpiderDiscoveredTarget>,
-    module_statuses: Vec<SpiderModuleStatus>,
-    video_stream_info: Vec<SpiderVideoStreamInfo>,
-    passive_devices: Vec<SpiderPassiveDevice>,
-    uptime_info: Vec<SpiderUptimeInfo>,
-    neighbor_info: Vec<SpiderNeighborInfo>,
-    threat_links: Vec<SpiderThreatLink>,
-    all_headers: HashMap<String, Vec<String>>,
-    sitemap: Vec<String>,
-    saved_html_dir: String,
-    duration_sec: u64,
+pub struct SpiderReport {
+    pub target: String,
+    pub pages_crawled: usize,
+    pub pages: Vec<SpiderPage>,
+    pub js_endpoints: Vec<SpiderJsEndpoint>,
+    pub dir_results: Vec<SpiderDirResult>,
+    pub tech_stack: Vec<TechFingerprint>,
+    pub target_card: SpiderTargetCard,
+    pub discovered_targets: Vec<SpiderDiscoveredTarget>,
+    pub module_statuses: Vec<SpiderModuleStatus>,
+    pub video_stream_info: Vec<SpiderVideoStreamInfo>,
+    pub passive_devices: Vec<SpiderPassiveDevice>,
+    pub uptime_info: Vec<SpiderUptimeInfo>,
+    pub neighbor_info: Vec<SpiderNeighborInfo>,
+    pub threat_links: Vec<SpiderThreatLink>,
+    pub all_headers: HashMap<String, Vec<String>>,
+    pub sitemap: Vec<String>,
+    pub saved_html_dir: String,
+    pub duration_sec: u64,
 }
 
 /// Основная команда паука — запускает все модули последовательно
