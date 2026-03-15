@@ -826,10 +826,14 @@ fn delete_target(target_id: String) -> Result<String, String> {
 }
 
 async fn probe_rtsp_path(host: String, login: String, pass: String) -> Result<String, String> {
+    let channel = 1u32;
     let signatures = vec![
-        "/Streaming/Channels/101",
-        "/cam/realmonitor?channel=1&subtype=0",
-        "/live/ch1",
+        "/Streaming/Channels/101".to_string(),
+        "/cam/realmonitor?channel=1&subtype=0".to_string(),
+        "/live/ch1".to_string(),
+        format!("/user={}&password={}&channel={}&stream=0.sdp", &login, &pass, channel),
+        format!("/ucast/{}1", channel),
+        format!("/mode=real&type=live&channel={}&stream=0", channel),
     ];
 
     let rtsp_host = host
@@ -868,7 +872,7 @@ async fn probe_rtsp_path(host: String, login: String, pass: String) -> Result<St
             .status();
         if let Ok(status) = s {
             if status.success() {
-                return Ok(sig.to_string());
+                return Ok(sig);
             }
         }
     }
