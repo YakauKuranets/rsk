@@ -531,6 +531,94 @@ fn extract_xml_value(xml: &str, tag: &str) -> Option<String> {
     Regex::new(&format!("<{}[^>]*>([^<]+)</{}>", tag, tag)).ok()
         .and_then(|re| re.captures(xml).and_then(|c| c.get(1).map(|m| m.as_str().trim().to_string())))
 }
+
+pub async fn search_xm_recordings(
+    host: String,
+    login: String,
+    pass: String,
+    channel: u32,
+    from_time: String,
+    to_time: String,
+) -> Result<Vec<String>, String> {
+    let host = host
+        .trim()
+        .trim_start_matches("http://")
+        .trim_start_matches("https://")
+        .trim_end_matches('/')
+        .to_string();
+
+    if host.is_empty() {
+        return Err("XM search: host is empty".into());
+    }
+
+    let endpoint = format!("http://{}:2019/tdkcgi", host);
+    let client = reqwest::Client::builder()
+        .timeout(Duration::from_secs(20))
+        .danger_accept_invalid_certs(true)
+        .build()
+        .map_err(|e| e.to_string())?;
+
+    let session_xml = format!(
+        r#"<?xml version="1.0" encoding="utf-8"?>
+<envelope>
+  <header><security>username</security><username>{}</username><password>{}</password></header>
+  <body><command>g.rec.session</command><content><record><filetype>video</filetype><occurtype>all</occurtype><stream>main</stream><channel>{}</channel><starttime>{}</starttime><endtime>{}</endtime></record></content></body>
+</envelope>"#,
+        login, pass, channel, from_time, to_time
+    );
+
+    let session_resp = client
+        .post(&endpoint)
+        .header("Accept", "*/*")
+        .header("Content-Type", "application/xml;charset=UTF-8")
+        .body(session_xml)
+        .send()
+        .await
+        .map_err(|e| format!("XM session request failed: {}", e))?;
+
+    let session_body = session_resp
+        .text()
+        .await
+        .map_err(|e| format!("XM session response read failed: {}", e))?;
+
+    let record_id = extract_xml_value(&session_body, "id")
+        .ok_or_else(|| format!("XM session id not found in response: {}", session_body))?;
+
+    let msg_xml = format!(
+        r#"<?xml version="1.0" encoding="utf-8"?>
+<envelope>
+  <header><security>username</security><username>{}</username><password>{}</password></header>
+  <body><command>g.rec.msg</command><content><record><id>{}</id></record></content></body>
+</envelope>"#,
+        login, pass, record_id
+    );
+
+    let msg_resp = client
+        .post(&endpoint)
+        .header("Accept", "*/*")
+        .header("Content-Type", "application/xml;charset=UTF-8")
+        .body(msg_xml)
+        .send()
+        .await
+        .map_err(|e| format!("XM records request failed: {}", e))?;
+
+    let msg_body = msg_resp
+        .text()
+        .await
+        .map_err(|e| format!("XM records response read failed: {}", e))?;
+
+    let filename_re = Regex::new(r"<filename>([^<]+)</filename>").map_err(|e| e.to_string())?;
+    let mut files: Vec<String> = filename_re
+        .captures_iter(&msg_body)
+        .filter_map(|c| c.get(1).map(|m| m.as_str().trim().to_string()))
+        .filter(|name| !name.is_empty())
+        .collect();
+    files.sort();
+    files.dedup();
+
+    Ok(files)
+}
+
 fn generate_search_xml(tid: &str, from: &str, to: &str) -> String {
     format!(r#"<?xml version="1.0" encoding="UTF-8"?>
 <SearchDescription xmlns="http://www.hikvision.com/ver20/XMLSchema"><searchID>1</searchID><trackList><trackID>{}</trackID></trackList>

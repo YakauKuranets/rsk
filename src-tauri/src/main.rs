@@ -157,6 +157,15 @@ struct IsapiHarTemplateResult {
     end_time: Option<String>,
 }
 
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct XmRecordingItem {
+    start_time: String,
+    end_time: String,
+    playback_uri: String,
+    label: String,
+}
+
 fn classify_isapi_record(
     playback_uri: Option<&str>,
     start_time: Option<&str>,
@@ -3414,6 +3423,54 @@ async fn search_isapi_recordings(
         "ISAPI ContentMgmt/search недоступен или вернул неподдерживаемый ответ. {}",
         diag_request
     ))
+}
+
+#[tauri::command]
+async fn search_xm_recordings(
+    host: String,
+    login: String,
+    pass: String,
+    channel: Option<u32>,
+    from_time: Option<String>,
+    to_time: Option<String>,
+) -> Result<Vec<XmRecordingItem>, String> {
+    let clean_host = normalize_host_for_scan(&host);
+    if clean_host.is_empty() {
+        return Err("Пустой host для XM search".into());
+    }
+
+    let from = from_time.unwrap_or_else(|| "2026-01-01T00:00:00Z".into());
+    let to = to_time.unwrap_or_else(|| "2026-12-31T23:59:59Z".into());
+    let channel_id = channel.unwrap_or(1);
+
+    let files = nexus::search_xm_recordings(
+        clean_host.clone(),
+        login.clone(),
+        pass.clone(),
+        channel_id,
+        from.clone(),
+        to.clone(),
+    )
+    .await?;
+
+    let mut out = Vec::with_capacity(files.len());
+    for filename in files {
+        let playback_uri = format!(
+            "rtsp://{}:{}@{}:554/mode=file&type=rec&filename={}",
+            urlencoding::encode(&login),
+            urlencoding::encode(&pass),
+            clean_host,
+            urlencoding::encode(&filename)
+        );
+        out.push(XmRecordingItem {
+            start_time: from.clone(),
+            end_time: to.clone(),
+            playback_uri,
+            label: filename,
+        });
+    }
+
+    Ok(out)
 }
 
 #[tauri::command]
@@ -8017,6 +8074,7 @@ fn main() {
             fetch_onvif_device_info,
             extract_isapi_search_template_from_har,
             search_isapi_recordings,
+            search_xm_recordings,
             search_onvif_recordings,
             download_onvif_recording_token,
             archive::download_isapi_playback_uri,

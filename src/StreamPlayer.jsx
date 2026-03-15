@@ -179,6 +179,11 @@ export default function StreamPlayer({ streamUrl, cameraName, terminal, channel,
     return uri.replace('rtsp://', `rtsp://${encodeURIComponent(login)}:${encodeURIComponent(pass)}@`);
   };
 
+  const isXmTerminal = () => {
+    const vendor = (terminal?.vendor || terminal?.brand || terminal?.type || '').toLowerCase();
+    return vendor.includes('tantons') || vendor === 'xm' || vendor.includes('xiongmai');
+  };
+
   const handleSearchArchive = async () => {
     if (!terminal) return alert('Ошибка: данные камеры не переданы в плеер!');
 
@@ -209,18 +214,34 @@ export default function StreamPlayer({ streamUrl, cameraName, terminal, channel,
       } else {
         const fromTime = `${archiveDate}T00:00:00Z`;
         const toTime = `${archiveDate}T23:59:59Z`;
-        const result = await invoke('search_isapi_recordings', {
-          host: terminal.host,
-          login: terminal.login || 'admin',
-          pass: terminal.password || '',
-          fromTime,
-          toTime,
-          // Передаем правильный индекс камеры (или 1 по умолчанию)
-          cameraChannelId: channel && channel.index ? parseInt(channel.index, 10) : 1
-        });
+        const channelId = channel && channel.index ? parseInt(channel.index, 10) : 1;
 
-        if (!result || result.length === 0) alert('Нет записей за эту дату (ISAPI).');
-        setRecords((result || []).map(rec => ({ ...rec, playbackUri: withRtspAuth(rec.playbackUri) })));
+        if (isXmTerminal()) {
+          const result = await invoke('search_xm_recordings', {
+            host: terminal.host,
+            login: terminal.login || 'admin',
+            pass: terminal.password || '',
+            channel: channelId,
+            fromTime,
+            toTime,
+          });
+
+          if (!result || result.length === 0) alert('Нет записей за эту дату (XM).');
+          setRecords((result || []).map(rec => ({ ...rec, playbackUri: rec.playbackUri || withRtspAuth(rec.playbackUri) })));
+        } else {
+          const result = await invoke('search_isapi_recordings', {
+            host: terminal.host,
+            login: terminal.login || 'admin',
+            pass: terminal.password || '',
+            fromTime,
+            toTime,
+            // Передаем правильный индекс камеры (или 1 по умолчанию)
+            cameraChannelId: channelId
+          });
+
+          if (!result || result.length === 0) alert('Нет записей за эту дату (ISAPI).');
+          setRecords((result || []).map(rec => ({ ...rec, playbackUri: withRtspAuth(rec.playbackUri) })));
+        }
       }
     } catch(e) {
       alert('Ошибка поиска: ' + e);
@@ -466,7 +487,16 @@ export default function StreamPlayer({ streamUrl, cameraName, terminal, channel,
 
                   const targetDate = new Date(targetMs);
                   const isapiTime = targetDate.toISOString().replace(/[-:]/g, '').split('.')[0] + 'Z';
-                  const newUri = playingRecord.playbackUri.replace(/starttime=[^&]+/i, `starttime=${isapiTime}`);
+
+                  let newUri = playingRecord.playbackUri;
+                  if (isXmTerminal()) {
+                    const fileName = playingRecord?.label || '';
+                    const login = encodeURIComponent(terminal?.login || 'admin');
+                    const pass = encodeURIComponent(terminal?.password || '');
+                    newUri = `rtsp://${login}:${pass}@${terminal?.host}:554/mode=file&type=rec&filename=${encodeURIComponent(fileName)}`;
+                  } else {
+                    newUri = playingRecord.playbackUri.replace(/starttime=[^&]+/i, `starttime=${isapiTime}`);
+                  }
 
                   onPlayArchive(newUri);
                 }}
