@@ -126,8 +126,8 @@ export default function App() {
   const [fuzzLogin, setFuzzLogin] = useState("mvd");
   const [fuzzPassword, setFuzzPassword] = useState("gpfZrw%9RVqp");
   const [fuzzPath, setFuzzPath] = useState("video0/[Minsk_ul._FILIMONOVA_39_]/2026-02-19/cam02_00-03-10.mkv");
-  const [targetInput, setTargetInput] = useState('https://videodvor.by/stream/');
-  const [attackType, setAttackType] = useState('generic');
+  const [targetInput, setTargetInput] = useState('');
+  const [attackType, setAttackType] = useState('RTSP_BRUTE');
   const [fuzzResults, setFuzzResults] = useState([]);
 
   const [shodanResults, setShodanResults] = useState([]);
@@ -650,11 +650,11 @@ export default function App() {
     if (!target) return alert('Введите IP или URL цели.');
 
     setLoading(true);
-    setFuzzResults([]);
-    setRadarStatus(`ЗАПУСК ПРОТОКОЛА NEMESIS (${attackType})...`);
+    setFuzzResults([`$ ${attackType} ${target}`]);
+    setRadarStatus(`NEMESIS EXECUTE: ${attackType} -> ${target}`);
 
     try {
-      if (attackType === 'generic') {
+      if (attackType === 'CUSTOM_INJECT') {
         const report = await invoke('spider_full_scan', {
           targetUrl: target,
           cookie: hubConfig.cookie,
@@ -681,9 +681,9 @@ export default function App() {
         }));
       } else {
         const attackMap = {
-          tdkcgi: 'tdkcgi',
-          rtsp: 'rtsp',
-          ftp: 'ftp',
+          RTSP_BRUTE: 'rtsp',
+          CGI_EXPLOIT: 'tdkcgi',
+          CUSTOM_INJECT: 'generic',
         };
         const results = await invoke('fuzz_cctv_api', {
           targetInput: target,
@@ -692,7 +692,7 @@ export default function App() {
         const rows = Array.isArray(results) ? results : [];
         setFuzzResults(rows.map((row) => {
           const code = Number.isFinite(Number(row?.statusCode)) ? ` [${row.statusCode}]` : '';
-          return `${row?.protocol || attackType.toUpperCase()}${code} ${row?.endpoint || ''} ${row?.verdict || ''}`.trim();
+          return `${row?.protocol || attackType}${code} ${row?.endpoint || ''} ${row?.verdict || ''}`.trim();
         }));
       }
     } catch (err) {
@@ -1649,21 +1649,27 @@ const handleSecurityAudit = async () => {
 
           <div style={{ display: 'flex', gap: '6px', marginBottom: '6px' }}>
             <input
-              style={{ flex: 1, backgroundColor: '#000', border: '1px solid #ffaa00', color: '#ffaa00', padding: '6px', boxSizing: 'border-box' }}
-              placeholder="Введите IP или URL цели (напр. 93.125.2.167:2019)"
+              id="nemesis-target-input"
+              style={{ flex: 1, backgroundColor: '#000', border: '1px solid #aa3333', color: '#ff6666', padding: '6px', boxSizing: 'border-box' }}
+              placeholder="TARGET URL (e.g. 93.125.2.167:2019/Streaming/Channels/101)"
               value={targetInput}
               onChange={e => setTargetInput(e.target.value)}
             />
             <select
-              style={{ width: '240px', backgroundColor: '#000', border: '1px solid #ffaa00', color: '#ffaa00', padding: '6px', boxSizing: 'border-box' }}
+              style={{ width: '240px', backgroundColor: '#000', border: '1px solid #aa3333', color: '#ff6666', padding: '6px', boxSizing: 'border-box' }}
               value={attackType}
               onChange={e => setAttackType(e.target.value)}
             >
-              <option value="generic">Generic API Fuzzer</option>
-              <option value="tdkcgi">TDKCGI (TVT/XM)</option>
-              <option value="rtsp">RTSP Path Discovery</option>
-              <option value="ftp">FTP Brute</option>
+              <option value="RTSP_BRUTE">RTSP_BRUTE</option>
+              <option value="CGI_EXPLOIT">CGI_EXPLOIT</option>
+              <option value="CUSTOM_INJECT">CUSTOM_INJECT</option>
             </select>
+            <button
+              onClick={handleStartNemesis}
+              style={{ backgroundColor: '#2a0000', border: '1px solid #ff5555', color: '#ff6666', padding: '6px 10px', cursor: 'pointer', fontSize: '11px', letterSpacing: '1px', fontWeight: 'bold' }}
+            >
+              EXECUTE
+            </button>
           </div>
 
           <div style={{ display: 'flex', gap: '6px', marginBottom: '6px' }}>
@@ -1692,7 +1698,7 @@ const handleSecurityAudit = async () => {
           <button
             onClick={handleStartNemesis}
             style={{ width: '100%', backgroundColor: '#ffaa00', color: '#000', border: 'none', padding: '8px', cursor: 'pointer', fontWeight: 'bold', letterSpacing: '1px' }}>
-            ☢ ЗАПУСТИТЬ ПРОТОКОЛ NEMESIS
+            ☢ RUN LEGACY FLOW
           </button>
 
           {fuzzResults.length > 0 && (
