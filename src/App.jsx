@@ -1748,12 +1748,12 @@ const handleSecurityAudit = async () => {
           {fuzzResults.length > 0 && (
             <div style={{ marginTop: '10px', border: '1px solid #ffaa00', background: '#050505', maxHeight: '150px', overflowY: 'auto', padding: '6px' }}>
               {fuzzResults.map((res, idx) => {
-                const isSuccess = res.includes('[200]') || res.includes('УСПЕХ');
+                const isPlayable = res.includes('[200]') || res.includes('[401]') || res.includes('УСПЕХ') || res.includes('НАЙДЕНО');
                 const hasUrl = /(http|rtsp):\/\/[^\s]+/.test(res);
                 return (
-                  <div key={idx} style={{ fontSize: '10px', color: isSuccess ? '#00ff9c' : '#ffcc00', marginBottom: '4px', wordBreak: 'break-all', display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                  <div key={idx} style={{ fontSize: '10px', color: isPlayable ? '#00ff9c' : '#ffcc00', marginBottom: '4px', wordBreak: 'break-all', display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
                     <span style={{ flex: 1 }}>{res}</span>
-                    {isSuccess && hasUrl && (
+                    {isPlayable && hasUrl && (
                       <button
                         onClick={() => handlePlayFuzzedLink(res)}
                         style={{ marginLeft: '10px', background: '#1a4a4a', color: '#00f0ff', border: '1px solid #00f0ff', padding: '2px 8px', cursor: 'pointer', fontSize: '9px', fontWeight: 'bold', flexShrink: 0 }}
