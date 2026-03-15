@@ -1,4 +1,5 @@
 use chrono::Utc;
+use futures::stream::{self, StreamExt};
 use regex::Regex;
 use reqwest;
 use serde::Serialize;
@@ -6,9 +7,9 @@ use std::collections::{HashMap, HashSet};
 use std::process::Command;
 use std::time::Duration;
 use tauri::State;
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
 use tokio::time::timeout;
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
 use crate::{get_vault_path, push_runtime_log, sanitize_filename_component, LogState};
 use suppaftp::FtpStream;
@@ -231,39 +232,53 @@ pub async fn spider_full_scan(
         );
     }
 
-    let mut discovered_targets: Vec<SpiderDiscoveredTarget> = Vec::new();
-    for host in &sweep_hosts {
-        let mut open_ports: Vec<SpiderOpenPort> = Vec::new();
-        for port in scan_ports {
-            let connect = timeout(
-                Duration::from_millis(450),
-                TcpStream::connect((host.as_str(), port)),
-            )
-            .await;
-            if matches!(connect, Ok(Ok(_))) {
-                open_ports.push(SpiderOpenPort {
-                    port,
-                    service: match port {
-                        80 => "HTTP",
-                        554 => "RTSP",
-                        8000 => "Hikvision SDK",
-                        37777 => "Dahua SDK",
-                        2019 => "Novicam/Hikvision Web",
-                        3702 => "ONVIF WS-Discovery",
-                        21 => "FTP",
-                        _ => "Unknown",
+    let discovered_targets: Vec<SpiderDiscoveredTarget> = stream::iter(sweep_hosts.iter().cloned())
+        .map(|host| async move {
+            let open_ports: Vec<SpiderOpenPort> = stream::iter(scan_ports.into_iter())
+                .map(|port| {
+                    let host = host.clone();
+                    async move {
+                        let connect = timeout(
+                            Duration::from_millis(450),
+                            TcpStream::connect((host.as_str(), port)),
+                        )
+                        .await;
+
+                        if matches!(connect, Ok(Ok(_))) {
+                            Some(SpiderOpenPort {
+                                port,
+                                service: match port {
+                                    80 => "HTTP",
+                                    554 => "RTSP",
+                                    8000 => "Hikvision SDK",
+                                    37777 => "Dahua SDK",
+                                    2019 => "Novicam/Hikvision Web",
+                                    3702 => "ONVIF WS-Discovery",
+                                    21 => "FTP",
+                                    _ => "Unknown",
+                                }
+                                .to_string(),
+                            })
+                        } else {
+                            None
+                        }
                     }
-                    .to_string(),
-                });
+                })
+                .buffer_unordered(50)
+                .filter_map(|port| async move { port })
+                .collect()
+                .await;
+
+            if open_ports.is_empty() {
+                None
+            } else {
+                Some(SpiderDiscoveredTarget { host, open_ports })
             }
-        }
-        if !open_ports.is_empty() {
-            discovered_targets.push(SpiderDiscoveredTarget {
-                host: host.clone(),
-                open_ports: open_ports.clone(),
-            });
-        }
-    }
+        })
+        .buffer_unordered(20)
+        .filter_map(|target| async move { target })
+        .collect()
+        .await;
 
     let target_host = discovered_targets
         .first()
@@ -921,33 +936,47 @@ pub async fn spider_full_scan(
         format!("🕷️ [2/4] JS PARSING ({} scripts)...", all_scripts.len()),
     );
 
+    let js_fetch_results: Vec<(String, Vec<SpiderJsEndpoint>)> =
+        stream::iter(all_scripts.iter().cloned())
+            .map(|script_url| {
+                let client = client.clone();
+                let cookie_str = cookie_str.clone();
+                let html_dir = html_dir.clone();
+
+                async move {
+                    let mut req = client.get(&script_url);
+                    if !cookie_str.is_empty() {
+                        req = req.header("Cookie", cookie_str);
+                    }
+
+                    if let Ok(resp) = req.send().await {
+                        if let Ok(js_body) = resp.text().await {
+                            let js_name = sanitize_filename_component(
+                                script_url.split('/').last().unwrap_or("script.js"),
+                            );
+                            let js_file = html_dir.join(format!("js_{}", js_name));
+                            let _ = std::fs::write(&js_file, &js_body);
+
+                            let found = extract_js_endpoints(&js_body, &script_url);
+                            return Some((js_name, found));
+                        }
+                    }
+
+                    None
+                }
+            })
+            .buffer_unordered(10)
+            .filter_map(|x| async move { x })
+            .collect()
+            .await;
+
     let mut js_endpoints: Vec<SpiderJsEndpoint> = Vec::new();
-
-    for script_url in &all_scripts {
-        let mut req = client.get(script_url);
-        if !cookie_str.is_empty() {
-            req = req.header("Cookie", &cookie_str);
-        }
-
-        if let Ok(resp) = req.send().await {
-            if let Ok(js_body) = resp.text().await {
-                // Сохраняем JS файл
-                let js_name = sanitize_filename_component(
-                    script_url.split('/').last().unwrap_or("script.js"),
-                );
-                let js_file = html_dir.join(format!("js_{}", js_name));
-                let _ = std::fs::write(&js_file, &js_body);
-
-                // Парсим endpoints
-                let found = extract_js_endpoints(&js_body, script_url);
-                push_runtime_log(
-                    &log_state,
-                    format!("  📜 {} → {} endpoints", js_name, found.len()),
-                );
-                js_endpoints.extend(found);
-            }
-        }
-        tokio::time::sleep(Duration::from_millis(100)).await;
+    for (js_name, found) in js_fetch_results {
+        push_runtime_log(
+            &log_state,
+            format!("  📜 {} → {} endpoints", js_name, found.len()),
+        );
+        js_endpoints.extend(found);
     }
 
     // ===== ФАЗА 3: DIR BRUTEFORCE =====
@@ -1040,53 +1069,73 @@ pub async fn spider_full_scan(
             "report.php",
         ];
 
-        for dir in &dirs {
-            let url = format!("{}/{}", base.trim_end_matches('/'), dir);
-            let mut req = client.get(&url);
-            if !cookie_str.is_empty() {
-                req = req.header("Cookie", &cookie_str);
-            }
+        let base_url = base.trim_end_matches('/').to_string();
+        let cookie_header = cookie_str.clone();
 
-            if let Ok(resp) = req.send().await {
-                let status = resp.status().as_u16();
-                let cl = resp.content_length().unwrap_or(0);
-                let ct = resp
-                    .headers()
-                    .get("content-type")
-                    .and_then(|v| v.to_str().ok())
-                    .unwrap_or("")
-                    .to_string();
+        dir_results = stream::iter(dirs.into_iter())
+            .map(|dir| {
+                let client = client.clone();
+                let base_url = base_url.clone();
+                let cookie_header = cookie_header.clone();
 
-                let verdict = match status {
-                    200 => "✅ НАЙДЕНО".into(),
-                    301 | 302 => {
-                        let loc = resp
-                            .headers()
-                            .get("location")
-                            .and_then(|v| v.to_str().ok())
-                            .unwrap_or("?");
-                        format!("↗️ РЕДИРЕКТ → {}", loc)
+                async move {
+                    let url = format!("{}/{}", base_url, dir);
+                    let mut req = client.get(&url);
+                    if !cookie_header.is_empty() {
+                        req = req.header("Cookie", cookie_header);
                     }
-                    401 => "🔒 ТРЕБУЕТ АВТОРИЗАЦИИ".into(),
-                    403 => "🚫 ЗАПРЕЩЕНО (EXISTS!)".into(),
-                    404 => "⬛ НЕТ".into(),
-                    _ => format!("❓ HTTP {}", status),
-                };
 
-                if status != 404 {
-                    push_runtime_log(&log_state, format!("  {} /{} → {}", status, dir, verdict));
+                    match req.send().await {
+                        Ok(resp) => {
+                            let status = resp.status().as_u16();
+                            let cl = resp.content_length().unwrap_or(0);
+                            let ct = resp
+                                .headers()
+                                .get("content-type")
+                                .and_then(|v| v.to_str().ok())
+                                .unwrap_or("")
+                                .to_string();
+
+                            let verdict = match status {
+                                200 => "✅ НАЙДЕНО".into(),
+                                301 | 302 => {
+                                    let loc = resp
+                                        .headers()
+                                        .get("location")
+                                        .and_then(|v| v.to_str().ok())
+                                        .unwrap_or("?");
+                                    format!("↗️ РЕДИРЕКТ → {}", loc)
+                                }
+                                401 => "🔒 ТРЕБУЕТ АВТОРИЗАЦИИ".into(),
+                                403 => "🚫 ЗАПРЕЩЕНО (EXISTS!)".into(),
+                                404 => "⬛ НЕТ".into(),
+                                _ => format!("❓ HTTP {}", status),
+                            };
+
+                            Some(SpiderDirResult {
+                                path: format!("/{}", dir),
+                                status_code: status,
+                                content_length: cl,
+                                content_type: ct,
+                                verdict,
+                            })
+                        }
+                        Err(_) => None,
+                    }
                 }
+            })
+            .buffer_unordered(20)
+            .filter_map(|res| async move { res })
+            .collect()
+            .await;
 
-                dir_results.push(SpiderDirResult {
-                    path: format!("/{}", dir),
-                    status_code: status,
-                    content_length: cl,
-                    content_type: ct,
-                    verdict,
-                });
+        for res in &dir_results {
+            if res.status_code != 404 {
+                push_runtime_log(
+                    &log_state,
+                    format!("  {} {} → {}", res.status_code, res.path, res.verdict),
+                );
             }
-
-            tokio::time::sleep(Duration::from_millis(50)).await;
         }
     }
 
