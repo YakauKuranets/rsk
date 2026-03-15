@@ -827,15 +827,6 @@ fn delete_target(target_id: String) -> Result<String, String> {
 
 async fn probe_rtsp_path(host: String, login: String, pass: String) -> Result<String, String> {
     let channel = 1u32;
-    let signatures = vec![
-        "/Streaming/Channels/101".to_string(),
-        "/cam/realmonitor?channel=1&subtype=0".to_string(),
-        "/live/ch1".to_string(),
-        format!("/user={}&password={}&channel={}&stream=0.sdp", &login, &pass, channel),
-        format!("/ucast/{}1", channel),
-        format!("/mode=real&type=live&channel={}&stream=0", channel),
-    ];
-
     let rtsp_host = host
         .trim()
         .trim_start_matches("http://")
@@ -845,15 +836,24 @@ async fn probe_rtsp_path(host: String, login: String, pass: String) -> Result<St
         .next()
         .unwrap_or_default()
         .to_string();
+
+    let urls = vec![
+        // Стандартные (Hikvision, Dahua, Generic)
+        format!("rtsp://{}:{}@{}:554/Streaming/Channels/{}01", login, pass, rtsp_host, channel),
+        format!("rtsp://{}:{}@{}:554/cam/realmonitor?channel={}&subtype=0", login, pass, rtsp_host, channel),
+        format!("rtsp://{}:{}@{}:554/live/ch{}", login, pass, rtsp_host, channel),
+        // Xiongmai / Tantons (без user:pass@, авторизация в query)
+        format!("rtsp://{}:554/user={}&password={}&channel={}&stream=0.sdp", rtsp_host, login, pass, channel),
+        format!("rtsp://{}:554/?user={}&password={}&channel={}&stream=0.sdp", rtsp_host, login, pass, channel),
+        // Xiongmai / OEM
+        format!("rtsp://{}:{}@{}:554/live/ch{:02}_0", login, pass, rtsp_host, channel),
+        format!("rtsp://{}:{}@{}:554/h264/ch{}/main/av_stream", login, pass, rtsp_host, channel),
+        format!("rtsp://{}:{}@{}:554/?mode=real&type=live&channel={}&stream=0", login, pass, rtsp_host, channel),
+        format!("rtsp://{}:{}@{}:554/{}", login, pass, rtsp_host, channel * 10 + 1),
+    ];
+
     let ffmpeg = get_ffmpeg_path();
-    for sig in signatures {
-        let url = format!(
-            "rtsp://{}:{}@{}/{}",
-            login,
-            pass,
-            rtsp_host,
-            sig.trim_start_matches('/')
-        );
+    for url in urls {
         let s = Command::new(&ffmpeg)
             .args([
                 "-nostdin",
@@ -872,13 +872,16 @@ async fn probe_rtsp_path(host: String, login: String, pass: String) -> Result<St
             .status();
         if let Ok(status) = s {
             if status.success() {
-                return Ok(sig);
+                return Ok(url);
             }
         }
     }
 
-    // Не роняем запуск стрима: возвращаем дефолтный Hikvision-путь для прямой попытки FFmpeg.
-    Ok("/Streaming/Channels/101".to_string())
+    // Не роняем запуск стрима: возвращаем дефолтный URL для прямой попытки FFmpeg.
+    Ok(format!(
+        "rtsp://{}:{}@{}:554/Streaming/Channels/{}01",
+        login, pass, rtsp_host, channel
+    ))
 }
 
 #[tauri::command]

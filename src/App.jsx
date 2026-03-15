@@ -327,8 +327,22 @@ export default function App() {
         setRadarStatus('РАЗВЕДКА МАРШРУТА...');
         let cleanHost = terminal.host.replace(/^(http:\/\/|https:\/\/|rtsp:\/\/)/i, '').split('/')[0];
         const activePath = await invoke('probe_rtsp_path', { host: cleanHost, login: terminal.login, pass: terminal.password });
-        const safePath = activePath.replace(/channel=1|ch1|Channels\/1/g, (match) => match.replace('1', channel.index));
-        const rtspUrl = `rtsp://${terminal.login}:${terminal.password}@${cleanHost}/${safePath.replace(/^\//, '')}`;
+        let rtspUrl = activePath;
+
+        if (!activePath.toLowerCase().startsWith('rtsp://')) {
+          const safePath = activePath.replace(/channel=1|ch1|Channels\/1/g, (match) => match.replace('1', channel.index));
+          rtspUrl = `rtsp://${terminal.login}:${terminal.password}@${cleanHost}/${safePath.replace(/^\//, '')}`;
+        } else {
+          const encodedLogin = encodeURIComponent(terminal.login || 'admin');
+          const encodedPass = encodeURIComponent(terminal.password || '');
+          rtspUrl = activePath
+            .replace(/channel=1\b/g, `channel=${channel.index}`)
+            .replace(/ch1\b/g, `ch${channel.index}`)
+            .replace(/Channels\/101\b/g, `Channels/${channel.index}01`)
+            .replace(/\/11(\b|$)/g, `/${channel.index}1$1`)
+            .replace('{login}', encodedLogin)
+            .replace('{password}', encodedPass);
+        }
 
         streamSessionId = `${terminal.id}_${channel.id}`;
         setRadarStatus('ЗАПУСК ЯДРА FFMPEG...');
