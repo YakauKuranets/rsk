@@ -1,11 +1,6 @@
 use super::*;
 
 #[tauri::command]
-pub async fn probe_rtsp_path(host: String, login: String, pass: String) -> Result<String, String> {
-    crate::fuzzer::probe_rtsp_path(host, login, pass).await
-}
-
-#[tauri::command]
 pub async fn start_hub_stream(
     target_id: String,
     user_id: String,

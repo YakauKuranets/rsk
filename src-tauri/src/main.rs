@@ -786,6 +786,15 @@ fn get_all_targets() -> Result<Vec<String>, String> {
 }
 
 #[tauri::command]
+fn delete_target(target_id: String) -> Result<String, String> {
+    let db = sled::open(get_vault_path().join("targets_vault"))
+        .map_err(|e: sled::Error| e.to_string())?;
+    db.remove(target_id.as_bytes())
+        .map_err(|e: sled::Error| e.to_string())?;
+    Ok("Deleted".into())
+}
+
+#[tauri::command]
 async fn geocode_address(address: String) -> Result<(f64, f64), String> {
     let encoded = urlencoding::encode(&address);
     let url = format!(
@@ -6445,7 +6454,7 @@ fn main() {
             streaming::restart_stream,
             geocode_address,
             generate_nvr_channels,
-            streaming::probe_rtsp_path,
+            fuzzer::probe_rtsp_path,
             search_global_hub,
             get_ftp_folders,
             download_ftp_file,
