@@ -4,21 +4,24 @@ use tauri::command;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
 
-/// Сырой TCP-Снайпер: Стучится в порт 554 и вытаскивает вендора через RTSP OPTIONS
+/// Ультимативный TCP-Снайпер: Эвристический анализ 401 Unauthorized и SDP дампов
 async fn fingerprint_rtsp_vendor(ip: &str) -> &'static str {
     let target = format!("{}:554", ip);
 
-    // Даем 1.5 секунды на установку TCP-соединения
-    let stream_result =
-        tokio::time::timeout(Duration::from_millis(1500), TcpStream::connect(&target)).await;
+    let stream_result = tokio::time::timeout(
+        std::time::Duration::from_millis(1500),
+        tokio::net::TcpStream::connect(&target),
+    )
+    .await;
 
     let Ok(Ok(mut stream)) = stream_result else {
-        return "unknown"; // Порт закрыт или таймаут
+        return "unknown"; // Порт закрыт
     };
 
-    // Формируем сырой RTSP-запрос (не требует авторизации)
+    // 🚀 Хак: Отправляем DESCRIBE вместо OPTIONS.
+    // DESCRIBE провоцирует камеру выдать SDP файл или более болтливый 401 ответ.
     let req = format!(
-        "OPTIONS rtsp://{}:554/ RTSP/1.0\r\nCSeq: 1\r\nUser-Agent: Lavf59.27.100\r\n\r\n",
+        "DESCRIBE rtsp://{}:554/ RTSP/1.0\r\nCSeq: 1\r\nAccept: application/sdp\r\nUser-Agent: Lavf59.27.100\r\n\r\n",
         ip
     );
 
@@ -26,21 +29,46 @@ async fn fingerprint_rtsp_vendor(ip: &str) -> &'static str {
         return "unknown";
     }
 
-    let mut buf = [0; 1024];
-    // Даем 1 секунду на ответ от камеры
-    let read_result =
-        tokio::time::timeout(Duration::from_millis(1000), stream.read(&mut buf)).await;
+    let mut buf = [0; 2048]; // Увеличили буфер для захвата SDP
+    let read_result = tokio::time::timeout(
+        std::time::Duration::from_millis(1000),
+        stream.read(&mut buf),
+    )
+    .await;
 
     if let Ok(Ok(n)) = read_result {
         let response = String::from_utf8_lossy(&buf[..n]).to_lowercase();
 
-        // Читаем заголовок Server из сырого ответа
-        if response.contains("app-webs") || response.contains("hikvision") {
+        // --- УРОВЕНЬ 1: Прямые заголовки (Если админ забыл их скрыть) ---
+        if response.contains("server: app-webs") || response.contains("server: hikvision") {
             return "hikvision";
-        } else if response.contains("uc-httpd")
-            || response.contains("xiongmai")
-            || response.contains("dvr")
+        }
+        if response.contains("server: uc-httpd") || response.contains("server: xiongmai") {
+            return "xmeye";
+        }
+
+        // --- УРОВЕНЬ 2: Эвристика 401 Unauthorized (Почерк криптографии) ---
+        // Hikvision обожает писать "DS-..." или "IP Camera" в параметре realm
+        if response.contains("realm=\"ds-")
+            || response.contains("realm=\"ip camera")
+            || response.contains("realm=\"hik")
         {
+            return "hikvision";
+        }
+        // XMeye (Tantos/Novicam) выдают себя через "Login to" или "IPC"
+        if response.contains("realm=\"login to")
+            || response.contains("realm=\"ipc")
+            || response.contains("realm=\"xm")
+        {
+            return "xmeye";
+        }
+
+        // --- УРОВЕНЬ 3: Анализ утечек SDP (Если пустили без авторизации) ---
+        if response.contains("s=hik media server") {
+            return "hikvision";
+        }
+        // Точная сигнатура XMeye, которую мы нашли в ваших логах ffprobe
+        if response.contains("s=media server v3.") || response.contains("s=media server v2.") {
             return "xmeye";
         }
     }
