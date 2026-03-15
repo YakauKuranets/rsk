@@ -3444,6 +3444,161 @@ async fn search_xm_recordings(
 }
 
 #[tauri::command]
+async fn download_xm_archive(
+    playback_uri: String,
+    filename_hint: Option<String>,
+    task_id: Option<String>,
+    log_state: State<'_, LogState>,
+    cancel_state: State<'_, DownloadCancelState>,
+    ffmpeg_limiter: State<'_, FfmpegLimiterState>,
+) -> Result<DownloadReport, String> {
+    if playback_uri.trim().is_empty() {
+        return Err("Пустой playback_uri для XM".into());
+    }
+
+    let task_key =
+        task_id.unwrap_or_else(|| format!("xm_export_{}", Utc::now().timestamp_millis()));
+    if let Ok(mut cancelled) = cancel_state.cancelled_tasks.lock() {
+        cancelled.remove(&task_key);
+    }
+
+    push_runtime_log(
+        &log_state,
+        format!("XM_ARCHIVE_EXPORT|{}|status=started", task_key),
+    );
+
+    // Занимаем слот FFmpeg (чтобы не заспамить систему, если качаем 10 файлов сразу)
+    let permit = ffmpeg_limiter
+        .semaphore
+        .clone()
+        .acquire_owned()
+        .await
+        .map_err(|e| format!("Не удалось занять слот FFmpeg: {}", e))?;
+
+    let mut filename = filename_hint
+        .map(|s| sanitize_filename_component(&s))
+        .filter(|s| !s.is_empty())
+        .unwrap_or_else(|| format!("tantos_record_{}.mp4", Utc::now().format("%Y%m%d_%H%M%S")));
+    if !filename.contains('.') {
+        filename.push_str(".mp4");
+    }
+
+    let path = get_vault_path()
+        .join("archives")
+        .join("tantos")
+        .join(&filename);
+    let _ = std::fs::create_dir_all(path.parent().unwrap());
+    let output_path = path.to_string_lossy().to_string();
+
+    let started = std::time::Instant::now();
+
+    // Запускаем дамп RTSP-потока.
+    // ВАЖНО: Никакого ограничения по времени (-t), качаем пока камера не отдаст EOF
+    let mut child = tokio::process::Command::new("ffmpeg")
+        .args([
+            "-y",
+            "-rtsp_transport",
+            "tcp",
+            "-timeout",
+            "10000000", // Защита от зависаний (10 сек)
+            "-i",
+            &playback_uri,
+            "-c",
+            "copy", // Сквозной проброс без перекодирования (0% CPU)
+            &output_path,
+        ])
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .spawn()
+        .map_err(|e| format!("Не удалось запустить FFmpeg для дампа: {}", e))?;
+
+    let mut last_size: u64 = 0;
+    let mut last_progress = std::time::Instant::now();
+
+    loop {
+        // 1. Проверка на отмену пользователем
+        if cancel_state
+            .cancelled_tasks
+            .lock()
+            .map(|s| s.contains(&task_key))
+            .unwrap_or(false)
+        {
+            let _ = child.start_kill();
+            let _ = std::fs::remove_file(&path);
+            drop(permit);
+            push_runtime_log(
+                &log_state,
+                format!("DOWNLOAD_CANCELLED|{}|{}", task_key, filename),
+            );
+            return Err("Загрузка отменена".into());
+        }
+
+        // 2. Проверка: завершил ли FFmpeg скачивание (камера прислала EOF)
+        match child.try_wait() {
+            Ok(Some(status)) => {
+                if !status.success() {
+                    drop(permit);
+                    return Err(format!("Сбой скачивания архива Tantos: {}", status));
+                }
+                break; // Успешно скачали!
+            }
+            Ok(None) => {} // Ещё качается
+            Err(e) => {
+                drop(permit);
+                return Err(format!("Ошибка процесса FFmpeg: {}", e));
+            }
+        }
+
+        // 3. Отправляем прогресс в UI каждые 2 секунды
+        if last_progress.elapsed() >= std::time::Duration::from_secs(2) {
+            let current_size = std::fs::metadata(&path)
+                .map(|m| m.len())
+                .unwrap_or(last_size);
+            if current_size > last_size {
+                // Выводим размер, так как точный % узнать у RTSP нельзя
+                push_runtime_log(
+                    &log_state,
+                    format!("DOWNLOAD_PROGRESS|{}|{}|0", task_key, current_size),
+                );
+                last_size = current_size;
+            }
+            last_progress = std::time::Instant::now();
+        }
+
+        // 4. Глобальный таймаут (2 часа максимум на один файл, чтобы не висел вечно)
+        if started.elapsed() > std::time::Duration::from_secs(7200) {
+            let _ = child.start_kill();
+            drop(permit);
+            return Err("Таймаут скачивания архива Tantos (2 часа)".into());
+        }
+
+        tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+    }
+
+    let bytes_written = std::fs::metadata(&path).map(|m| m.len()).unwrap_or(0);
+    drop(permit);
+
+    push_runtime_log(
+        &log_state,
+        format!(
+            "XM_ARCHIVE_EXPORT|{}|status=done|bytes={}",
+            task_key, bytes_written
+        ),
+    );
+
+    Ok(DownloadReport {
+        server_alias: "tantos_rtsp".into(),
+        filename,
+        save_path: output_path,
+        bytes_written,
+        total_bytes: bytes_written,
+        duration_ms: started.elapsed().as_millis(),
+        resumed: false,
+        skipped_as_complete: false,
+    })
+}
+
+#[tauri::command]
 async fn search_onvif_recordings(
     host: String,
     login: String,
@@ -6560,6 +6715,7 @@ fn main() {
             extract_isapi_search_template_from_har,
             search_isapi_recordings,
             search_xm_recordings,
+            download_xm_archive,
             search_onvif_recordings,
             download_onvif_recording_token,
             archive::download_isapi_playback_uri,
