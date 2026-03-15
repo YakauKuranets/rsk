@@ -1,16 +1,17 @@
 use chrono::Utc;
 use regex::Regex;
 use reqwest;
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 use std::collections::{HashMap, HashSet};
 use std::process::Command;
 use std::time::Duration;
 use tauri::State;
 use tokio::net::TcpStream;
 use tokio::time::timeout;
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
 use crate::{get_vault_path, push_runtime_log, sanitize_filename_component, LogState};
-use ftp::FtpStream;
+use suppaftp::FtpStream;
 
 // =============================================================================
 // 🕷️ HYPERION SPIDER — УЛЬТИМАТИВНЫЙ ПАУК-РАЗВЕДЧИК
