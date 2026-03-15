@@ -21,32 +21,54 @@ impl FfmpegProfiles {
         ]
     }
 
-    /// Профиль 2: Zero-Latency трансляция (H.265 -> FLV)
+    /// Профиль 2: Умная трансляция с адаптацией под вендора (H.265 -> FLV)
     pub fn web_stream(url: &str, extra_headers: Option<&str>) -> Vec<String> {
         let mut args = Vec::new();
 
-        // Встраиваем кастомные заголовки (например, Cookie для Hub), если они переданы
         if let Some(headers) = extra_headers {
             args.push("-headers".into());
             args.push(headers.to_string());
         }
 
-        // Бронебойное ядро настроек для китайских камер
-        let core_args = vec![
-            "-rtsp_transport",
-            "tcp",
-            "-allowed_media_types",
-            "video",
-            "-timeout",
-            "5000000",
-            "-fflags",
-            "+genpts+discardcorrupt",
-            "-flags",
-            "low_delay",
-            "-analyzeduration",
-            "2000000",
-            "-probesize",
-            "2000000",
+        // Общие сетевые настройки захвата
+        args.extend(vec![
+            "-rtsp_transport".into(),
+            "tcp".into(),
+            "-allowed_media_types".into(),
+            "video".into(),
+            "-timeout".into(),
+            "5000000".into(),
+            "-flags".into(),
+            "low_delay".into(),
+        ]);
+
+        // ДИНАМИЧЕСКИЙ ПРОФИЛЬ (Разделяем логику для Hikvision и Navicam/XMeye)
+        let is_hikvision = url.to_lowercase().contains("/streaming/channels/");
+
+        if is_hikvision {
+            // Профиль Hikvision: требует времени на сборку редких I-кадров H.265
+            args.extend(vec![
+                "-fflags".into(),
+                "+genpts+discardcorrupt".into(),
+                "-analyzeduration".into(),
+                "2000000".into(),
+                "-probesize".into(),
+                "2000000".into(),
+            ]);
+        } else {
+            // Профиль Navicam / Tantos (XMeye): Давятся буфером, требуют nobuffer
+            args.extend(vec![
+                "-fflags".into(),
+                "nobuffer+genpts+discardcorrupt".into(),
+                "-analyzeduration".into(),
+                "250000".into(), // Старт за 0.25 сек
+                "-probesize".into(),
+                "250000".into(),
+            ]);
+        }
+
+        // Общие настройки сверхбыстрого транскодера
+        let rest = vec![
             "-i",
             url,
             "-c:v",
@@ -61,7 +83,7 @@ impl FfmpegProfiles {
             "yuv420p",
             "-g",
             "30",
-            "-an",
+            "-an", // Аудио отключаем жестко
             "-f",
             "flv",
             "-flvflags",
@@ -69,7 +91,7 @@ impl FfmpegProfiles {
             "pipe:1",
         ];
 
-        for arg in core_args {
+        for arg in rest {
             args.push(arg.to_string());
         }
 
