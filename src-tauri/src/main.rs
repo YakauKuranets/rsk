@@ -21,6 +21,7 @@ use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, OnceLock};
 mod archive;
 mod archive_ai;
+mod ffmpeg;
 mod nexus;
 pub mod spider;
 mod streaming;
@@ -647,47 +648,13 @@ pub async fn start_hub_stream(
     );
 
     let mut child = tokio::process::Command::new("ffmpeg")
-        .args([
-            "-headers",
-            &format!(
+        .args({
+            let headers = format!(
                 "Cookie: {}\r\nReferer: https://videodvor.by/stream/admin.php\r\n",
                 cookie
-            ),
-            "-rtsp_transport",
-            "tcp",
-            "-allowed_media_types",
-            "video",
-            "-timeout",
-            "5000000",
-            "-fflags",
-            "+genpts+discardcorrupt",
-            "-flags",
-            "low_delay",
-            "-analyzeduration",
-            "2000000",
-            "-probesize",
-            "2000000",
-            "-i",
-            &url,
-            "-c:v",
-            "libx264",
-            "-preset",
-            "ultrafast",
-            "-tune",
-            "zerolatency",
-            "-profile:v",
-            "baseline",
-            "-pix_fmt",
-            "yuv420p",
-            "-g",
-            "30",
-            "-an",
-            "-f",
-            "flv",
-            "-flvflags",
-            "no_duration_filesize",
-            "pipe:1",
-        ])
+            );
+            crate::ffmpeg::FfmpegProfiles::web_stream(&url, Some(&headers))
+        })
         .stdout(Stdio::piped())
         .stderr(Stdio::null())
         .spawn()
@@ -899,20 +866,7 @@ async fn probe_rtsp_path(host: String, login: String, pass: String) -> Result<St
     let ffmpeg = get_ffmpeg_path();
     for url in urls {
         let s = Command::new(&ffmpeg)
-            .args([
-                "-nostdin",
-                "-loglevel",
-                "error",
-                "-rtsp_transport",
-                "tcp",
-                "-i",
-                &url,
-                "-t",
-                "0.1",
-                "-f",
-                "null",
-                "-",
-            ])
+            .args(crate::ffmpeg::FfmpegProfiles::probe(&url))
             .status();
         if let Ok(status) = s {
             if status.success() {
@@ -1100,46 +1054,7 @@ pub async fn start_stream(
     }
 
     let mut child = tokio::process::Command::new("ffmpeg")
-        .args([
-            "-rtsp_transport",
-            "tcp",
-            "-allowed_media_types",
-            "video",
-            "-timeout",
-            "5000000",
-            // Убираем nobuffer, чтобы декодер мог собрать HEVC кадр
-            "-fflags",
-            "+genpts+discardcorrupt",
-            "-flags",
-            "low_delay",
-            // Даем 2 Мегабайта/2 секунды на поиск первого I-кадра (критично для H.265)
-            "-analyzeduration",
-            "2000000",
-            "-probesize",
-            "2000000",
-            "-i",
-            &rtsp_url,
-            // Перекодирование
-            "-c:v",
-            "libx264",
-            "-preset",
-            "ultrafast",
-            "-tune",
-            "zerolatency",
-            // Baseline профиль работает в браузерах намного стабильнее
-            "-profile:v",
-            "baseline",
-            "-pix_fmt",
-            "yuv420p",
-            "-g",
-            "30", // Форсируем ключевой кадр для веб-плеера каждую секунду
-            "-an",
-            "-f",
-            "flv",
-            "-flvflags",
-            "no_duration_filesize",
-            "pipe:1",
-        ])
+        .args(crate::ffmpeg::FfmpegProfiles::web_stream(&rtsp_url, None))
         .stdout(Stdio::piped())
         .stderr(Stdio::null())
         .spawn()
