@@ -1353,7 +1353,101 @@ async fn fuzz_cctv_api_internal(
     attack_type: &str,
 ) -> Vec<SpiderApiFuzzResult> {
     let base = normalize_target_base(target_input);
+    let host = reqwest::Url::parse(&base)
+        .ok()
+        .and_then(|u| u.host_str().map(|h| h.to_string()))
+        .unwrap_or_else(|| target_input.to_string());
 
+    let mut out = Vec::new();
+
+    // === ВЕКТОР 1: УЛЬТИМАТИВНЫЙ RTSP БРУТФОРСЕР ===
+    if attack_type == "rtsp" {
+        let rtsp_paths = vec![
+            "/live/ch0",
+            "/cam/realmonitor?channel=1&subtype=0",
+            "/Streaming/Channels/101",
+            "/11",
+            "/12",
+            "/profile2/media.smp",
+            "/mpeg4",
+            "/h264",
+            "/ch01/0",
+            "/live/main",
+            "/media/video1",
+            "/video1",
+            "/live/ch00_0",
+            "/av0_0",
+            "/snl/live/1/1",
+            "/live.sdp",
+            "/axis-media/media.amp",
+            "/h264Preview_01_main",
+            "/rtsp_tunnel",
+            "/1",
+            "/2",
+            "/video",
+            "/media/video2",
+            "/ch1/main/av_stream",
+        ];
+
+        if let Ok(Ok(_)) = timeout(
+            Duration::from_secs(2),
+            TcpStream::connect((host.as_str(), 554)),
+        )
+        .await
+        {
+            for path in rtsp_paths {
+                let probe_url = format!("rtsp://{}:554{}", host, path);
+                if let Ok(mut stream) = TcpStream::connect((host.as_str(), 554)).await {
+                    let req = format!(
+                        "DESCRIBE {} RTSP/1.0\r\nCSeq: 1\r\nUser-Agent: Nemesis/1.0\r\nAccept: application/sdp\r\n\r\n",
+                        probe_url
+                    );
+                    if stream.write_all(req.as_bytes()).await.is_ok() {
+                        let mut buf = [0u8; 512];
+                        if let Ok(Ok(n)) =
+                            timeout(Duration::from_millis(400), stream.read(&mut buf)).await
+                        {
+                            let resp = String::from_utf8_lossy(&buf[..n]);
+                            if resp.contains("200 OK") {
+                                out.push(SpiderApiFuzzResult {
+                                    protocol: "RTSP".into(),
+                                    endpoint: probe_url.clone(),
+                                    status_code: 200,
+                                    verdict: "[200] УСПЕХ (Без пароля!)".into(),
+                                });
+                            } else if resp.contains("401") || resp.contains("Unauthorized") {
+                                out.push(SpiderApiFuzzResult {
+                                    protocol: "RTSP".into(),
+                                    endpoint: probe_url.clone(),
+                                    status_code: 401,
+                                    verdict: "[401] НАЙДЕНО (Нужен пароль)".into(),
+                                });
+                            }
+                        }
+                    }
+                }
+                tokio::time::sleep(Duration::from_millis(20)).await;
+            }
+            if out.is_empty() {
+                out.push(SpiderApiFuzzResult {
+                    protocol: "RTSP".into(),
+                    endpoint: format!("rtsp://{}:554", host),
+                    status_code: 0,
+                    verdict: "Порт 554 открыт, но все пути вернули 404".into(),
+                });
+            }
+        } else {
+            out.push(SpiderApiFuzzResult {
+                protocol: "RTSP".into(),
+                endpoint: format!("rtsp://{}:554", host),
+                status_code: 0,
+                verdict: "Порт 554 закрыт или недоступен".into(),
+            });
+        }
+        return out;
+    }
+
+    // === ОСТАЛЬНЫЕ РЕЖИМЫ (TDKCGI, FTP, GENERIC) ===
     let commands: Vec<String> = vec![
         "g.sys.ability",
         "g.sys.net.rtsp",
@@ -1376,17 +1470,6 @@ async fn fuzz_cctv_api_internal(
                 )
             })
             .collect(),
-        "rtsp" => vec![
-            ("RTSP".to_string(), format!("{}/live/ch0", base)),
-            (
-                "RTSP".to_string(),
-                format!("{}/cam/realmonitor?channel=1&subtype=0", base),
-            ),
-            (
-                "RTSP".to_string(),
-                format!("{}/Streaming/Channels/101", base),
-            ),
-        ],
         "ftp" => vec![
             ("FTP".to_string(), format!("{}/", base)),
             ("FTP".to_string(), format!("{}/video0/", base)),
@@ -1400,33 +1483,13 @@ async fn fuzz_cctv_api_internal(
         ],
     };
 
-    let mut out = Vec::new();
     for (protocol, endpoint) in probes {
-        let (status_code, verdict) = if protocol == "RTSP" {
-            let host = reqwest::Url::parse(&endpoint)
+        let (status_code, verdict) = if protocol == "FTP" {
+            let h = reqwest::Url::parse(&endpoint)
                 .ok()
                 .and_then(|u| u.host_str().map(|h| h.to_string()))
                 .unwrap_or_else(|| target_input.to_string());
-            match timeout(
-                Duration::from_secs(2),
-                TcpStream::connect((host.as_str(), 554)),
-            )
-            .await
-            {
-                Ok(Ok(_)) => (200, "RTSP port open".to_string()),
-                _ => (0, "RTSP port closed/unreachable".to_string()),
-            }
-        } else if protocol == "FTP" {
-            let host = reqwest::Url::parse(&endpoint)
-                .ok()
-                .and_then(|u| u.host_str().map(|h| h.to_string()))
-                .unwrap_or_else(|| target_input.to_string());
-            match timeout(
-                Duration::from_secs(2),
-                TcpStream::connect((host.as_str(), 21)),
-            )
-            .await
-            {
+            match timeout(Duration::from_secs(2), TcpStream::connect((h.as_str(), 21))).await {
                 Ok(Ok(_)) => (200, "FTP port open".to_string()),
                 _ => (0, "FTP port closed/unreachable".to_string()),
             }
@@ -1434,19 +1497,18 @@ async fn fuzz_cctv_api_internal(
             match client.get(&endpoint).send().await {
                 Ok(resp) => {
                     let code = resp.status().as_u16() as i32;
-                    let verdict = match code {
+                    let v = match code {
                         200..=299 => "reachable",
                         401 => "auth required",
                         403 => "forbidden",
                         404 => "not found",
                         _ => "responded",
                     };
-                    (code, verdict.to_string())
+                    (code, v.to_string())
                 }
                 Err(_) => (0, "request failed".to_string()),
             }
         };
-
         out.push(SpiderApiFuzzResult {
             protocol,
             endpoint,
@@ -1454,7 +1516,6 @@ async fn fuzz_cctv_api_internal(
             verdict,
         });
     }
-
     out
 }
 
