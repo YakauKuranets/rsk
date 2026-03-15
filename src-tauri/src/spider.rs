@@ -2,9 +2,11 @@ use chrono::Utc;
 use futures::stream::{self, StreamExt};
 use regex::Regex;
 use reqwest;
+use scraper::{Html, Selector};
 use serde::Serialize;
 use std::collections::{HashMap, HashSet};
 use std::process::Command;
+use std::sync::OnceLock;
 use std::time::Duration;
 use tauri::State;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
@@ -985,7 +987,7 @@ pub async fn spider_full_scan(
     if do_dirs {
         push_runtime_log(&log_state, "🕷️ [3/4] DIR BRUTEFORCE...".to_string());
 
-        let dirs = vec![
+        let dirs: Vec<String> = vec![
             "admin",
             "admin.php",
             "login",
@@ -1067,7 +1069,10 @@ pub async fn spider_full_scan(
             "rtsp2mjpeg.php",
             "export.php",
             "report.php",
-        ];
+        ]
+        .into_iter()
+        .map(String::from)
+        .collect();
 
         let base_url = base.trim_end_matches('/').to_string();
         let cookie_header = cookie_str.clone();
@@ -1403,144 +1408,165 @@ fn extract_domain(url: &str) -> String {
 }
 
 fn extract_tag_content(html: &str, tag: &str) -> Option<String> {
-    let open = format!("<{}", tag);
-    let close = format!("</{}>", tag);
-    if let Some(start) = html.to_lowercase().find(&open) {
-        if let Some(gt) = html[start..].find('>') {
-            let content_start = start + gt + 1;
-            if let Some(end) = html[content_start..].to_lowercase().find(&close) {
-                return Some(html[content_start..content_start + end].trim().to_string());
-            }
-        }
-    }
-    None
+    let document = Html::parse_document(html);
+    let selector = Selector::parse(tag).ok()?;
+    document
+        .select(&selector)
+        .next()
+        .map(|element| element.text().collect::<String>().trim().to_string())
+        .filter(|text| !text.is_empty())
 }
 
 fn extract_links(html: &str, base: &str) -> Vec<String> {
+    let document = Html::parse_document(html);
+    let selector = Selector::parse("a[href], form[action]").unwrap();
     let mut links = Vec::new();
-    let href_re = Regex::new(r#"(?:href|action|src)=["']([^"'#]+)["']"#).unwrap();
 
-    for cap in href_re.captures_iter(html) {
-        if let Some(m) = cap.get(1) {
-            let raw = m.as_str().trim();
-            if raw.starts_with("javascript:")
-                || raw.starts_with("mailto:")
-                || raw.starts_with("data:")
-                || raw.is_empty()
-            {
-                continue;
-            }
-            let full = if raw.starts_with("http://") || raw.starts_with("https://") {
-                raw.to_string()
-            } else if raw.starts_with("//") {
-                format!("https:{}", raw)
-            } else if raw.starts_with('/') {
-                format!("{}{}", base.trim_end_matches('/'), raw)
-            } else {
-                format!("{}/{}", base.trim_end_matches('/'), raw)
-            };
-            if !links.contains(&full) {
-                links.push(full);
-            }
+    for element in document.select(&selector) {
+        let raw = element
+            .value()
+            .attr("href")
+            .or_else(|| element.value().attr("action"))
+            .unwrap_or("")
+            .trim();
+
+        if raw.starts_with("javascript:")
+            || raw.starts_with("mailto:")
+            || raw.starts_with("data:")
+            || raw.is_empty()
+            || raw.starts_with('#')
+        {
+            continue;
+        }
+
+        let full = if raw.starts_with("http://") || raw.starts_with("https://") {
+            raw.to_string()
+        } else if raw.starts_with("//") {
+            format!("https:{}", raw)
+        } else if raw.starts_with('/') {
+            format!("{}{}", base.trim_end_matches('/'), raw)
+        } else {
+            format!("{}/{}", base.trim_end_matches('/'), raw)
+        };
+
+        if !links.contains(&full) {
+            links.push(full);
         }
     }
+
     links
 }
 
 fn extract_script_srcs(html: &str, base: &str) -> Vec<String> {
+    let document = Html::parse_document(html);
+    let selector = Selector::parse("script[src]").unwrap();
     let mut scripts = Vec::new();
-    let script_re = Regex::new(r#"<script[^>]+src=["']([^"']+)["']"#).unwrap();
 
-    for cap in script_re.captures_iter(html) {
-        if let Some(m) = cap.get(1) {
-            let raw = m.as_str().trim();
-            let full = if raw.starts_with("http") {
-                raw.to_string()
-            } else if raw.starts_with("//") {
-                format!("https:{}", raw)
-            } else if raw.starts_with('/') {
-                format!("{}{}", base.trim_end_matches('/'), raw)
-            } else {
-                format!("{}/{}", base.trim_end_matches('/'), raw)
-            };
-            if !scripts.contains(&full) {
-                scripts.push(full);
-            }
+    for element in document.select(&selector) {
+        let raw = element.value().attr("src").unwrap_or("").trim();
+        if raw.is_empty() {
+            continue;
+        }
+
+        let full = if raw.starts_with("http://") || raw.starts_with("https://") {
+            raw.to_string()
+        } else if raw.starts_with("//") {
+            format!("https:{}", raw)
+        } else if raw.starts_with('/') {
+            format!("{}{}", base.trim_end_matches('/'), raw)
+        } else {
+            format!("{}/{}", base.trim_end_matches('/'), raw)
+        };
+
+        if !scripts.contains(&full) {
+            scripts.push(full);
         }
     }
+
     scripts
+}
+
+fn get_js_patterns() -> &'static [(Regex, &'static str)] {
+    static PATTERNS: OnceLock<Vec<(Regex, &'static str)>> = OnceLock::new();
+    PATTERNS.get_or_init(|| {
+        vec![
+            (
+                Regex::new(r#"fetch\s*\(\s*['"]([^'"]+)['"]"#).unwrap(),
+                "FETCH",
+            ),
+            (
+                Regex::new(r#"\$\.(ajax|get|post|getJSON)\s*\(\s*['"]([^'"]+)['"]"#).unwrap(),
+                "JQUERY",
+            ),
+            (
+                Regex::new(r#"\.open\s*\(\s*['"](\w+)['"],\s*['"]([^'"]+)['"]"#).unwrap(),
+                "XHR",
+            ),
+            (
+                Regex::new(r#"url\s*:\s*['"]([^'"]+\.php[^'"]*)['"]"#).unwrap(),
+                "CONFIG",
+            ),
+            (
+                Regex::new(r#"action\s*:\s*['"]([^'"]+)['"]"#).unwrap(),
+                "ACTION",
+            ),
+            (
+                Regex::new(r#"['"](/(?:api|stream|admin|ajax|video|archive)[^'"]*\.?\w*)['"]"#)
+                    .unwrap(),
+                "PATH",
+            ),
+            (
+                Regex::new(r#"WebSocket\s*\(\s*['"]([^'"]+)['"]"#).unwrap(),
+                "WEBSOCKET",
+            ),
+            (
+                Regex::new(r#"(?:window\.)?location\s*(?:\.href)?\s*=\s*['"]([^'"]+)['"]"#)
+                    .unwrap(),
+                "REDIRECT",
+            ),
+        ]
+    })
 }
 
 fn extract_js_endpoints(js: &str, source: &str) -> Vec<SpiderJsEndpoint> {
     let mut endpoints = Vec::new();
     let mut seen = HashSet::new();
 
-    // Паттерны для поиска API endpoints в JS
-    let patterns: Vec<(&str, &str)> = vec![
-        // fetch('url') / fetch("url")
-        (r#"fetch\s*\(\s*['"]([^'"]+)['"]"#, "FETCH"),
-        // $.ajax({url: 'xxx'}) / $.get('xxx') / $.post('xxx')
-        (
-            r#"\$\.(ajax|get|post|getJSON)\s*\(\s*['"]([^'"]+)['"]"#,
-            "JQUERY",
-        ),
-        // XMLHttpRequest.open('METHOD', 'url')
-        (r#"\.open\s*\(\s*['"](\w+)['"],\s*['"]([^'"]+)['"]"#, "XHR"),
-        // url: 'xxx' / url: "xxx" (в конфигурациях AJAX)
-        (r#"url\s*:\s*['"]([^'"]+\.php[^'"]*)['"]"#, "CONFIG"),
-        // action: 'xxx' (в AJAX payload)
-        (r#"action\s*:\s*['"]([^'"]+)['"]"#, "ACTION"),
-        // '/api/xxx' или '/stream/xxx.php'
-        (
-            r#"['"](/(?:api|stream|admin|ajax|video|archive)[^'"]*\.?\w*)['"]"#,
-            "PATH",
-        ),
-        // WebSocket: new WebSocket('ws://...')
-        (r#"WebSocket\s*\(\s*['"]([^'"]+)['"]"#, "WEBSOCKET"),
-        // window.location = 'xxx'
-        (
-            r#"(?:window\.)?location\s*(?:\.href)?\s*=\s*['"]([^'"]+)['"]"#,
-            "REDIRECT",
-        ),
-    ];
+    for (re, method) in get_js_patterns() {
+        for cap in re.captures_iter(js) {
+            // Берём последнюю группу (URL обычно в последней группе)
+            let endpoint = cap
+                .get(cap.len() - 1)
+                .map(|m| m.as_str().to_string())
+                .unwrap_or_default();
 
-    for (pattern, method) in &patterns {
-        if let Ok(re) = Regex::new(pattern) {
-            for cap in re.captures_iter(js) {
-                // Берём последнюю группу (URL обычно в последней группе)
-                let endpoint = cap
-                    .get(cap.len() - 1)
-                    .map(|m| m.as_str().to_string())
-                    .unwrap_or_default();
-
-                if endpoint.is_empty() || endpoint.len() < 3 || seen.contains(&endpoint) {
-                    continue;
-                }
-                // Фильтруем мусор
-                if endpoint.starts_with("data:")
-                    || endpoint.contains("{{")
-                    || endpoint.starts_with('#')
-                    || endpoint == "/"
-                    || endpoint.contains("node_modules")
-                {
-                    continue;
-                }
-
-                seen.insert(endpoint.clone());
-
-                // Контекст: 50 символов вокруг найденного
-                let pos = js.find(&endpoint).unwrap_or(0);
-                let ctx_start = pos.saturating_sub(30);
-                let ctx_end = (pos + endpoint.len() + 30).min(js.len());
-                let context = js[ctx_start..ctx_end].replace('\n', " ").trim().to_string();
-
-                endpoints.push(SpiderJsEndpoint {
-                    source_script: source.to_string(),
-                    endpoint,
-                    method: method.to_string(),
-                    context,
-                });
+            if endpoint.is_empty() || endpoint.len() < 3 || seen.contains(&endpoint) {
+                continue;
             }
+            // Фильтруем мусор
+            if endpoint.starts_with("data:")
+                || endpoint.contains("{{")
+                || endpoint.starts_with('#')
+                || endpoint == "/"
+                || endpoint.contains("node_modules")
+            {
+                continue;
+            }
+
+            seen.insert(endpoint.clone());
+
+            // Контекст: 50 символов вокруг найденного
+            let pos = js.find(&endpoint).unwrap_or(0);
+            let ctx_start = pos.saturating_sub(30);
+            let ctx_end = (pos + endpoint.len() + 30).min(js.len());
+            let context = js[ctx_start..ctx_end].replace('\n', " ").trim().to_string();
+
+            endpoints.push(SpiderJsEndpoint {
+                source_script: source.to_string(),
+                endpoint,
+                method: method.to_string(),
+                context,
+            });
         }
     }
 
