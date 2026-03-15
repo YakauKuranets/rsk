@@ -14,7 +14,7 @@ use sha2::{Digest, Sha256};
 use std::collections::{HashMap, HashSet};
 use std::env;
 use std::fs::OpenOptions;
-use std::net::{TcpStream as StdTcpStream, ToSocketAddrs};
+use std::net::ToSocketAddrs;
 use std::path::PathBuf;
 use std::process::{Command, Stdio};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
@@ -29,7 +29,7 @@ use tauri::State;
 use tokio::sync::Mutex as TokioMutex;
 use tokio::sync::Semaphore;
 use tokio::{
-    io::{AsyncReadExt, AsyncWriteExt},
+    io::AsyncReadExt,
     net::TcpStream,
     process::{Child as TokioChild, ChildStdout as TokioChildStdout},
     task::JoinHandle,

@@ -987,7 +987,7 @@ pub async fn spider_full_scan(
     if do_dirs {
         push_runtime_log(&log_state, "🕷️ [3/4] DIR BRUTEFORCE...".to_string());
 
-        let dirs = vec![
+        let dirs: Vec<String> = vec![
             "admin",
             "admin.php",
             "login",
@@ -1069,7 +1069,10 @@ pub async fn spider_full_scan(
             "rtsp2mjpeg.php",
             "export.php",
             "report.php",
-        ];
+        ]
+        .into_iter()
+        .map(String::from)
+        .collect();
 
         let base_url = base.trim_end_matches('/').to_string();
         let cookie_header = cookie_str.clone();
