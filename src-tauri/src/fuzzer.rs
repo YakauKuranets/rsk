@@ -4,72 +4,59 @@ use tauri::command;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
 
-/// Ультимативный TCP-Снайпер: Эвристический анализ 401 Unauthorized и SDP дампов
-async fn fingerprint_rtsp_vendor(ip: &str) -> &'static str {
-    let target = format!("{}:554", ip);
+/// Ультимативный Сканер: Анализ проприетарных портов + RTSP Fingerprinting
+async fn fingerprint_vendor_deep(ip: &str) -> &'static str {
+    let timeout = std::time::Duration::from_millis(800);
 
-    let stream_result = tokio::time::timeout(
-        std::time::Duration::from_millis(1500),
-        tokio::net::TcpStream::connect(&target),
-    )
-    .await;
-
-    let Ok(Ok(mut stream)) = stream_result else {
-        return "unknown"; // Порт закрыт
+    // 🕵️‍♂️ УРОВЕНЬ 1: Сканирование проприетарных портов (Самый точный метод)
+    // Асинхронно стучимся в служебные порты, которые камеры не могут скрыть
+    let check_port = |port: u16| async move {
+        tokio::time::timeout(timeout, tokio::net::TcpStream::connect((ip, port)))
+            .await
+            .is_ok()
     };
 
-    // 🚀 Хак: Отправляем DESCRIBE вместо OPTIONS.
-    // DESCRIBE провоцирует камеру выдать SDP файл или более болтливый 401 ответ.
-    let req = format!(
-        "DESCRIBE rtsp://{}:554/ RTSP/1.0\r\nCSeq: 1\r\nAccept: application/sdp\r\nUser-Agent: Lavf59.27.100\r\n\r\n",
-        ip
+    // Запускаем проверки параллельно (0 задержек)
+    let (is_hik_port, is_xm_port) = tokio::join!(
+        check_port(8000),  // Служебный SDK порт Hikvision
+        check_port(34567)  // Служебный NETIP порт XMeye / Tantos
     );
 
-    if stream.write_all(req.as_bytes()).await.is_err() {
-        return "unknown";
+    if is_xm_port {
+        return "xmeye";
+    }
+    if is_hik_port {
+        return "hikvision";
     }
 
-    let mut buf = [0; 2048]; // Увеличили буфер для захвата SDP
-    let read_result = tokio::time::timeout(
-        std::time::Duration::from_millis(1000),
-        stream.read(&mut buf),
-    )
-    .await;
+    // 🕵️‍♂️ УРОВЕНЬ 2: Классический RTSP OPTIONS (Если порты проброшены криво)
+    if let Ok(Ok(mut stream)) =
+        tokio::time::timeout(timeout, tokio::net::TcpStream::connect((ip, 554))).await
+    {
+        // OPTIONS безопаснее, чем DESCRIBE, он реже вызывает 400 Bad Request
+        let req = format!(
+            "OPTIONS rtsp://{}:554/ RTSP/1.0\r\nCSeq: 1\r\nUser-Agent: Hyperion/5.0\r\n\r\n",
+            ip
+        );
+        if stream.write_all(req.as_bytes()).await.is_ok() {
+            let mut buf = [0; 1024];
+            if let Ok(Ok(n)) = tokio::time::timeout(timeout, stream.read(&mut buf)).await {
+                let response = String::from_utf8_lossy(&buf[..n]).to_lowercase();
 
-    if let Ok(Ok(n)) = read_result {
-        let response = String::from_utf8_lossy(&buf[..n]).to_lowercase();
-
-        // --- УРОВЕНЬ 1: Прямые заголовки (Если админ забыл их скрыть) ---
-        if response.contains("server: app-webs") || response.contains("server: hikvision") {
-            return "hikvision";
-        }
-        if response.contains("server: uc-httpd") || response.contains("server: xiongmai") {
-            return "xmeye";
-        }
-
-        // --- УРОВЕНЬ 2: Эвристика 401 Unauthorized (Почерк криптографии) ---
-        // Hikvision обожает писать "DS-..." или "IP Camera" в параметре realm
-        if response.contains("realm=\"ds-")
-            || response.contains("realm=\"ip camera")
-            || response.contains("realm=\"hik")
-        {
-            return "hikvision";
-        }
-        // XMeye (Tantos/Novicam) выдают себя через "Login to" или "IPC"
-        if response.contains("realm=\"login to")
-            || response.contains("realm=\"ipc")
-            || response.contains("realm=\"xm")
-        {
-            return "xmeye";
-        }
-
-        // --- УРОВЕНЬ 3: Анализ утечек SDP (Если пустили без авторизации) ---
-        if response.contains("s=hik media server") {
-            return "hikvision";
-        }
-        // Точная сигнатура XMeye, которую мы нашли в ваших логах ffprobe
-        if response.contains("s=media server v3.") || response.contains("s=media server v2.") {
-            return "xmeye";
+                if response.contains("app-webs")
+                    || response.contains("hikvision")
+                    || response.contains("ds-")
+                {
+                    return "hikvision";
+                }
+                if response.contains("uc-httpd")
+                    || response.contains("xiongmai")
+                    || response.contains("realm=\"login to")
+                    || response.contains("realm=\"ipc")
+                {
+                    return "xmeye";
+                }
+            }
         }
     }
 
@@ -82,10 +69,10 @@ pub async fn probe_rtsp_path(host: String, login: String, pass: String) -> Resul
     let rtsp_host = crate::normalize_host_for_scan(&host);
 
     // 🕵️‍♂️ ЭТАП 1: TCP/RTSP Fingerprinting (Обход NAT и файрволов)
-    let vendor = fingerprint_rtsp_vendor(&rtsp_host).await;
+    let vendor = fingerprint_vendor_deep(&rtsp_host).await;
 
     println!(
-        "[SPIDER] RTSP Разведка IP {}: Вендор = {}",
+        "[SPIDER] Умная Разведка (Порты + RTSP) IP {}: Вендор = {}",
         rtsp_host, vendor
     );
 
