@@ -1,44 +1,71 @@
 use std::process::Command;
+use std::time::Duration;
 use tauri::command;
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use tokio::net::TcpStream;
+
+/// Сырой TCP-Снайпер: Стучится в порт 554 и вытаскивает вендора через RTSP OPTIONS
+async fn fingerprint_rtsp_vendor(ip: &str) -> &'static str {
+    let target = format!("{}:554", ip);
+
+    // Даем 1.5 секунды на установку TCP-соединения
+    let stream_result =
+        tokio::time::timeout(Duration::from_millis(1500), TcpStream::connect(&target)).await;
+
+    let Ok(Ok(mut stream)) = stream_result else {
+        return "unknown"; // Порт закрыт или таймаут
+    };
+
+    // Формируем сырой RTSP-запрос (не требует авторизации)
+    let req = format!(
+        "OPTIONS rtsp://{}:554/ RTSP/1.0\r\nCSeq: 1\r\nUser-Agent: Lavf59.27.100\r\n\r\n",
+        ip
+    );
+
+    if stream.write_all(req.as_bytes()).await.is_err() {
+        return "unknown";
+    }
+
+    let mut buf = [0; 1024];
+    // Даем 1 секунду на ответ от камеры
+    let read_result =
+        tokio::time::timeout(Duration::from_millis(1000), stream.read(&mut buf)).await;
+
+    if let Ok(Ok(n)) = read_result {
+        let response = String::from_utf8_lossy(&buf[..n]).to_lowercase();
+
+        // Читаем заголовок Server из сырого ответа
+        if response.contains("app-webs") || response.contains("hikvision") {
+            return "hikvision";
+        } else if response.contains("uc-httpd")
+            || response.contains("xiongmai")
+            || response.contains("dvr")
+        {
+            return "xmeye";
+        }
+    }
+
+    "unknown"
+}
 
 /// Перебор (фаззинг) RTSP путей для поиска рабочего видеопотока
 #[command]
 pub async fn probe_rtsp_path(host: String, login: String, pass: String) -> Result<String, String> {
     let rtsp_host = crate::normalize_host_for_scan(&host);
 
-    // 🕵️‍♂️ ЭТАП 1: OSINT Fingerprinting (Определяем вендора по HTTP-заголовкам)
-    let client = reqwest::Client::builder()
-        .timeout(std::time::Duration::from_millis(800)) // Сверхбыстрый пинг для разведки
-        .build()
-        .unwrap_or_default();
+    // 🕵️‍♂️ ЭТАП 1: TCP/RTSP Fingerprinting (Обход NAT и файрволов)
+    let vendor = fingerprint_rtsp_vendor(&rtsp_host).await;
 
-    let mut vendor = "unknown";
-
-    if let Ok(resp) = client.get(format!("http://{}", rtsp_host)).send().await {
-        if let Some(server) = resp.headers().get("server").and_then(|s| s.to_str().ok()) {
-            let s_lower = server.to_lowercase();
-            // App-webs - фирменный почерк Hikvision
-            if s_lower.contains("app-webs") || s_lower.contains("hikvision") {
-                vendor = "hikvision";
-            }
-            // uc-httpd - фирменный почерк Xiongmai (Tantos, Novicam и OEM)
-            else if s_lower.contains("uc-httpd")
-                || s_lower.contains("xiongmai")
-                || s_lower.contains("dvr")
-            {
-                vendor = "xmeye";
-            }
-        }
-    }
-
-    println!("[SPIDER] Разведка IP {}: Вендор = {}", rtsp_host, vendor);
+    println!(
+        "[SPIDER] RTSP Разведка IP {}: Вендор = {}",
+        rtsp_host, vendor
+    );
 
     // 🎯 ЭТАП 2: Снайперский словарь (Ищем ЛЕГКИЕ Sub-Streams)
     let mut urls = Vec::new();
 
     match vendor {
         "hikvision" => {
-            // Канал 102 - это всегда легкий саб-стрим, 101 - тяжелый
             urls.push(format!(
                 "rtsp://{}:{}@{}:554/Streaming/Channels/102",
                 login, pass, rtsp_host
@@ -49,7 +76,6 @@ pub async fn probe_rtsp_path(host: String, login: String, pass: String) -> Resul
             ));
         }
         "xmeye" => {
-            // subtype=1 и /sub/ - это легкие потоки китайских плат
             urls.push(format!(
                 "rtsp://{}:{}@{}:554/cam/realmonitor?channel=1&subtype=1",
                 login, pass, rtsp_host
@@ -64,7 +90,6 @@ pub async fn probe_rtsp_path(host: String, login: String, pass: String) -> Resul
             ));
         }
         _ => {
-            // Если вендор скрыт (например, за файрволом), бьем самыми популярными саб-стримами
             urls.push(format!(
                 "rtsp://{}:{}@{}:554/Streaming/Channels/102",
                 login, pass, rtsp_host
@@ -87,7 +112,7 @@ pub async fn probe_rtsp_path(host: String, login: String, pass: String) -> Resul
     // 🚀 ЭТАП 3: Молниеносная проверка пути через FFmpeg
     let ffmpeg = crate::get_ffmpeg_path();
     for url in urls {
-        let s = Command::new(&ffmpeg)
+        let s = std::process::Command::new(&ffmpeg)
             .args(crate::ffmpeg::FfmpegProfiles::probe(&url))
             .status();
 
@@ -99,7 +124,6 @@ pub async fn probe_rtsp_path(host: String, login: String, pass: String) -> Resul
         }
     }
 
-    // Fallback: Если ничего не подошло, отдаем дефолтный поток
     Ok(format!(
         "rtsp://{}:{}@{}:554/Streaming/Channels/101",
         login, pass, rtsp_host
