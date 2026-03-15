@@ -1,6 +1,6 @@
 // videodvor_scanner.rs
 use regex::Regex;
-use reqwest::{Client, header};
+use reqwest::{header, Client};
 use serde_json::{json, Value};
 use std::time::Duration;
 use tokio::time::sleep;
@@ -21,20 +21,25 @@ impl VideodvorScanner {
             .timeout(Duration::from_secs(30))
             .build()
             .expect("Failed to build HTTP client");
-        Self { client, cookie: None }
+        Self {
+            client,
+            cookie: None,
+        }
     }
 
     /// Выполняет вход и сохраняет сессионную cookie.
     pub async fn login(&mut self, username: &str, password: &str) -> Result<(), String> {
         let params = [("username", username), ("password", password)];
-        let resp = self.client
+        let resp = self
+            .client
             .post(LOGIN_URL)
             .form(&params)
             .send()
             .await
             .map_err(|e| e.to_string())?;
 
-        let cookies = resp.headers()
+        let cookies = resp
+            .headers()
             .get_all(header::SET_COOKIE)
             .iter()
             .filter_map(|h| h.to_str().ok())
@@ -59,7 +64,8 @@ impl VideodvorScanner {
 
         loop {
             let url = format!("{}?search=&offset={}&limit={}", CHECK_URL, offset, LIMIT);
-            let resp = self.client
+            let resp = self
+                .client
                 .get(&url)
                 .header(header::COOKIE, cookie)
                 .send()
@@ -68,7 +74,8 @@ impl VideodvorScanner {
 
             let text = resp.text().await.map_err(|e| e.to_string())?;
 
-            let re = Regex::new(r#"id="(\d+)".*?ip="(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})""#).unwrap();
+            let re =
+                Regex::new(r#"id="(\d+)".*?ip="(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})""#).unwrap();
             let mut found = 0;
             for cap in re.captures_iter(&text) {
                 let cam_id = cap[1].to_string();
@@ -99,12 +106,13 @@ impl VideodvorScanner {
                 host.to_string(),
                 ftp_user.to_string(),
                 ftp_pass.to_string(),
-            ) {  // убрали .await
+            ) {
+                // убрали .await
                 Ok(files) => return Ok(files),
                 Err(_) => continue,
             }
-    }
-    Err("No archive found on any FTP server".into())
+        }
+        Err("No archive found on any FTP server".into())
     }
 
     /// Скачать конкретный файл с FTP.
@@ -120,11 +128,12 @@ impl VideodvorScanner {
                 host.to_string(),
                 ftp_user.to_string(),
                 ftp_pass.to_string(),
-            ) {  // убрали .await
+            ) {
+                // убрали .await
                 Ok(_) => return Ok(()),
                 Err(_) => continue,
             }
+        }
+        Err("Failed to download from any FTP server".into())
     }
-    Err("Failed to download from any FTP server".into())
-}
 }

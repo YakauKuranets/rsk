@@ -18,6 +18,54 @@ function MapController({ center }) {
   return null;
 }
 
+const SPIDER_MODULES_CONFIG = [
+  {
+    id: "dir_bruteforce",
+    title: "Брутфорс директорий",
+    desc: "Поиск скрытых папок и файлов (например: /admin, /backup, /config). Помогает найти скрытые панели управления."
+  },
+  {
+    id: "enable_vuln_verification",
+    title: "Сверка с базами CVE",
+    desc: "Анализ версии прошивки и поиск известных уязвимостей (например, обход авторизации в старых Hikvision)."
+  },
+  {
+    id: "enable_video_stream_analyzer",
+    title: "Анализ видеопотока",
+    desc: "Извлечение метаданных камеры через ffprobe (кодек, битрейт, FPS, разрешение) без фактической записи видео."
+  },
+  {
+    id: "enable_passive_arp_discovery",
+    title: "Пассивный ARP-скан",
+    desc: "Поиск скрытых устройств в локальной сети на основе ARP-таблицы (MAC-адреса)."
+  },
+  {
+    id: "enable_credential_depth_audit",
+    title: "Аудит учетных записей",
+    desc: "Безопасная проверка использования стандартных заводских или слабых паролей (admin:admin, admin:12345)."
+  },
+  {
+    id: "enable_open_share_scanner",
+    title: "Сканер открытых шар (FTP)",
+    desc: "Проверка наличия анонимного доступа к файловой системе камеры или регистратора."
+  },
+  {
+    id: "enable_osint_import",
+    title: "OSINT обогащение",
+    desc: "Сбор информации об IP-адресе из внешних баз данных и открытых поисковиков."
+  },
+  {
+    id: "enable_topology_discovery",
+    title: "Топология сети",
+    desc: "Построение карты связей между устройствами (требует активный ONVIF/CGI профиль)."
+  },
+  {
+    id: "enable_threat_intel",
+    title: "Threat Intelligence",
+    desc: "Прикрепление к отчету ссылок на известные эксплойты и официальные бюллетени безопасности для данного вендора."
+  }
+];
+
 function normalizeTargetRecords(rawTargets) {
   const normalized = [];
 
@@ -155,6 +203,18 @@ export default function App() {
   const [spiderEnableNeighborDiscovery, setSpiderEnableNeighborDiscovery] = useState(false);
   const [spiderEnableThreatIntel, setSpiderEnableThreatIntel] = useState(false);
   const [spiderEnableScheduledAudits, setSpiderEnableScheduledAudits] = useState(false);
+
+  const spiderModuleStateMap = {
+    dir_bruteforce: [spiderDirBrute, setSpiderDirBrute],
+    enable_vuln_verification: [spiderEnableVulnVerification, setSpiderEnableVulnVerification],
+    enable_video_stream_analyzer: [spiderEnableVideoStreamAnalyzer, setSpiderEnableVideoStreamAnalyzer],
+    enable_passive_arp_discovery: [spiderEnablePassiveArpDiscovery, setSpiderEnablePassiveArpDiscovery],
+    enable_credential_depth_audit: [spiderEnableCredentialDepthAudit, setSpiderEnableCredentialDepthAudit],
+    enable_open_share_scanner: [spiderDirBrute, setSpiderDirBrute],
+    enable_osint_import: [spiderEnableOsintImport, setSpiderEnableOsintImport],
+    enable_topology_discovery: [spiderEnableTopologyDiscovery, setSpiderEnableTopologyDiscovery],
+    enable_threat_intel: [spiderEnableThreatIntel, setSpiderEnableThreatIntel],
+  };
   const [spiderRunning, setSpiderRunning] = useState(false);
   const [spiderReport, setSpiderReport] = useState(null);
   const [spiderTab, setSpiderTab] = useState('pages'); // pages|js|dirs|tech|sitemap // null | 'ok' | 'error'
@@ -1343,24 +1403,27 @@ const handleSecurityAudit = async () => {
               placeholder="Глубина" value={spiderMaxDepth} onChange={e => setSpiderMaxDepth(parseInt(e.target.value) || 3)} />
             <input type="number" style={{ flex: 1, backgroundColor: '#000', border: '1px solid #b366ff', color: '#b366ff', padding: '6px', fontSize: '11px' }}
               placeholder="Макс страниц" value={spiderMaxPages} onChange={e => setSpiderMaxPages(parseInt(e.target.value) || 50)} />
-            <label style={{ display: 'flex', alignItems: 'center', gap: '4px', color: '#b366ff', fontSize: '10px', whiteSpace: 'nowrap' }}>
-              <input type="checkbox" checked={spiderDirBrute} onChange={e => setSpiderDirBrute(e.target.checked)} />
-              DIRS
-            </label>
           </div>
+
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: '4px', marginBottom: '6px', fontSize: '9px', color: '#b694df' }}>
+            {SPIDER_MODULES_CONFIG.map((module) => {
+              const [enabled, setEnabled] = spiderModuleStateMap[module.id] || [false, () => {}];
+              return (
+                <label key={module.id} style={{ border: '1px solid #3a1d58', backgroundColor: '#120024', padding: '5px' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '5px', color: '#d2b7ff', fontSize: '10px', fontWeight: 'bold' }}>
+                    <input type="checkbox" checked={enabled} onChange={e => setEnabled(e.target.checked)} />
+                    {module.title}
+                  </div>
+                  <div style={{ color: '#9b7bc6', marginTop: '3px', lineHeight: 1.3 }}>{module.desc}</div>
+                </label>
+              );
+            })}
+          </div>
+
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '4px', marginBottom: '6px', fontSize: '9px', color: '#b694df' }}>
-            <label><input type="checkbox" checked={spiderEnableVulnVerification} onChange={e => setSpiderEnableVulnVerification(e.target.checked)} /> Phase3 Audit</label>
-            <label><input type="checkbox" checked={spiderEnableOsintImport} onChange={e => setSpiderEnableOsintImport(e.target.checked)} /> OSINT Mode</label>
-            <label><input type="checkbox" checked={spiderEnableTopologyDiscovery} onChange={e => setSpiderEnableTopologyDiscovery(e.target.checked)} /> Topology</label>
             <label><input type="checkbox" checked={spiderEnableSnapshotRefresh} onChange={e => setSpiderEnableSnapshotRefresh(e.target.checked)} /> Snapshot Refresh</label>
-          </div>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '4px', marginBottom: '6px', fontSize: '9px', color: '#b694df' }}>
-            <label><input type="checkbox" checked={spiderEnableVideoStreamAnalyzer} onChange={e => setSpiderEnableVideoStreamAnalyzer(e.target.checked)} /> Video Stream Info</label>
-            <label><input type="checkbox" checked={spiderEnableCredentialDepthAudit} onChange={e => setSpiderEnableCredentialDepthAudit(e.target.checked)} /> Credential Depth</label>
-            <label><input type="checkbox" checked={spiderEnablePassiveArpDiscovery} onChange={e => setSpiderEnablePassiveArpDiscovery(e.target.checked)} /> Passive ARP</label>
             <label><input type="checkbox" checked={spiderEnableUptimeMonitoring} onChange={e => setSpiderEnableUptimeMonitoring(e.target.checked)} /> Uptime</label>
             <label><input type="checkbox" checked={spiderEnableNeighborDiscovery} onChange={e => setSpiderEnableNeighborDiscovery(e.target.checked)} /> Neighbors</label>
-            <label><input type="checkbox" checked={spiderEnableThreatIntel} onChange={e => setSpiderEnableThreatIntel(e.target.checked)} /> Threat Intel</label>
             <label><input type="checkbox" checked={spiderEnableScheduledAudits} onChange={e => setSpiderEnableScheduledAudits(e.target.checked)} /> Scheduled Audits</label>
           </div>
 

@@ -65,14 +65,21 @@ pub async fn start_archive_analysis(
         // Запускаем FFmpeg в фоне для вытягивания сырых кадров
         let mut child = Command::new("ffmpeg")
             .args(&[
-                "-rtsp_transport", "tcp", // ВАЖНО: Заставляем FFmpeg использовать надежный TCP
-                "-i", &auth_uri, // <--- ИСПОЛЬЗУЕМ ССЫЛКУ С ПАРОЛЕМ
-                "-r", "2",
-                "-f", "image2pipe",
-                "-pix_fmt", "rgb24",
-                "-s", "640x640",
-                "-vcodec", "rawvideo",
-                "-"
+                "-rtsp_transport",
+                "tcp", // ВАЖНО: Заставляем FFmpeg использовать надежный TCP
+                "-i",
+                &auth_uri, // <--- ИСПОЛЬЗУЕМ ССЫЛКУ С ПАРОЛЕМ
+                "-r",
+                "2",
+                "-f",
+                "image2pipe",
+                "-pix_fmt",
+                "rgb24",
+                "-s",
+                "640x640",
+                "-vcodec",
+                "rawvideo",
+                "-",
             ])
             .stdout(Stdio::piped())
             .stderr(Stdio::inherit()) // ВАЖНО: Теперь ошибки FFmpeg будут лететь прямо в консоль!
@@ -98,7 +105,8 @@ pub async fn start_archive_analysis(
                             let spatial_offset = y * 640 + x;
 
                             // Заполняем каналы (R, G, B) последовательно (формат NCHW)
-                            tensor_data[0 * 640 * 640 + spatial_offset] = buffer[pixel_offset] as f32 / 255.0; // R
+                            tensor_data[0 * 640 * 640 + spatial_offset] =
+                                buffer[pixel_offset] as f32 / 255.0; // R
                             tensor_data[1 * 640 * 640 + spatial_offset] =
                                 buffer[pixel_offset + 1] as f32 / 255.0; // G
                             tensor_data[2 * 640 * 640 + spatial_offset] =
@@ -123,15 +131,21 @@ pub async fn start_archive_analysis(
                             // Чтобы найти её в плоском массиве &[f32], используем смещение: 4 * 8400
                             for i in 0..8400 {
                                 let person_conf = slice[4 * 8400 + i];
-                                if person_conf > 0.65 { // Порог уверенности 65%
+                                if person_conf > 0.65 {
+                                    // Порог уверенности 65%
                                     found_person = true;
-                                    if person_conf > max_conf { max_conf = person_conf; }
+                                    if person_conf > max_conf {
+                                        max_conf = person_conf;
+                                    }
                                 }
                             }
 
                             // Если реально нашли человека - отправляем метку во фронтенд!
                             if found_person {
-                                println!("[AI MODULE] 👤 Найден человек на {} мс (Уверенность: {:.2})", current_ms, max_conf);
+                                println!(
+                                    "[AI MODULE] 👤 Найден человек на {} мс (Уверенность: {:.2})",
+                                    current_ms, max_conf
+                                );
                                 let event = AiEvent {
                                     timestamp_ms: current_ms,
                                     class: "person".to_string(),
