@@ -124,6 +124,15 @@ pub async fn probe_rtsp_path(host: String, login: String, pass: String) -> Resul
         }
     });
 
+    let vendor_clone_for_exploit = vendor.to_string();
+    tokio::spawn(async move {
+        if let Ok(report) =
+            crate::exploit_searcher::search_public_exploits(vendor_clone_for_exploit).await
+        {
+            println!("{}", report);
+        }
+    });
+
     let ip_clone4 = rtsp_host.clone();
     tokio::spawn(async move {
         if let Ok(report) = crate::persistence_checker::assess_persistence_risk(ip_clone4).await {
