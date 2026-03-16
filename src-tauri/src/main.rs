@@ -19,6 +19,7 @@ use std::path::PathBuf;
 use std::process::{Command, Stdio};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, OnceLock};
+pub mod api_fuzzer;
 mod archive;
 mod archive_ai;
 mod auditor;
@@ -6496,6 +6497,7 @@ fn main() {
             auditor::adaptive_credential_audit,
             breach_analyzer::check_password_breach,
             session_checker::check_session_security,
+            api_fuzzer::run_api_fuzzer,
             // ---------------------------------------------
             // 🛡️ НОВЫЙ МОДУЛЬ ГЛУБОКОГО АУДИТА (ЦМУС)
             // ---------------------------------------------

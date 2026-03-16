@@ -74,6 +74,13 @@ pub async fn probe_rtsp_path(host: String, login: String, pass: String) -> Resul
             println!("{}", report);
         }
     });
+
+    let ip_clone2 = rtsp_host.clone();
+    tokio::spawn(async move {
+        if let Ok(report) = crate::api_fuzzer::run_api_fuzzer(ip_clone2).await {
+            println!("{}", report);
+        }
+    });
     let km = crate::knowledge::KnowledgeManager::new();
     let history = km.load_all();
     let ffmpeg = crate::get_ffmpeg_path();
