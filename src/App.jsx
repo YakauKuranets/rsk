@@ -7,54 +7,7 @@ import ArchiveViewer from './features/archive/ArchiveViewer';
 import StreamGrid from './features/streams/StreamGrid';
 import SpiderControl from './features/spider/SpiderControl';
 import MassAudit from './features/mass-audit/MassAudit';
-
-const SPIDER_MODULES_CONFIG = [
-  {
-    id: "dir_bruteforce",
-    title: "Брутфорс директорий",
-    desc: "Поиск скрытых папок и файлов (например: /admin, /backup, /config). Помогает найти скрытые панели управления."
-  },
-  {
-    id: "enable_vuln_verification",
-    title: "Сверка с базами CVE",
-    desc: "Анализ версии прошивки и поиск известных уязвимостей (например, обход авторизации в старых Hikvision)."
-  },
-  {
-    id: "enable_video_stream_analyzer",
-    title: "Анализ видеопотока",
-    desc: "Извлечение метаданных камеры через ffprobe (кодек, битрейт, FPS, разрешение) без фактической записи видео."
-  },
-  {
-    id: "enable_passive_arp_discovery",
-    title: "Пассивный ARP-скан",
-    desc: "Поиск скрытых устройств в локальной сети на основе ARP-таблицы (MAC-адреса)."
-  },
-  {
-    id: "enable_credential_depth_audit",
-    title: "Аудит учетных записей",
-    desc: "Безопасная проверка использования стандартных заводских или слабых паролей (admin:admin, admin:12345)."
-  },
-  {
-    id: "enable_open_share_scanner",
-    title: "Сканер открытых шар (FTP)",
-    desc: "Проверка наличия анонимного доступа к файловой системе камеры или регистратора."
-  },
-  {
-    id: "enable_osint_import",
-    title: "OSINT обогащение",
-    desc: "Сбор информации об IP-адресе из внешних баз данных и открытых поисковиков."
-  },
-  {
-    id: "enable_topology_discovery",
-    title: "Топология сети",
-    desc: "Построение карты связей между устройствами (требует активный ONVIF/CGI профиль)."
-  },
-  {
-    id: "enable_threat_intel",
-    title: "Threat Intelligence",
-    desc: "Прикрепление к отчету ссылок на известные эксплойты и официальные бюллетени безопасности для данного вендора."
-  }
-];
+import { useAppStore } from './store/appStore';
 
 function normalizeTargetRecords(rawTargets) {
   const normalized = [];
@@ -106,19 +59,43 @@ export default function App() {
   const [hubSearch, setHubSearch] = useState('');
   const [hubResults, setHubResults] = useState([]);
 
-  // --- FTP STATES ---
-  const [ftpBrowserOpen, setFtpBrowserOpen] = useState(false);
-  const [activeServerAlias, setActiveServerAlias] = useState("video1");
-  const [ftpPath, setFtpPath] = useState("/");
-  const [ftpItems, setFtpItems] = useState([]);
-
-  // --- NEMESIS FUZZER STATES ---
-  const [fuzzLogin, setFuzzLogin] = useState("mvd");
-  const [fuzzPassword, setFuzzPassword] = useState("gpfZrw%9RVqp");
-  const [fuzzPath, setFuzzPath] = useState("video0/[Minsk_ul._FILIMONOVA_39_]/2026-02-19/cam02_00-03-10.mkv");
-  const [targetInput, setTargetInput] = useState('');
-  const [attackType, setAttackType] = useState('RTSP_BRUTE');
-  const [fuzzResults, setFuzzResults] = useState([]);
+  // --- GLOBAL STORE (Zustand) ---
+  const ftpBrowserOpen = useAppStore((s) => s.ftpBrowserOpen);
+  const setFtpBrowserOpen = useAppStore((s) => s.setFtpBrowserOpen);
+  const activeServerAlias = useAppStore((s) => s.activeServerAlias);
+  const setActiveServerAlias = useAppStore((s) => s.setActiveServerAlias);
+  const ftpPath = useAppStore((s) => s.ftpPath);
+  const setFtpPath = useAppStore((s) => s.setFtpPath);
+  const ftpItems = useAppStore((s) => s.ftpItems);
+  const setFtpItems = useAppStore((s) => s.setFtpItems);
+  const fuzzLogin = useAppStore((s) => s.fuzzLogin);
+  const setFuzzLogin = useAppStore((s) => s.setFuzzLogin);
+  const fuzzPassword = useAppStore((s) => s.fuzzPassword);
+  const setFuzzPassword = useAppStore((s) => s.setFuzzPassword);
+  const fuzzPath = useAppStore((s) => s.fuzzPath);
+  const setFuzzPath = useAppStore((s) => s.setFuzzPath);
+  const targetInput = useAppStore((s) => s.targetInput);
+  const setTargetInput = useAppStore((s) => s.setTargetInput);
+  const attackType = useAppStore((s) => s.attackType);
+  const setAttackType = useAppStore((s) => s.setAttackType);
+  const fuzzResults = useAppStore((s) => s.fuzzResults);
+  const setFuzzResults = useAppStore((s) => s.setFuzzResults);
+  const spiderMaxDepth = useAppStore((s) => s.spiderMaxDepth);
+  const spiderMaxPages = useAppStore((s) => s.spiderMaxPages);
+  const spiderDirBrute = useAppStore((s) => s.spiderDirBrute);
+  const spiderEnableVulnVerification = useAppStore((s) => s.spiderEnableVulnVerification);
+  const spiderEnableOsintImport = useAppStore((s) => s.spiderEnableOsintImport);
+  const spiderEnableTopologyDiscovery = useAppStore((s) => s.spiderEnableTopologyDiscovery);
+  const spiderEnableSnapshotRefresh = useAppStore((s) => s.spiderEnableSnapshotRefresh);
+  const spiderEnableVideoStreamAnalyzer = useAppStore((s) => s.spiderEnableVideoStreamAnalyzer);
+  const spiderEnableCredentialDepthAudit = useAppStore((s) => s.spiderEnableCredentialDepthAudit);
+  const spiderEnablePassiveArpDiscovery = useAppStore((s) => s.spiderEnablePassiveArpDiscovery);
+  const spiderEnableUptimeMonitoring = useAppStore((s) => s.spiderEnableUptimeMonitoring);
+  const spiderEnableNeighborDiscovery = useAppStore((s) => s.spiderEnableNeighborDiscovery);
+  const spiderEnableThreatIntel = useAppStore((s) => s.spiderEnableThreatIntel);
+  const spiderEnableScheduledAudits = useAppStore((s) => s.spiderEnableScheduledAudits);
+  const setSourceAnalysis = useAppStore((s) => s.setSourceAnalysis);
+  const setHubCookie = useAppStore((s) => s.setHubCookie);
 
   const [shodanResults, setShodanResults] = useState([]);
   const [portScanHost, setPortScanHost] = useState('');
@@ -156,7 +133,6 @@ export default function App() {
   const [archiveProbeResults, setArchiveProbeResults] = useState([]);
   const [implementationStatus, setImplementationStatus] = useState(null);
   const [auditResults, setAuditResults] = useState([]);
-  const [sourceAnalysis, setSourceAnalysis] = useState(null);
 
 
   // --- CAPTURE ARCHIVE STATE ---
@@ -180,47 +156,17 @@ export default function App() {
   });
   const [relayStatus, setRelayStatus] = useState(null);
 
-  // --- SPIDER ---
-  const [spiderTarget, setSpiderTarget] = useState('https://videodvor.by/stream/');
-  const [spiderMaxDepth, setSpiderMaxDepth] = useState(3);
-  const [spiderMaxPages, setSpiderMaxPages] = useState(50);
-  const [spiderDirBrute, setSpiderDirBrute] = useState(true);
-  const [spiderEnableVulnVerification, setSpiderEnableVulnVerification] = useState(false);
-  const [spiderEnableOsintImport, setSpiderEnableOsintImport] = useState(false);
-  const [spiderEnableTopologyDiscovery, setSpiderEnableTopologyDiscovery] = useState(false);
-  const [spiderEnableSnapshotRefresh, setSpiderEnableSnapshotRefresh] = useState(false);
-  const [spiderEnableVideoStreamAnalyzer, setSpiderEnableVideoStreamAnalyzer] = useState(false);
-  const [spiderEnableCredentialDepthAudit, setSpiderEnableCredentialDepthAudit] = useState(false);
-  const [spiderEnablePassiveArpDiscovery, setSpiderEnablePassiveArpDiscovery] = useState(false);
-  const [spiderEnableUptimeMonitoring, setSpiderEnableUptimeMonitoring] = useState(false);
-  const [spiderEnableNeighborDiscovery, setSpiderEnableNeighborDiscovery] = useState(false);
-  const [spiderEnableThreatIntel, setSpiderEnableThreatIntel] = useState(false);
-  const [spiderEnableScheduledAudits, setSpiderEnableScheduledAudits] = useState(false);
-
-  const spiderModuleStateMap = {
-    dir_bruteforce: [spiderDirBrute, setSpiderDirBrute],
-    enable_vuln_verification: [spiderEnableVulnVerification, setSpiderEnableVulnVerification],
-    enable_video_stream_analyzer: [spiderEnableVideoStreamAnalyzer, setSpiderEnableVideoStreamAnalyzer],
-    enable_passive_arp_discovery: [spiderEnablePassiveArpDiscovery, setSpiderEnablePassiveArpDiscovery],
-    enable_credential_depth_audit: [spiderEnableCredentialDepthAudit, setSpiderEnableCredentialDepthAudit],
-    enable_open_share_scanner: [spiderDirBrute, setSpiderDirBrute],
-    enable_osint_import: [spiderEnableOsintImport, setSpiderEnableOsintImport],
-    enable_topology_discovery: [spiderEnableTopologyDiscovery, setSpiderEnableTopologyDiscovery],
-    enable_threat_intel: [spiderEnableThreatIntel, setSpiderEnableThreatIntel],
-  };
-  const [spiderRunning, setSpiderRunning] = useState(false);
-  const [spiderReport, setSpiderReport] = useState(null);
-  const [spiderTab, setSpiderTab] = useState('pages'); // pages|js|dirs|tech|sitemap // null | 'ok' | 'error'
-
-  const hubConfig = {
-    cookie: "login=mvd; admin=d32e003ac0909010c412e0930b621f8f; PHPSESSID=d8qtnapeqlgrism37hkarq9mk5",
-  };
+  const hubConfig = { cookie: '' };
 
   const pollIntervalRef = useRef(null);
   const healthCheckRef = useRef(null);
   const activeTargetIdRef = useRef(null);
 
   useEffect(() => { loadTargets(); }, []);
+
+  useEffect(() => {
+    setHubCookie(hubConfig.cookie || '');
+  }, [setHubCookie]);
 
   useEffect(() => {
     invoke('get_implementation_status')
@@ -1336,16 +1282,7 @@ const handleSecurityAudit = async () => {
         </div>
       )}
 
-      <ArchiveViewer
-        ftpBrowserOpen={ftpBrowserOpen}
-        activeServerAlias={activeServerAlias}
-        setFtpBrowserOpen={setFtpBrowserOpen}
-        fetchFtpRoot={fetchFtpRoot}
-        ftpPath={ftpPath}
-        goBackFtp={goBackFtp}
-        ftpItems={ftpItems}
-        handleDownloadFtp={handleDownloadFtp}
-      />
+      <ArchiveViewer fetchFtpRoot={fetchFtpRoot} goBackFtp={goBackFtp} handleDownloadFtp={handleDownloadFtp} />
 
 
       <StreamGrid
@@ -1411,56 +1348,7 @@ const handleSecurityAudit = async () => {
         <MassAudit />
 
 
-        <SpiderControl
-          SPIDER_MODULES_CONFIG={SPIDER_MODULES_CONFIG}
-          spiderTarget={spiderTarget}
-          setSpiderTarget={setSpiderTarget}
-          spiderMaxDepth={spiderMaxDepth}
-          setSpiderMaxDepth={setSpiderMaxDepth}
-          spiderMaxPages={spiderMaxPages}
-          setSpiderMaxPages={setSpiderMaxPages}
-          spiderModuleStateMap={spiderModuleStateMap}
-          spiderEnableSnapshotRefresh={spiderEnableSnapshotRefresh}
-          setSpiderEnableSnapshotRefresh={setSpiderEnableSnapshotRefresh}
-          spiderEnableUptimeMonitoring={spiderEnableUptimeMonitoring}
-          setSpiderEnableUptimeMonitoring={setSpiderEnableUptimeMonitoring}
-          spiderEnableNeighborDiscovery={spiderEnableNeighborDiscovery}
-          setSpiderEnableNeighborDiscovery={setSpiderEnableNeighborDiscovery}
-          spiderEnableScheduledAudits={spiderEnableScheduledAudits}
-          setSpiderEnableScheduledAudits={setSpiderEnableScheduledAudits}
-          spiderRunning={spiderRunning}
-          setSpiderRunning={setSpiderRunning}
-          setSpiderReport={setSpiderReport}
-          setSpiderTab={setSpiderTab}
-          spiderDirBrute={spiderDirBrute}
-          spiderEnableVulnVerification={spiderEnableVulnVerification}
-          spiderEnableOsintImport={spiderEnableOsintImport}
-          spiderEnableTopologyDiscovery={spiderEnableTopologyDiscovery}
-          spiderEnableVideoStreamAnalyzer={spiderEnableVideoStreamAnalyzer}
-          spiderEnableCredentialDepthAudit={spiderEnableCredentialDepthAudit}
-          spiderEnablePassiveArpDiscovery={spiderEnablePassiveArpDiscovery}
-          spiderEnableThreatIntel={spiderEnableThreatIntel}
-          spiderReport={spiderReport}
-          spiderTab={spiderTab}
-          targetInput={targetInput}
-          setTargetInput={setTargetInput}
-          attackType={attackType}
-          setAttackType={setAttackType}
-          fuzzResults={fuzzResults}
-          setFuzzResults={setFuzzResults}
-          handlePlayFuzzedLink={handlePlayFuzzedLink}
-          fuzzLogin={fuzzLogin}
-          setFuzzLogin={setFuzzLogin}
-          fuzzPassword={fuzzPassword}
-          setFuzzPassword={setFuzzPassword}
-          fuzzPath={fuzzPath}
-          setFuzzPath={setFuzzPath}
-          handleStartNemesis={handleStartNemesis}
-          handleAnalyzeSources={handleAnalyzeSources}
-          sourceAnalysis={sourceAnalysis}
-          invoke={invoke}
-          hubConfig={hubConfig}
-        />
+        <SpiderControl handleStartNemesis={handleStartNemesis} handleAnalyzeSources={handleAnalyzeSources} handlePlayFuzzedLink={handlePlayFuzzedLink} />
 
 
         {/* =============== РАЗВЕДКА АРХИВНЫХ МАРШРУТОВ =============== */}

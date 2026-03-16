@@ -1,12 +1,18 @@
-import React, { useState } from 'react';
+import React from 'react';
 import { invoke } from '@tauri-apps/api/core';
+import { useAppStore } from '../../store/appStore';
 
 export default function MassAudit() {
-  const [massAuditIps, setMassAuditIps] = useState('');
-  const [massAuditLogin, setMassAuditLogin] = useState('admin');
-  const [massAuditPass, setMassAuditPass] = useState('');
-  const [massAuditResults, setMassAuditResults] = useState([]);
-  const [massAuditing, setMassAuditing] = useState(false);
+  const massAuditIps = useAppStore((s) => s.massAuditIps);
+  const massAuditLogin = useAppStore((s) => s.massAuditLogin);
+  const massAuditPass = useAppStore((s) => s.massAuditPass);
+  const massAuditResults = useAppStore((s) => s.massAuditResults);
+  const massAuditing = useAppStore((s) => s.massAuditing);
+  const setMassAuditIps = useAppStore((s) => s.setMassAuditIps);
+  const setMassAuditLogin = useAppStore((s) => s.setMassAuditLogin);
+  const setMassAuditPass = useAppStore((s) => s.setMassAuditPass);
+  const setMassAuditResults = useAppStore((s) => s.setMassAuditResults);
+  const setMassAuditing = useAppStore((s) => s.setMassAuditing);
 
   const handleMassAudit = async () => {
     if (!massAuditIps.trim()) return;
@@ -32,7 +38,6 @@ export default function MassAudit() {
       });
       setMassAuditResults(results);
     } catch (error) {
-      console.error('Ошибка массового аудита:', error);
       alert(`Ошибка массового аудита: ${error}`);
     } finally {
       setMassAuditing(false);
@@ -52,33 +57,13 @@ export default function MassAudit() {
     <div style={{ border: '1px solid #6a88ff', padding: '10px', backgroundColor: '#090f1f', marginBottom: '20px', boxShadow: '0 0 10px rgba(106,136,255,0.15)' }}>
       <h3 style={{ color: '#9fc2ff', marginTop: 0, fontSize: '0.9rem' }}>🚀 ПАКЕТНАЯ ИНВЕНТАРИЗАЦИЯ (PTES Batch Auditor)</h3>
       <div style={{ display: 'flex', gap: '6px', marginBottom: '6px' }}>
-        <input
-          style={{ flex: 1, backgroundColor: '#000', border: '1px solid #6a88ff', color: '#9fc2ff', padding: '6px', boxSizing: 'border-box', fontSize: '11px' }}
-          placeholder="Логин"
-          value={massAuditLogin}
-          onChange={(e) => setMassAuditLogin(e.target.value)}
-        />
-        <input
-          type="password"
-          style={{ flex: 1, backgroundColor: '#000', border: '1px solid #6a88ff', color: '#9fc2ff', padding: '6px', boxSizing: 'border-box', fontSize: '11px' }}
-          placeholder="Пароль"
-          value={massAuditPass}
-          onChange={(e) => setMassAuditPass(e.target.value)}
-        />
+        <input style={{ flex: 1, backgroundColor: '#000', border: '1px solid #6a88ff', color: '#9fc2ff', padding: '6px', fontSize: '11px' }} placeholder="Логин" value={massAuditLogin} onChange={(e) => setMassAuditLogin(e.target.value)} />
+        <input type="password" style={{ flex: 1, backgroundColor: '#000', border: '1px solid #6a88ff', color: '#9fc2ff', padding: '6px', fontSize: '11px' }} placeholder="Пароль" value={massAuditPass} onChange={(e) => setMassAuditPass(e.target.value)} />
       </div>
 
-      <textarea
-        style={{ width: '100%', minHeight: '70px', backgroundColor: '#000', border: '1px solid #6a88ff', color: '#9fc2ff', padding: '6px', boxSizing: 'border-box', fontSize: '11px', marginBottom: '8px' }}
-        placeholder="IP через запятую/пробел"
-        value={massAuditIps}
-        onChange={(e) => setMassAuditIps(e.target.value)}
-      />
+      <textarea style={{ width: '100%', minHeight: '70px', backgroundColor: '#000', border: '1px solid #6a88ff', color: '#9fc2ff', padding: '6px', fontSize: '11px', marginBottom: '8px' }} placeholder="IP через запятую/пробел" value={massAuditIps} onChange={(e) => setMassAuditIps(e.target.value)} />
 
-      <button
-        disabled={massAuditing}
-        onClick={handleMassAudit}
-        style={{ width: '100%', backgroundColor: massAuditing ? '#334' : '#6a88ff', color: '#fff', border: 'none', padding: '8px', cursor: massAuditing ? 'default' : 'pointer', fontWeight: 'bold' }}
-      >
+      <button disabled={massAuditing} onClick={handleMassAudit} style={{ width: '100%', backgroundColor: massAuditing ? '#334' : '#6a88ff', color: '#fff', border: 'none', padding: '8px', cursor: massAuditing ? 'default' : 'pointer', fontWeight: 'bold' }}>
         {massAuditing ? '⏳ Идет сканирование...' : 'Запустить массовый аудит'}
       </button>
 
@@ -89,33 +74,7 @@ export default function MassAudit() {
               <div><b>{res.ip}</b></div>
               <div>{res.is_alive ? '🟢 Доступен (554)' : '🔴 Недоступен'}</div>
               <div>{res.creds_reused ? '🚨 Пароль подошел!' : '✅ Reuse не подтвержден'}</div>
-              {res.is_alive && (
-                <div style={{ marginTop: '4px', display: 'flex', gap: '5px' }}>
-                  <button
-                    onClick={() => handleGetMetadata(res.ip)}
-                    style={{ background: '#16264f', border: '1px solid #6a88ff', color: '#9fc2ff', padding: '4px 8px', cursor: 'pointer', fontSize: '10px' }}
-                  >
-                    SDP метаданные
-                  </button>
-                  <button
-                    onClick={async () => {
-                      try {
-                        alert('Запуск Docker safe-check... Пожалуйста, подождите (до 15 сек).');
-                        const report = await invoke('verify_exploit_docker', {
-                          ip: res.ip,
-                          exploitType: 'hikvision',
-                        });
-                        alert(report);
-                      } catch (e) {
-                        alert(`Ошибка: ${e}`);
-                      }
-                    }}
-                    style={{ background: '#4a1a1a', border: '1px solid #d32f2f', color: '#ffb3b3', padding: '4px 8px', cursor: 'pointer', fontSize: '10px' }}
-                  >
-                    🧪 Docker Safe Check
-                  </button>
-                </div>
-              )}
+              {res.is_alive && <button onClick={() => handleGetMetadata(res.ip)} style={{ marginTop: 4, background: '#16264f', border: '1px solid #6a88ff', color: '#9fc2ff', padding: '4px 8px', cursor: 'pointer', fontSize: '10px' }}>SDP метаданные</button>}
             </div>
           ))}
         </div>

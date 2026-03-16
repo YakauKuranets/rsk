@@ -1,0 +1,7 @@
+{
+  "name": "zustand",
+  "version": "0.0.0-local",
+  "main": "index.js",
+  "module": "index.js",
+  "type": "module"
+}

@@ -1,55 +1,81 @@
 import React from 'react';
+import { invoke } from '@tauri-apps/api/core';
+import { SPIDER_MODULES_CONFIG, useAppStore } from '../../store/appStore';
 
-export default function SpiderControl({
-  SPIDER_MODULES_CONFIG,
-  spiderTarget,
-  setSpiderTarget,
-  spiderMaxDepth,
-  setSpiderMaxDepth,
-  spiderMaxPages,
-  setSpiderMaxPages,
-  spiderModuleStateMap,
-  spiderEnableSnapshotRefresh,
-  setSpiderEnableSnapshotRefresh,
-  spiderEnableUptimeMonitoring,
-  setSpiderEnableUptimeMonitoring,
-  spiderEnableNeighborDiscovery,
-  setSpiderEnableNeighborDiscovery,
-  spiderEnableScheduledAudits,
-  setSpiderEnableScheduledAudits,
-  spiderRunning,
-  setSpiderRunning,
-  setSpiderReport,
-  setSpiderTab,
-  spiderDirBrute,
-  spiderEnableVulnVerification,
-  spiderEnableOsintImport,
-  spiderEnableTopologyDiscovery,
-  spiderEnableVideoStreamAnalyzer,
-  spiderEnableCredentialDepthAudit,
-  spiderEnablePassiveArpDiscovery,
-  spiderEnableThreatIntel,
-  spiderReport,
-  spiderTab,
-  targetInput,
-  setTargetInput,
-  attackType,
-  setAttackType,
-  fuzzResults,
-  setFuzzResults,
-  handlePlayFuzzedLink,
-  fuzzLogin,
-  setFuzzLogin,
-  fuzzPassword,
-  setFuzzPassword,
-  fuzzPath,
-  setFuzzPath,
-  handleStartNemesis,
-  handleAnalyzeSources,
-  sourceAnalysis,
-  invoke,
-  hubConfig
-}) {
+export default function SpiderControl({ handleStartNemesis, handleAnalyzeSources, handlePlayFuzzedLink }) {
+  const spiderTarget = useAppStore((s) => s.spiderTarget);
+  const setSpiderTarget = useAppStore((s) => s.setSpiderTarget);
+  const spiderMaxDepth = useAppStore((s) => s.spiderMaxDepth);
+  const setSpiderMaxDepth = useAppStore((s) => s.setSpiderMaxDepth);
+  const spiderMaxPages = useAppStore((s) => s.spiderMaxPages);
+  const setSpiderMaxPages = useAppStore((s) => s.setSpiderMaxPages);
+  const spiderDirBrute = useAppStore((s) => s.spiderDirBrute);
+  const setSpiderDirBrute = useAppStore((s) => s.setSpiderDirBrute);
+  const spiderEnableVulnVerification = useAppStore((s) => s.spiderEnableVulnVerification);
+  const setSpiderEnableVulnVerification = useAppStore((s) => s.setSpiderEnableVulnVerification);
+  const spiderEnableVideoStreamAnalyzer = useAppStore((s) => s.spiderEnableVideoStreamAnalyzer);
+  const setSpiderEnableVideoStreamAnalyzer = useAppStore((s) => s.setSpiderEnableVideoStreamAnalyzer);
+  const spiderEnableCredentialDepthAudit = useAppStore((s) => s.spiderEnableCredentialDepthAudit);
+  const setSpiderEnableCredentialDepthAudit = useAppStore((s) => s.setSpiderEnableCredentialDepthAudit);
+  const spiderEnablePassiveArpDiscovery = useAppStore((s) => s.spiderEnablePassiveArpDiscovery);
+  const setSpiderEnablePassiveArpDiscovery = useAppStore((s) => s.setSpiderEnablePassiveArpDiscovery);
+  const spiderEnableOsintImport = useAppStore((s) => s.spiderEnableOsintImport);
+  const setSpiderEnableOsintImport = useAppStore((s) => s.setSpiderEnableOsintImport);
+  const spiderEnableTopologyDiscovery = useAppStore((s) => s.spiderEnableTopologyDiscovery);
+  const setSpiderEnableTopologyDiscovery = useAppStore((s) => s.setSpiderEnableTopologyDiscovery);
+  const spiderEnableThreatIntel = useAppStore((s) => s.spiderEnableThreatIntel);
+  const setSpiderEnableThreatIntel = useAppStore((s) => s.setSpiderEnableThreatIntel);
+  const spiderEnableSnapshotRefresh = useAppStore((s) => s.spiderEnableSnapshotRefresh);
+  const setSpiderEnableSnapshotRefresh = useAppStore((s) => s.setSpiderEnableSnapshotRefresh);
+  const spiderEnableUptimeMonitoring = useAppStore((s) => s.spiderEnableUptimeMonitoring);
+  const setSpiderEnableUptimeMonitoring = useAppStore((s) => s.setSpiderEnableUptimeMonitoring);
+  const spiderEnableNeighborDiscovery = useAppStore((s) => s.spiderEnableNeighborDiscovery);
+  const setSpiderEnableNeighborDiscovery = useAppStore((s) => s.setSpiderEnableNeighborDiscovery);
+  const spiderEnableScheduledAudits = useAppStore((s) => s.spiderEnableScheduledAudits);
+  const setSpiderEnableScheduledAudits = useAppStore((s) => s.setSpiderEnableScheduledAudits);
+  const spiderRunning = useAppStore((s) => s.spiderRunning);
+  const setSpiderRunning = useAppStore((s) => s.setSpiderRunning);
+  const spiderReport = useAppStore((s) => s.spiderReport);
+  const setSpiderReport = useAppStore((s) => s.setSpiderReport);
+  const spiderTab = useAppStore((s) => s.spiderTab);
+  const setSpiderTab = useAppStore((s) => s.setSpiderTab);
+  const targetInput = useAppStore((s) => s.targetInput);
+  const setTargetInput = useAppStore((s) => s.setTargetInput);
+  const attackType = useAppStore((s) => s.attackType);
+  const setAttackType = useAppStore((s) => s.setAttackType);
+  const fuzzResults = useAppStore((s) => s.fuzzResults);
+  const fuzzLogin = useAppStore((s) => s.fuzzLogin);
+  const setFuzzLogin = useAppStore((s) => s.setFuzzLogin);
+  const fuzzPassword = useAppStore((s) => s.fuzzPassword);
+  const setFuzzPassword = useAppStore((s) => s.setFuzzPassword);
+  const fuzzPath = useAppStore((s) => s.fuzzPath);
+  const setFuzzPath = useAppStore((s) => s.setFuzzPath);
+  const sourceAnalysis = useAppStore((s) => s.sourceAnalysis);
+  const hubCookie = useAppStore((s) => s.hubCookie);
+
+  const spiderModuleStateMap = {
+    dir_bruteforce: [spiderDirBrute, setSpiderDirBrute],
+    enable_vuln_verification: [spiderEnableVulnVerification, setSpiderEnableVulnVerification],
+    enable_video_stream_analyzer: [spiderEnableVideoStreamAnalyzer, setSpiderEnableVideoStreamAnalyzer],
+    enable_passive_arp_discovery: [spiderEnablePassiveArpDiscovery, setSpiderEnablePassiveArpDiscovery],
+    enable_credential_depth_audit: [spiderEnableCredentialDepthAudit, setSpiderEnableCredentialDepthAudit],
+    enable_open_share_scanner: [spiderDirBrute, setSpiderDirBrute],
+    enable_osint_import: [spiderEnableOsintImport, setSpiderEnableOsintImport],
+    enable_topology_discovery: [spiderEnableTopologyDiscovery, setSpiderEnableTopologyDiscovery],
+    enable_threat_intel: [spiderEnableThreatIntel, setSpiderEnableThreatIntel],
+  };
+
+  const formatBytes = (bytes) => {
+    if (!bytes) return '0 B';
+    const units = ['B', 'KB', 'MB', 'GB'];
+    let value = bytes;
+    let idx = 0;
+    while (value >= 1024 && idx < units.length - 1) {
+      value /= 1024;
+      idx += 1;
+    }
+    return `${value.toFixed(idx === 0 ? 0 : 1)} ${units[idx]}`;
+  };
   return (
     <>
         {/* =============== 🕷️ SPIDER — УЛЬТИМАТИВНЫЙ ПАУК =============== */}
@@ -103,7 +129,7 @@ export default function SpiderControl({
               try {
                 const report = await invoke('spider_full_scan', {
                   targetUrl: spiderTarget.trim(),
-                  cookie: hubConfig.cookie || null,
+                  cookie: hubCookie || null,
                   maxDepth: spiderMaxDepth,
                   maxPages: spiderMaxPages,
                   dirBruteforce: spiderDirBrute,
