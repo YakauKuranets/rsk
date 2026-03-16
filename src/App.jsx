@@ -1339,14 +1339,20 @@ const handleSecurityAudit = async () => {
     setMassAuditing(true);
     setMassAuditResults([]);
 
-    const ipList = massAuditIps
-      .split(/[\s,]+/)
-      .map((ip) => ip.trim())
-      .filter((ip) => ip.length > 0);
+    // 🧠 Умный парсер: извлекаем только IPv4 адреса из любого текста
+    const ipRegex = /\b(?:[0-9]{1,3}\.){3}[0-9]{1,3}\b/g;
+    const extractedIps = massAuditIps.match(ipRegex) || [];
+    const uniqueIps = [...new Set(extractedIps)];
+
+    if (uniqueIps.length === 0) {
+      alert('В тексте не найдено валидных IP-адресов!');
+      setMassAuditing(false);
+      return;
+    }
 
     try {
       const results = await invoke('run_mass_audit', {
-        targetIps: ipList,
+        targetIps: uniqueIps,
         knownLogin: massAuditLogin,
         knownPass: massAuditPass,
       });
