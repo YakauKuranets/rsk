@@ -28,6 +28,7 @@ mod ffmpeg;
 mod fuzzer;
 mod knowledge;
 mod nexus;
+pub mod persistence_checker;
 pub mod session_checker;
 pub mod spider;
 mod streaming;
@@ -6500,6 +6501,7 @@ fn main() {
             session_checker::check_session_security,
             api_fuzzer::run_api_fuzzer,
             vuln_scanner::verify_vulnerabilities,
+            persistence_checker::assess_persistence_risk,
             // ---------------------------------------------
             // 🛡️ НОВЫЙ МОДУЛЬ ГЛУБОКОГО АУДИТА (ЦМУС)
             // ---------------------------------------------
