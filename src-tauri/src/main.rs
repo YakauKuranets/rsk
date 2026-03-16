@@ -28,6 +28,8 @@ pub mod exploit_searcher;
 mod ffmpeg;
 mod fuzzer;
 mod knowledge;
+pub mod mass_auditor;
+pub mod metadata_extractor;
 mod nexus;
 pub mod persistence_checker;
 pub mod session_checker;
@@ -6506,6 +6508,8 @@ fn main() {
             persistence_checker::assess_persistence_risk,
             subnet_scanner::scan_neighborhood,
             exploit_searcher::search_public_exploits,
+            mass_auditor::run_mass_audit,
+            metadata_extractor::collect_metadata,
             // ---------------------------------------------
             // 🛡️ НОВЫЙ МОДУЛЬ ГЛУБОКОГО АУДИТА (ЦМУС)
             // ---------------------------------------------
