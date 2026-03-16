@@ -63,6 +63,36 @@ async fn fingerprint_vendor_deep(ip: &str) -> &'static str {
     "unknown"
 }
 
+/// Мгновенная проверка существования пути через сырой RTSP-запрос (занимает ~50мс)
+async fn fast_rtsp_check(host: &str, full_url: &str) -> bool {
+    let addr = format!("{}:554", host);
+
+    // Пытаемся быстро подключиться
+    if let Ok(Ok(mut stream)) =
+        tokio::time::timeout(Duration::from_millis(800), TcpStream::connect(&addr)).await
+    {
+        // Формируем стандартный RTSP запрос
+        let request = format!("OPTIONS {} RTSP/1.0\r\nCSeq: 1\r\n\r\n", full_url);
+
+        if stream.write_all(request.as_bytes()).await.is_ok() {
+            let mut buf = [0; 512];
+            // Ждем ответа
+            if let Ok(Ok(n)) =
+                tokio::time::timeout(Duration::from_millis(800), stream.read(&mut buf)).await
+            {
+                let response = String::from_utf8_lossy(&buf[..n]);
+
+                // Если камера вернула 404, пути точно нет.
+                // Если 200 OK или 401 Unauthorized - путь существует.
+                if !response.contains("404 Not Found") && response.contains("RTSP/1.0") {
+                    return true;
+                }
+            }
+        }
+    }
+    false
+}
+
 /// Перебор (фаззинг) RTSP путей для поиска рабочего видеопотока
 #[command]
 pub async fn probe_rtsp_path(host: String, login: String, pass: String) -> Result<String, String> {
@@ -211,8 +241,19 @@ pub async fn probe_rtsp_path(host: String, login: String, pass: String) -> Resul
         }
     }
 
-    // 🚀 ЭТАП 3: Молниеносная проверка пути через FFmpeg
+    // 🚀 ЭТАП 3: Проверка путей
     for url in urls {
+        // ⚡ ТУРБО-СКОРОСТЬ: Мгновенный микро-пинг отсеивает мусорные пути за ~50мс
+        if !fast_rtsp_check(&rtsp_host, &url).await {
+            println!("[SPIDER] ⚡ Быстрый сброс несуществующего пути: {}", url);
+            continue; // Пропускаем тяжелый FFmpeg
+        }
+
+        println!(
+            "[SPIDER] 🎯 Путь существует, запускаем глубокую FFmpeg проверку: {}",
+            url
+        );
+
         let s = std::process::Command::new(&ffmpeg)
             .args(crate::ffmpeg::FfmpegProfiles::probe(&url))
             .status();
