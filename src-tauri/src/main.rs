@@ -24,6 +24,7 @@ mod archive;
 mod archive_ai;
 mod auditor;
 mod breach_analyzer;
+pub mod broker;
 pub mod exploit_searcher;
 pub mod exploit_verifier;
 mod ffmpeg;
@@ -6506,7 +6507,8 @@ fn main() {
             spider::fuzz_cctv_api,
             relay_ping,
             relay_list_files,
-            relay_download_file
+            relay_download_file,
+            broker::test_broker_connection
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
