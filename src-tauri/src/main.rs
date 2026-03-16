@@ -23,6 +23,7 @@ mod archive;
 mod archive_ai;
 mod ffmpeg;
 mod fuzzer;
+mod knowledge;
 mod nexus;
 pub mod spider;
 mod streaming;

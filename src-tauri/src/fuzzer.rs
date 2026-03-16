@@ -67,12 +67,36 @@ async fn fingerprint_vendor_deep(ip: &str) -> &'static str {
 #[command]
 pub async fn probe_rtsp_path(host: String, login: String, pass: String) -> Result<String, String> {
     let rtsp_host = crate::normalize_host_for_scan(&host);
+    let km = crate::knowledge::KnowledgeManager::new();
+    let history = km.load_all();
+    let ffmpeg = crate::get_ffmpeg_path();
 
-    // 🕵️‍♂️ ЭТАП 1: TCP/RTSP Fingerprinting (Обход NAT и файрволов)
+    // 🧠 ЭТАП 0: Проверка памяти (Feedback Learning)
+    if let Some(exp) = history.get(&rtsp_host) {
+        println!(
+            "[KNOWLEDGE] Найдена запись для {}. Проверяем сохраненный путь...",
+            rtsp_host
+        );
+        let s = std::process::Command::new(&ffmpeg)
+            .args(crate::ffmpeg::FfmpegProfiles::probe(&exp.successful_path))
+            .status();
+        if let Ok(status) = s {
+            if status.success() {
+                println!(
+                    "[KNOWLEDGE] Сохраненный путь актуален: {}",
+                    exp.successful_path
+                );
+                return Ok(exp.successful_path.clone());
+            }
+        }
+        println!("[KNOWLEDGE] Сохраненный путь устарел. Начинаем глубокую разведку.");
+    }
+
+    // 🕵️‍♂️ ЭТАП 1: TCP/RTSP Fingerprinting (Твой текущий код разведки)
     let vendor = fingerprint_vendor_deep(&rtsp_host).await;
 
     println!(
-        "[SPIDER] Умная Разведка (Порты + RTSP) IP {}: Вендор = {}",
+        "[SPIDER] Умная Разведка IP {}: Вендор = {}",
         rtsp_host, vendor
     );
 
@@ -125,7 +149,6 @@ pub async fn probe_rtsp_path(host: String, login: String, pass: String) -> Resul
     }
 
     // 🚀 ЭТАП 3: Молниеносная проверка пути через FFmpeg
-    let ffmpeg = crate::get_ffmpeg_path();
     for url in urls {
         let s = std::process::Command::new(&ffmpeg)
             .args(crate::ffmpeg::FfmpegProfiles::probe(&url))
@@ -134,15 +157,19 @@ pub async fn probe_rtsp_path(host: String, login: String, pass: String) -> Resul
         if let Ok(status) = s {
             if status.success() {
                 println!("[SPIDER] Успешный перехват потока: {}", url);
+                km.save_success(&rtsp_host, vendor, &url, &login, &pass);
                 return Ok(url);
             }
         }
     }
 
-    Ok(format!(
+    let fallback_url = format!(
         "rtsp://{}:{}@{}:554/Streaming/Channels/101",
         login, pass, rtsp_host
-    ))
+    );
+    km.save_success(&rtsp_host, vendor, &fallback_url, &login, &pass);
+
+    Ok(fallback_url)
 }
 
 /// Фаззинг GET-параметров для поиска скрытых архивов (NEMESIS)
