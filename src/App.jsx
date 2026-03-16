@@ -1319,6 +1319,13 @@ const handleSecurityAudit = async () => {
 
 
 
+  const handleTestBrokerConnection = () => {
+    console.log("Попытка отправки данных в Redpanda...");
+    invoke('test_broker_connection', { message: "TEST_LEAK: IP 192.168.1.5 -> root:toor" })
+      .then(res => console.log("🟢 ОТВЕТ ОТ БРОКЕРА:", res))
+      .catch(err => console.error("🔴 ОШИБКА БРОКЕРА:", err));
+  };
+
   return (
     <div style={{ display: 'flex', height: '100vh', width: '100vw', backgroundColor: '#0a0a0c', color: '#fff', fontFamily: 'monospace' }}>
 
@@ -1363,6 +1370,23 @@ const handleSecurityAudit = async () => {
 
       <div style={{ width: '400px', backgroundColor: '#111115', borderLeft: '2px solid #ff003c', padding: '20px', overflowY: 'auto' }}>
         <h2 style={{ color: '#ff003c', fontSize: '1.2rem', marginBottom: '20px' }}>HYPERION NODE</h2>
+
+        <button
+          onClick={handleTestBrokerConnection}
+          style={{
+            padding: '12px 24px',
+            background: '#ff0044',
+            color: 'white',
+            fontWeight: 'bold',
+            margin: '15px 0',
+            border: 'none',
+            borderRadius: '6px',
+            cursor: 'pointer',
+            boxShadow: '0 4px 6px rgba(0,0,0,0.3)'
+          }}
+        >
+          🔥 ТЕСТ REDPANDA 🔥
+        </button>
 
         <div style={{ border: '1px solid #2f9a4f', padding: '10px', backgroundColor: '#07130b', marginBottom: '20px' }}>
           <h3 style={{ color: '#7dff9c', marginTop: '0', fontSize: '0.9rem' }}>📌 СТАТУС РЕАЛИЗАЦИИ</h3>
