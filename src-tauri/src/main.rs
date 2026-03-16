@@ -45,10 +45,9 @@ use tokio::sync::Mutex as TokioMutex;
 use tokio::sync::Semaphore;
 use tokio::{
     io::AsyncReadExt,
-    net::TcpStream,
     process::{Child as TokioChild, ChildStdout as TokioChildStdout},
     task::JoinHandle,
-    time::{timeout, Duration},
+    time::Duration,
 };
 use warp::Filter;
 

@@ -1,4 +1,3 @@
-use std::process::Command;
 use std::time::Duration;
 use tauri::command;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
@@ -144,7 +143,7 @@ fn build_path_candidates(vendor: &str, host: &str, login: &str, pass: &str) -> V
     urls
 }
 
-async fn fast_rtsp_probe(rtsp_host: &str, url: &str, ffmpeg: &str) -> bool {
+async fn fast_rtsp_probe(rtsp_host: &str, url: &str, ffmpeg: &std::path::Path) -> bool {
     if !fast_rtsp_check(rtsp_host, url).await {
         println!("[SPIDER] ⚡ Быстрый сброс несуществующего пути: {}", url);
         return false;
@@ -274,7 +273,7 @@ pub async fn probe_rtsp_path(host: String, login: String, pass: String) -> Resul
 
     // 🚀 ЭТАП 3: Проверка путей
     for url in urls {
-        if fast_rtsp_probe(&rtsp_host, &url, &ffmpeg).await {
+        if fast_rtsp_probe(&rtsp_host, &url, ffmpeg.as_path()).await {
             println!("[SPIDER] Успешный перехват потока: {}", url);
             persist_knowledge(&km, &rtsp_host, vendor, &url, &login, &pass);
             schedule_ptes_audit(rtsp_host.clone(), vendor.to_string());
