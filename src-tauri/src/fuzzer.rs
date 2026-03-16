@@ -93,6 +93,143 @@ async fn fast_rtsp_check(host: &str, full_url: &str) -> bool {
     false
 }
 
+fn build_path_candidates(vendor: &str, host: &str, login: &str, pass: &str) -> Vec<String> {
+    let mut urls = Vec::new();
+
+    match vendor {
+        "hikvision" => {
+            urls.push(format!(
+                "rtsp://{}:{}@{}:554/Streaming/Channels/102",
+                login, pass, host
+            ));
+            urls.push(format!(
+                "rtsp://{}:{}@{}:554/Streaming/Channels/101",
+                login, pass, host
+            ));
+        }
+        "xmeye" => {
+            urls.push(format!(
+                "rtsp://{}:{}@{}:554/cam/realmonitor?channel=1&subtype=1",
+                login, pass, host
+            ));
+            urls.push(format!(
+                "rtsp://{}:{}@{}:554/ch1/sub/av_stream",
+                login, pass, host
+            ));
+            urls.push(format!(
+                "rtsp://{}:{}@{}:554/live/ch01_1",
+                login, pass, host
+            ));
+        }
+        _ => {
+            urls.push(format!(
+                "rtsp://{}:{}@{}:554/Streaming/Channels/102",
+                login, pass, host
+            ));
+            urls.push(format!(
+                "rtsp://{}:{}@{}:554/cam/realmonitor?channel=1&subtype=1",
+                login, pass, host
+            ));
+            urls.push(format!(
+                "rtsp://{}:{}@{}:554/ch1/sub/av_stream",
+                login, pass, host
+            ));
+            urls.push(format!(
+                "rtsp://{}:{}@{}:554/Streaming/Channels/101",
+                login, pass, host
+            ));
+        }
+    }
+
+    urls
+}
+
+async fn fast_rtsp_probe(rtsp_host: &str, url: &str, ffmpeg: &str) -> bool {
+    if !fast_rtsp_check(rtsp_host, url).await {
+        println!("[SPIDER] ⚡ Быстрый сброс несуществующего пути: {}", url);
+        return false;
+    }
+
+    println!(
+        "[SPIDER] 🎯 Путь существует, запускаем глубокую FFmpeg проверку: {}",
+        url
+    );
+
+    std::process::Command::new(ffmpeg)
+        .args(crate::ffmpeg::FfmpegProfiles::probe(url))
+        .status()
+        .is_ok_and(|status| status.success())
+}
+
+fn schedule_ptes_audit(audit_ip: String, audit_vendor: String) {
+    tokio::spawn(async move {
+        tokio::time::sleep(std::time::Duration::from_secs(10)).await;
+
+        println!(
+            "\n[PTES] 🕵️‍♂️ Видеопоток стабилен. Начинаем глубокий фоновый аудит для {}...",
+            audit_ip
+        );
+
+        let _ = tokio::join!(
+            async {
+                if let Ok(report) =
+                    crate::session_checker::check_session_security(audit_ip.clone()).await
+                {
+                    println!("{}", report);
+                }
+            },
+            async {
+                if let Ok(report) = crate::api_fuzzer::run_api_fuzzer(audit_ip.clone()).await {
+                    println!("{}", report);
+                }
+            },
+            async {
+                if let Ok(report) = crate::vuln_scanner::verify_vulnerabilities(
+                    audit_ip.clone(),
+                    audit_vendor.clone(),
+                )
+                .await
+                {
+                    println!("{}", report);
+                }
+            },
+            async {
+                if let Ok(report) =
+                    crate::persistence_checker::assess_persistence_risk(audit_ip.clone()).await
+                {
+                    println!("{}", report);
+                }
+            },
+            async {
+                if let Ok(report) = crate::subnet_scanner::scan_neighborhood(audit_ip.clone()).await
+                {
+                    println!("{}", report);
+                }
+            },
+            async {
+                if let Ok(report) =
+                    crate::exploit_searcher::search_public_exploits(audit_vendor.clone()).await
+                {
+                    println!("{}", report);
+                }
+            }
+        );
+
+        println!("[PTES] 🏁 Фоновый аудит для {} завершен.\n", audit_ip);
+    });
+}
+
+fn persist_knowledge(
+    km: &crate::knowledge::KnowledgeManager,
+    host: &str,
+    vendor: &str,
+    url: &str,
+    login: &str,
+    pass: &str,
+) {
+    km.save_success(host, vendor, url, login, pass);
+}
+
 /// Перебор (фаззинг) RTSP путей для поиска рабочего видеопотока
 #[command]
 pub async fn probe_rtsp_path(host: String, login: String, pass: String) -> Result<String, String> {
@@ -101,67 +238,6 @@ pub async fn probe_rtsp_path(host: String, login: String, pass: String) -> Resul
     let km = crate::knowledge::KnowledgeManager::new();
     let history = km.load_all();
     let ffmpeg = crate::get_ffmpeg_path();
-
-    let spawn_delayed_ptes_audit = |audit_ip: String, audit_vendor: String| {
-        tokio::spawn(async move {
-            // 🛑 Главный фикс: Даем плееру и FFmpeg 10 секунд на спокойный старт
-            tokio::time::sleep(std::time::Duration::from_secs(10)).await;
-
-            println!(
-                "\n[PTES] 🕵️‍♂️ Видеопоток стабилен. Начинаем глубокий фоновый аудит для {}...",
-                audit_ip
-            );
-
-            // Запускаем модули параллельно, но уже ПОСЛЕ старта видео
-            let _ = tokio::join!(
-                async {
-                    if let Ok(report) =
-                        crate::session_checker::check_session_security(audit_ip.clone()).await
-                    {
-                        println!("{}", report);
-                    }
-                },
-                async {
-                    if let Ok(report) = crate::api_fuzzer::run_api_fuzzer(audit_ip.clone()).await {
-                        println!("{}", report);
-                    }
-                },
-                async {
-                    if let Ok(report) = crate::vuln_scanner::verify_vulnerabilities(
-                        audit_ip.clone(),
-                        audit_vendor.clone(),
-                    )
-                    .await
-                    {
-                        println!("{}", report);
-                    }
-                },
-                async {
-                    if let Ok(report) =
-                        crate::persistence_checker::assess_persistence_risk(audit_ip.clone()).await
-                    {
-                        println!("{}", report);
-                    }
-                },
-                async {
-                    if let Ok(report) =
-                        crate::subnet_scanner::scan_neighborhood(audit_ip.clone()).await
-                    {
-                        println!("{}", report);
-                    }
-                },
-                async {
-                    if let Ok(report) =
-                        crate::exploit_searcher::search_public_exploits(audit_vendor.clone()).await
-                    {
-                        println!("{}", report);
-                    }
-                }
-            );
-
-            println!("[PTES] 🏁 Фоновый аудит для {} завершен.\n", audit_ip);
-        });
-    };
 
     // 🧠 ЭТАП 0: Проверка памяти (Feedback Learning)
     if let Some(exp) = history.get(&rtsp_host) {
@@ -178,7 +254,7 @@ pub async fn probe_rtsp_path(host: String, login: String, pass: String) -> Resul
                     "[KNOWLEDGE] Сохраненный путь актуален: {}",
                     exp.successful_path
                 );
-                spawn_delayed_ptes_audit(rtsp_host.clone(), exp.vendor.clone());
+                schedule_ptes_audit(rtsp_host.clone(), exp.vendor.clone());
                 return Ok(exp.successful_path.clone());
             }
         }
@@ -194,77 +270,15 @@ pub async fn probe_rtsp_path(host: String, login: String, pass: String) -> Resul
     );
 
     // 🎯 ЭТАП 2: Снайперский словарь (Ищем ЛЕГКИЕ Sub-Streams)
-    let mut urls = Vec::new();
-
-    match vendor {
-        "hikvision" => {
-            urls.push(format!(
-                "rtsp://{}:{}@{}:554/Streaming/Channels/102",
-                login, pass, rtsp_host
-            ));
-            urls.push(format!(
-                "rtsp://{}:{}@{}:554/Streaming/Channels/101",
-                login, pass, rtsp_host
-            ));
-        }
-        "xmeye" => {
-            urls.push(format!(
-                "rtsp://{}:{}@{}:554/cam/realmonitor?channel=1&subtype=1",
-                login, pass, rtsp_host
-            ));
-            urls.push(format!(
-                "rtsp://{}:{}@{}:554/ch1/sub/av_stream",
-                login, pass, rtsp_host
-            ));
-            urls.push(format!(
-                "rtsp://{}:{}@{}:554/live/ch01_1",
-                login, pass, rtsp_host
-            ));
-        }
-        _ => {
-            urls.push(format!(
-                "rtsp://{}:{}@{}:554/Streaming/Channels/102",
-                login, pass, rtsp_host
-            ));
-            urls.push(format!(
-                "rtsp://{}:{}@{}:554/cam/realmonitor?channel=1&subtype=1",
-                login, pass, rtsp_host
-            ));
-            urls.push(format!(
-                "rtsp://{}:{}@{}:554/ch1/sub/av_stream",
-                login, pass, rtsp_host
-            ));
-            urls.push(format!(
-                "rtsp://{}:{}@{}:554/Streaming/Channels/101",
-                login, pass, rtsp_host
-            ));
-        }
-    }
+    let urls = build_path_candidates(vendor, &rtsp_host, &login, &pass);
 
     // 🚀 ЭТАП 3: Проверка путей
     for url in urls {
-        // ⚡ ТУРБО-СКОРОСТЬ: Мгновенный микро-пинг отсеивает мусорные пути за ~50мс
-        if !fast_rtsp_check(&rtsp_host, &url).await {
-            println!("[SPIDER] ⚡ Быстрый сброс несуществующего пути: {}", url);
-            continue; // Пропускаем тяжелый FFmpeg
-        }
-
-        println!(
-            "[SPIDER] 🎯 Путь существует, запускаем глубокую FFmpeg проверку: {}",
-            url
-        );
-
-        let s = std::process::Command::new(&ffmpeg)
-            .args(crate::ffmpeg::FfmpegProfiles::probe(&url))
-            .status();
-
-        if let Ok(status) = s {
-            if status.success() {
-                println!("[SPIDER] Успешный перехват потока: {}", url);
-                km.save_success(&rtsp_host, vendor, &url, &login, &pass);
-                spawn_delayed_ptes_audit(rtsp_host.clone(), vendor.to_string());
-                return Ok(url);
-            }
+        if fast_rtsp_probe(&rtsp_host, &url, &ffmpeg).await {
+            println!("[SPIDER] Успешный перехват потока: {}", url);
+            persist_knowledge(&km, &rtsp_host, vendor, &url, &login, &pass);
+            schedule_ptes_audit(rtsp_host.clone(), vendor.to_string());
+            return Ok(url);
         }
     }
 
@@ -272,8 +286,8 @@ pub async fn probe_rtsp_path(host: String, login: String, pass: String) -> Resul
         "rtsp://{}:{}@{}:554/Streaming/Channels/101",
         login, pass, rtsp_host
     );
-    km.save_success(&rtsp_host, vendor, &fallback_url, &login, &pass);
-    spawn_delayed_ptes_audit(rtsp_host.clone(), vendor.to_string());
+    persist_knowledge(&km, &rtsp_host, vendor, &fallback_url, &login, &pass);
+    schedule_ptes_audit(rtsp_host.clone(), vendor.to_string());
 
     Ok(fallback_url)
 }

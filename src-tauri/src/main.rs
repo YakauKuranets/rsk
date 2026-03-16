@@ -37,6 +37,7 @@ pub mod session_checker;
 pub mod spider;
 mod streaming;
 pub mod subnet_scanner;
+mod system_cmds;
 pub mod vuln_scanner;
 use suppaftp::FtpStream;
 use tauri::State;
@@ -397,26 +398,6 @@ fn clamp_isapi_playback_uri_window(uri: &str, from: &str, to: &str) -> String {
     }
 
     out
-}
-
-#[derive(Debug, Serialize)]
-struct PortProbeResult {
-    port: u16,
-    service: String,
-    open: bool,
-}
-
-fn guess_service(port: u16) -> &'static str {
-    match port {
-        21 => "ftp/archive",
-        22 => "ssh/sftp",
-        80 => "http/admin",
-        443 => "https/admin",
-        554 => "rtsp/video",
-        8080 => "http-alt/admin",
-        8443 => "https-alt/admin",
-        _ => "unknown",
-    }
 }
 
 pub fn normalize_host_for_scan(input: &str) -> String {
@@ -6476,7 +6457,7 @@ fn main() {
             videodvor_download_file,
             external_search, // <-- ВАЖНО: Пришел на замену shodan_search
             streaming::start_hub_stream,
-            scan_host_ports,
+            system_cmds::scan_host_ports,
             get_runtime_logs,
             archive::cancel_download_task,
             probe_nvr_protocols,
@@ -6531,42 +6512,3 @@ fn main() {
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 } // <-- Вот здесь ровно один раз закрывается main()
-
-#[tauri::command]
-async fn scan_host_ports(
-    host: String,
-    log_state: State<'_, LogState>,
-) -> Result<Vec<PortProbeResult>, String> {
-    let clean_host = normalize_host_for_scan(&host);
-    if clean_host.is_empty() {
-        return Err("Пустой host для сканирования".into());
-    }
-
-    push_runtime_log(&log_state, format!("Port scan started for {}", clean_host));
-
-    let ports = [21u16, 22, 80, 443, 554, 8080, 8443];
-    let mut result = Vec::with_capacity(ports.len());
-
-    for port in ports {
-        let addr = format!("{}:{}", clean_host, port);
-        let open = timeout(Duration::from_millis(900), TcpStream::connect(addr))
-            .await
-            .is_ok_and(|v| v.is_ok());
-
-        result.push(PortProbeResult {
-            port,
-            service: guess_service(port).to_string(),
-            open,
-        });
-    }
-
-    let open_count = result.iter().filter(|x| x.open).count();
-    push_runtime_log(
-        &log_state,
-        format!(
-            "Port scan finished for {} (open: {})",
-            clean_host, open_count
-        ),
-    );
-    Ok(result)
-} // <-- А здесь закрывается scan_host_ports. И это последняя строчка в файле!
