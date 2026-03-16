@@ -1563,12 +1563,31 @@ const handleSecurityAudit = async () => {
                   <div>{res.is_alive ? '🟢 Доступен (554)' : '🔴 Недоступен'}</div>
                   <div>{res.creds_reused ? '🚨 Пароль подошел!' : '✅ Reuse не подтвержден'}</div>
                   {res.is_alive && (
-                    <button
-                      onClick={() => handleGetMetadata(res.ip)}
-                      style={{ marginTop: '4px', background: '#16264f', border: '1px solid #6a88ff', color: '#9fc2ff', padding: '4px 8px', cursor: 'pointer', fontSize: '10px' }}
-                    >
-                      SDP метаданные
-                    </button>
+                    <div style={{ marginTop: '4px', display: 'flex', gap: '5px' }}>
+                      <button
+                        onClick={() => handleGetMetadata(res.ip)}
+                        style={{ background: '#16264f', border: '1px solid #6a88ff', color: '#9fc2ff', padding: '4px 8px', cursor: 'pointer', fontSize: '10px' }}
+                      >
+                        SDP метаданные
+                      </button>
+                      <button
+                        onClick={async () => {
+                          try {
+                            alert('Запуск Docker safe-check... Пожалуйста, подождите (до 15 сек).');
+                            const report = await invoke('verify_exploit_docker', {
+                              ip: res.ip,
+                              exploitType: 'hikvision',
+                            });
+                            alert(report);
+                          } catch (e) {
+                            alert(`Ошибка: ${e}`);
+                          }
+                        }}
+                        style={{ background: '#4a1a1a', border: '1px solid #d32f2f', color: '#ffb3b3', padding: '4px 8px', cursor: 'pointer', fontSize: '10px' }}
+                      >
+                        🧪 Docker Safe Check
+                      </button>
+                    </div>
                   )}
                 </div>
               ))}

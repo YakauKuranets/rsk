@@ -25,6 +25,7 @@ mod archive_ai;
 mod auditor;
 mod breach_analyzer;
 pub mod exploit_searcher;
+pub mod exploit_verifier;
 mod ffmpeg;
 mod fuzzer;
 mod knowledge;
@@ -6508,6 +6509,7 @@ fn main() {
             persistence_checker::assess_persistence_risk,
             subnet_scanner::scan_neighborhood,
             exploit_searcher::search_public_exploits,
+            exploit_verifier::verify_exploit_docker,
             mass_auditor::run_mass_audit,
             metadata_extractor::collect_metadata,
             // ---------------------------------------------
