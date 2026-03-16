@@ -33,7 +33,7 @@ sled = "0.34"
 urlencoding = "2.1"
 # МОДУЛИ "ПАУКА":
 rskafka = "0.5.0"
-time = { version = "0.3", features = ["formatting", "parsing"] }
+chrono = "0.4"
 dotenv = "0.15"
 
 # Библиотеки для работы FTP и сериализации

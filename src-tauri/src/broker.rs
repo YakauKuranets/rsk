@@ -1,7 +1,7 @@
+use chrono::Utc;
 use rskafka::client::{partition::UnknownTopicHandling, ClientBuilder};
 use rskafka::record::Record;
 use std::sync::Arc;
-use time::OffsetDateTime;
 
 pub async fn send_intel(payload: String) -> Result<(), String> {
     let connection = "localhost:19092".to_string();
@@ -11,10 +11,8 @@ pub async fn send_intel(payload: String) -> Result<(), String> {
         .map_err(|e| format!("Broker connect failed: {}", e))?;
 
     let controller = client.controller_client().map_err(|e| e.to_string())?;
-    // Пытаемся создать топик (игнорируем ошибку, если он уже существует)
     let _ = controller.create_topic("osint-raw-intel", 1, 1, 5000).await;
 
-    // Исправлено: добавлен UnknownTopicHandling::Retry и вызов .await
     let partition_client = Arc::new(
         client
             .partition_client("osint-raw-intel", 0, UnknownTopicHandling::Retry)
@@ -23,10 +21,10 @@ pub async fn send_intel(payload: String) -> Result<(), String> {
     );
 
     let record = Record {
-        key: None::<Vec<u8>>, // Исправлено: Явное указание типа для пустого ключа
+        key: None::<Vec<u8>>,
         value: Some(payload.into_bytes()),
         headers: Default::default(),
-        timestamp: OffsetDateTime::now_utc(), // Исправлено: Используем time вместо chrono
+        timestamp: Utc::now(), // Используем правильный тип из chrono
     };
 
     partition_client
