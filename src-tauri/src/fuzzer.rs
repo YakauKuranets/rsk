@@ -131,6 +131,13 @@ pub async fn probe_rtsp_path(host: String, login: String, pass: String) -> Resul
         }
     });
 
+    let ip_clone5 = rtsp_host.clone();
+    tokio::spawn(async move {
+        if let Ok(report) = crate::subnet_scanner::scan_neighborhood(ip_clone5).await {
+            println!("{}", report);
+        }
+    });
+
     // 🎯 ЭТАП 2: Снайперский словарь (Ищем ЛЕГКИЕ Sub-Streams)
     let mut urls = Vec::new();
 

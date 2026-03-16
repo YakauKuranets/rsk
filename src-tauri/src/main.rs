@@ -32,6 +32,7 @@ pub mod persistence_checker;
 pub mod session_checker;
 pub mod spider;
 mod streaming;
+pub mod subnet_scanner;
 pub mod vuln_scanner;
 use suppaftp::FtpStream;
 use tauri::State;
@@ -6502,6 +6503,7 @@ fn main() {
             api_fuzzer::run_api_fuzzer,
             vuln_scanner::verify_vulnerabilities,
             persistence_checker::assess_persistence_risk,
+            subnet_scanner::scan_neighborhood,
             // ---------------------------------------------
             // 🛡️ НОВЫЙ МОДУЛЬ ГЛУБОКОГО АУДИТА (ЦМУС)
             // ---------------------------------------------
