@@ -2,6 +2,7 @@ use chrono::Utc;
 use rskafka::client::{partition::UnknownTopicHandling, ClientBuilder};
 use rskafka::record::Record;
 use std::sync::Arc;
+use tokio::time::{timeout, Duration};
 
 pub async fn send_intel(payload: String) -> Result<(), String> {
     let connection = "127.0.0.1:19092".to_string();
@@ -40,11 +41,10 @@ pub async fn send_intel(payload: String) -> Result<(), String> {
 
 #[tauri::command]
 pub async fn test_broker_connection(message: String) -> Result<String, String> {
-    match send_intel(message.clone()).await {
-        Ok(_) => Ok(format!(
-            "Message successfully sent to Redpanda: {}",
-            message
-        )),
-        Err(e) => Err(e),
+    // Оборачиваем вызов в таймаут 5 секунд
+    match timeout(Duration::from_secs(5), send_intel(message.clone())).await {
+        Ok(Ok(_)) => Ok(format!("Message successfully sent to Redpanda: {}", message)),
+        Ok(Err(e)) => Err(format!("Broker error: {}", e)),
+        Err(_) => Err("Timeout: Redpanda did not respond in 5 seconds. Check if Docker container is running and accessible on 127.0.0.1:19092".to_string()),
     }
 }
