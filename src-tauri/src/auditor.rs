@@ -100,6 +100,15 @@ pub async fn adaptive_credential_audit(
                 );
                 // Сохраняем в базу знаний
                 km.save_success(&ip, &vendor, &test_url, &login, &pass);
+
+                // 🛡️ НОВОЕ: Отправляем найденный пароль на проверку утечек
+                if !pass.is_empty() {
+                    match crate::breach_analyzer::check_password_breach(pass.clone()).await {
+                        Ok(report) => println!("[BREACH_DATA] {}", report),
+                        Err(e) => println!("[BREACH_DATA] Ошибка проверки: {}", e),
+                    }
+                }
+
                 return Ok(Some((login, pass)));
             }
         }

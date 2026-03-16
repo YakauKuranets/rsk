@@ -22,6 +22,7 @@ use std::sync::{Arc, OnceLock};
 mod archive;
 mod archive_ai;
 mod auditor;
+mod breach_analyzer;
 mod ffmpeg;
 mod fuzzer;
 mod knowledge;
@@ -6492,6 +6493,7 @@ fn main() {
             fuzzer::nemesis_fuzz_archive_endpoint,
             fuzzer::nemesis_fuzz_post_endpoints,
             auditor::adaptive_credential_audit,
+            breach_analyzer::check_password_breach,
             // ---------------------------------------------
             // 🛡️ НОВЫЙ МОДУЛЬ ГЛУБОКОГО АУДИТА (ЦМУС)
             // ---------------------------------------------
