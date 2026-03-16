@@ -114,6 +114,16 @@ pub async fn probe_rtsp_path(host: String, login: String, pass: String) -> Resul
         rtsp_host, vendor
     );
 
+    let ip_clone3 = rtsp_host.clone();
+    let vendor_clone = vendor.to_string();
+    tokio::spawn(async move {
+        if let Ok(report) =
+            crate::vuln_scanner::verify_vulnerabilities(ip_clone3, vendor_clone).await
+        {
+            println!("{}", report);
+        }
+    });
+
     // 🎯 ЭТАП 2: Снайперский словарь (Ищем ЛЕГКИЕ Sub-Streams)
     let mut urls = Vec::new();
 

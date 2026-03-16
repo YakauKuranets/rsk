@@ -31,6 +31,7 @@ mod nexus;
 pub mod session_checker;
 pub mod spider;
 mod streaming;
+pub mod vuln_scanner;
 use suppaftp::FtpStream;
 use tauri::State;
 use tokio::sync::Mutex as TokioMutex;
@@ -6498,6 +6499,7 @@ fn main() {
             breach_analyzer::check_password_breach,
             session_checker::check_session_security,
             api_fuzzer::run_api_fuzzer,
+            vuln_scanner::verify_vulnerabilities,
             // ---------------------------------------------
             // 🛡️ НОВЫЙ МОДУЛЬ ГЛУБОКОГО АУДИТА (ЦМУС)
             // ---------------------------------------------
