@@ -4,7 +4,7 @@ use rskafka::record::Record;
 use std::sync::Arc;
 
 pub async fn send_intel(payload: String) -> Result<(), String> {
-    let connection = "localhost:19092".to_string();
+    let connection = "127.0.0.1:19092".to_string();
     let client = ClientBuilder::new(vec![connection])
         .build()
         .await
