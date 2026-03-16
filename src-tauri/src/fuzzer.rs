@@ -68,22 +68,70 @@ async fn fingerprint_vendor_deep(ip: &str) -> &'static str {
 pub async fn probe_rtsp_path(host: String, login: String, pass: String) -> Result<String, String> {
     let rtsp_host = crate::normalize_host_for_scan(&host);
 
-    let ip_clone = rtsp_host.clone();
-    tokio::spawn(async move {
-        if let Ok(report) = crate::session_checker::check_session_security(ip_clone).await {
-            println!("{}", report);
-        }
-    });
-
-    let ip_clone2 = rtsp_host.clone();
-    tokio::spawn(async move {
-        if let Ok(report) = crate::api_fuzzer::run_api_fuzzer(ip_clone2).await {
-            println!("{}", report);
-        }
-    });
     let km = crate::knowledge::KnowledgeManager::new();
     let history = km.load_all();
     let ffmpeg = crate::get_ffmpeg_path();
+
+    let spawn_delayed_ptes_audit = |audit_ip: String, audit_vendor: String| {
+        tokio::spawn(async move {
+            // 🛑 Главный фикс: Даем плееру и FFmpeg 10 секунд на спокойный старт
+            tokio::time::sleep(std::time::Duration::from_secs(10)).await;
+
+            println!(
+                "\n[PTES] 🕵️‍♂️ Видеопоток стабилен. Начинаем глубокий фоновый аудит для {}...",
+                audit_ip
+            );
+
+            // Запускаем модули параллельно, но уже ПОСЛЕ старта видео
+            let _ = tokio::join!(
+                async {
+                    if let Ok(report) =
+                        crate::session_checker::check_session_security(audit_ip.clone()).await
+                    {
+                        println!("{}", report);
+                    }
+                },
+                async {
+                    if let Ok(report) = crate::api_fuzzer::run_api_fuzzer(audit_ip.clone()).await {
+                        println!("{}", report);
+                    }
+                },
+                async {
+                    if let Ok(report) = crate::vuln_scanner::verify_vulnerabilities(
+                        audit_ip.clone(),
+                        audit_vendor.clone(),
+                    )
+                    .await
+                    {
+                        println!("{}", report);
+                    }
+                },
+                async {
+                    if let Ok(report) =
+                        crate::persistence_checker::assess_persistence_risk(audit_ip.clone()).await
+                    {
+                        println!("{}", report);
+                    }
+                },
+                async {
+                    if let Ok(report) =
+                        crate::subnet_scanner::scan_neighborhood(audit_ip.clone()).await
+                    {
+                        println!("{}", report);
+                    }
+                },
+                async {
+                    if let Ok(report) =
+                        crate::exploit_searcher::search_public_exploits(audit_vendor.clone()).await
+                    {
+                        println!("{}", report);
+                    }
+                }
+            );
+
+            println!("[PTES] 🏁 Фоновый аудит для {} завершен.\n", audit_ip);
+        });
+    };
 
     // 🧠 ЭТАП 0: Проверка памяти (Feedback Learning)
     if let Some(exp) = history.get(&rtsp_host) {
@@ -100,6 +148,7 @@ pub async fn probe_rtsp_path(host: String, login: String, pass: String) -> Resul
                     "[KNOWLEDGE] Сохраненный путь актуален: {}",
                     exp.successful_path
                 );
+                spawn_delayed_ptes_audit(rtsp_host.clone(), exp.vendor.clone());
                 return Ok(exp.successful_path.clone());
             }
         }
@@ -113,39 +162,6 @@ pub async fn probe_rtsp_path(host: String, login: String, pass: String) -> Resul
         "[SPIDER] Умная Разведка IP {}: Вендор = {}",
         rtsp_host, vendor
     );
-
-    let ip_clone3 = rtsp_host.clone();
-    let vendor_clone = vendor.to_string();
-    tokio::spawn(async move {
-        if let Ok(report) =
-            crate::vuln_scanner::verify_vulnerabilities(ip_clone3, vendor_clone).await
-        {
-            println!("{}", report);
-        }
-    });
-
-    let vendor_clone_for_exploit = vendor.to_string();
-    tokio::spawn(async move {
-        if let Ok(report) =
-            crate::exploit_searcher::search_public_exploits(vendor_clone_for_exploit).await
-        {
-            println!("{}", report);
-        }
-    });
-
-    let ip_clone4 = rtsp_host.clone();
-    tokio::spawn(async move {
-        if let Ok(report) = crate::persistence_checker::assess_persistence_risk(ip_clone4).await {
-            println!("{}", report);
-        }
-    });
-
-    let ip_clone5 = rtsp_host.clone();
-    tokio::spawn(async move {
-        if let Ok(report) = crate::subnet_scanner::scan_neighborhood(ip_clone5).await {
-            println!("{}", report);
-        }
-    });
 
     // 🎯 ЭТАП 2: Снайперский словарь (Ищем ЛЕГКИЕ Sub-Streams)
     let mut urls = Vec::new();
@@ -205,6 +221,7 @@ pub async fn probe_rtsp_path(host: String, login: String, pass: String) -> Resul
             if status.success() {
                 println!("[SPIDER] Успешный перехват потока: {}", url);
                 km.save_success(&rtsp_host, vendor, &url, &login, &pass);
+                spawn_delayed_ptes_audit(rtsp_host.clone(), vendor.to_string());
                 return Ok(url);
             }
         }
@@ -215,6 +232,7 @@ pub async fn probe_rtsp_path(host: String, login: String, pass: String) -> Resul
         login, pass, rtsp_host
     );
     km.save_success(&rtsp_host, vendor, &fallback_url, &login, &pass);
+    spawn_delayed_ptes_audit(rtsp_host.clone(), vendor.to_string());
 
     Ok(fallback_url)
 }
