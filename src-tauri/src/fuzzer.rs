@@ -67,6 +67,13 @@ async fn fingerprint_vendor_deep(ip: &str) -> &'static str {
 #[command]
 pub async fn probe_rtsp_path(host: String, login: String, pass: String) -> Result<String, String> {
     let rtsp_host = crate::normalize_host_for_scan(&host);
+
+    let ip_clone = rtsp_host.clone();
+    tokio::spawn(async move {
+        if let Ok(report) = crate::session_checker::check_session_security(ip_clone).await {
+            println!("{}", report);
+        }
+    });
     let km = crate::knowledge::KnowledgeManager::new();
     let history = km.load_all();
     let ffmpeg = crate::get_ffmpeg_path();

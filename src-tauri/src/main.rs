@@ -27,6 +27,7 @@ mod ffmpeg;
 mod fuzzer;
 mod knowledge;
 mod nexus;
+pub mod session_checker;
 pub mod spider;
 mod streaming;
 use suppaftp::FtpStream;
@@ -6494,6 +6495,7 @@ fn main() {
             fuzzer::nemesis_fuzz_post_endpoints,
             auditor::adaptive_credential_audit,
             breach_analyzer::check_password_breach,
+            session_checker::check_session_security,
             // ---------------------------------------------
             // 🛡️ НОВЫЙ МОДУЛЬ ГЛУБОКОГО АУДИТА (ЦМУС)
             // ---------------------------------------------
