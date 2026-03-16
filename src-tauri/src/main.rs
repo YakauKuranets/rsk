@@ -21,6 +21,7 @@ use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, OnceLock};
 mod archive;
 mod archive_ai;
+mod auditor;
 mod ffmpeg;
 mod fuzzer;
 mod knowledge;
@@ -6490,6 +6491,7 @@ fn main() {
             nemesis_auto_login,
             fuzzer::nemesis_fuzz_archive_endpoint,
             fuzzer::nemesis_fuzz_post_endpoints,
+            auditor::adaptive_credential_audit,
             // ---------------------------------------------
             // 🛡️ НОВЫЙ МОДУЛЬ ГЛУБОКОГО АУДИТА (ЦМУС)
             // ---------------------------------------------
