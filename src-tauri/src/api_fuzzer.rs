@@ -62,19 +62,21 @@ pub struct FuzzFinding {
 
 #[tauri::command]
 pub async fn smart_fuzz_api(
-    target: String,
-    mode: String,
+    target_url: String,
+    mode: Option<String>,
     log_state: State<'_, crate::LogState>,
 ) -> Result<Vec<FuzzFinding>, String> {
     crate::push_runtime_log(
         &log_state,
-        format!("[SMART_FUZZ] start {} ({})", target, mode),
+        format!("[SMART_FUZZ] start {} ({})", target_url, mode.clone().unwrap_or_else(|| "quick".to_string())),
     );
 
-    let base_url = if !target.starts_with("http") {
-        format!("http://{}", target)
+    let mode = mode.unwrap_or_else(|| "quick".to_string());
+
+    let base_url = if !target_url.starts_with("http") {
+        format!("http://{}", target_url)
     } else {
-        target
+        target_url
     };
 
     let client = Client::builder()

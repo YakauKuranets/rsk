@@ -18,6 +18,8 @@ export default function MassAudit() {
   const [osintWords, setOsintWords] = useState('');
   const [neighbors, setNeighbors] = useState('192.168.1.10, 192.168.1.11');
   const [foundCreds, setFoundCreds] = useState('admin:12345');
+  const [smartFuzzing, setSmartFuzzing] = useState(false);
+  const [smartFindings, setSmartFindings] = useState([]);
 
   const handleMassAudit = async () => {
     if (!massAuditIps.trim()) return;
@@ -78,6 +80,37 @@ export default function MassAudit() {
     }
   };
 
+
+  const handleSmartFuzz = async () => {
+    const ipRegex = /\b(?:[0-9]{1,3}\.){3}[0-9]{1,3}\b/g;
+    const extractedIps = massAuditIps.match(ipRegex) || [];
+    const targetIp = extractedIps[0] || '';
+
+    if (!targetIp) {
+      toast('Выберите цель! Укажите хотя бы один IP.');
+      return;
+    }
+
+    setSmartFuzzing(true);
+    setSmartFindings([]);
+
+    try {
+      const findings = await invoke('smart_fuzz_api', {
+        targetUrl: targetIp,
+        mode: 'quick',
+      });
+      setSmartFindings(findings);
+      if (findings.length > 0) {
+        toast(`🧪 SMART FUZZ: найдено ${findings.length} аномалий`);
+      } else {
+        toast('🧪 SMART FUZZ: аномалии не обнаружены');
+      }
+    } catch (err) {
+      toast('Ошибка SMART FUZZER: ' + err);
+    } finally {
+      setSmartFuzzing(false);
+    }
+  };
 
   const handleLateralMovement = async () => {
     if (!neighbors || !foundCreds) {
@@ -161,6 +194,15 @@ export default function MassAudit() {
         🦠 ИСКАТЬ WEBSHELL (PTES)
       </button>
 
+
+      <button
+        disabled={smartFuzzing}
+        onClick={handleSmartFuzz}
+        style={{ padding: '8px', background: smartFuzzing ? '#273319' : '#102600', color: '#8fff7d', border: '1px solid #5eff42', cursor: smartFuzzing ? 'default' : 'pointer', fontSize: '11px', width: '100%', marginBottom: '8px', fontWeight: 'bold' }}
+      >
+        {smartFuzzing ? '🧪 SMART FUZZER работает...' : '🧪 SMART FUZZER (OWASP)'}
+      </button>
+
       <button disabled={massAuditing} onClick={handleMassAudit} style={{ width: '100%', backgroundColor: massAuditing ? '#334' : '#6a88ff', color: '#fff', border: 'none', padding: '8px', cursor: massAuditing ? 'default' : 'pointer', fontWeight: 'bold' }}>
         {massAuditing ? '⏳ Идет сканирование...' : 'Запустить массовый аудит'}
       </button>
@@ -186,6 +228,19 @@ export default function MassAudit() {
           ЗАПУСТИТЬ ПАУКА НА СОСЕДЕЙ
         </button>
       </div>
+
+
+      {smartFindings.length > 0 && (
+        <div style={{ marginTop: '10px', border: '1px solid #2f5f2a', background: '#071108', maxHeight: '200px', overflowY: 'auto', padding: '6px' }}>
+          <div style={{ color: '#8fff7d', fontSize: '11px', marginBottom: '6px' }}>SMART FUZZ FINDINGS</div>
+          {smartFindings.map((item, idx) => (
+            <div key={`${item.endpoint}_${idx}`} style={{ borderBottom: '1px solid #1d3218', padding: '6px 0', fontSize: '11px', color: '#d6ffd2' }}>
+              <div><b>/{item.endpoint}</b> [{item.statusCode}]</div>
+              <div>{item.mutationType}: {item.indicator}</div>
+            </div>
+          ))}
+        </div>
+      )}
 
       {massAuditResults.length > 0 && (
         <div style={{ marginTop: '10px', border: '1px solid #30406a', background: '#050913', maxHeight: '220px', overflowY: 'auto', padding: '6px' }}>
