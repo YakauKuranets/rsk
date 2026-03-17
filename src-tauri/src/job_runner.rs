@@ -2,6 +2,7 @@ use crate::api_fuzzer;
 use crate::auditor;
 use crate::broker::send_intel;
 use crate::breach_analyzer;
+use crate::feedback_store::FeedbackStore;
 use crate::rce_verifier;
 use crate::session_checker;
 use chrono::Utc;
@@ -53,13 +54,21 @@ impl JobManager {
 }
 
 // Фоновый воркер, который будет разгребать очередь
-pub async fn run_worker_loop(mut receiver: mpsc::Receiver<Job>) {
+pub async fn run_worker_loop(mut receiver: mpsc::Receiver<Job>, feedback_store: Arc<FeedbackStore>) {
     println!("[JobRunner] Worker loop started...");
     while let Some(job) = receiver.recv().await {
         println!(
             "[JobRunner] Executing job: {} for target: {}",
             job.id, job.target
         );
+
+        if let Some(known_vulns) = feedback_store.get_findings(&job.target) {
+            println!(
+                "[JobRunner] 💡 Использую память! Известные уязвимости для {}: {:?}",
+                job.target, known_vulns
+            );
+            // Здесь в будущем можно передавать известные пароли внутрь сканеров для ускорения
+        }
 
         match job.module {
             JobModule::FtpScanner => {
@@ -68,6 +77,10 @@ pub async fn run_worker_loop(mut receiver: mpsc::Receiver<Job>) {
                     Ok(Some((login, password))) => {
                         let credentials = format!("{}:{}", login, password);
                         println!("[JobRunner] 🟢 УЯЗВИМОСТЬ НАЙДЕНА: {}", credentials);
+                        feedback_store.record_finding(
+                            &job.target,
+                            &format!("FTP Creds: {}", credentials),
+                        );
 
                         let payload = format!("LEAK: {} -> {}", job.target, credentials);
                         if let Err(err) = send_intel(payload).await {
@@ -85,6 +98,10 @@ pub async fn run_worker_loop(mut receiver: mpsc::Receiver<Job>) {
                             "[JobRunner] 🟢 НАЙДЕНЫ СКРЫТЫЕ API на {}: {}",
                             job.target, findings
                         );
+                        feedback_store.record_finding(
+                            &job.target,
+                            &format!("API Discovery: {}", findings),
+                        );
                         let payload = format!("API_DISCOVERY: {} -> {}", job.target, findings);
                         if let Err(err) = send_intel(payload).await {
                             println!("[JobRunner] ⚠️ Ошибка отправки в Redpanda: {}", err);
@@ -101,6 +118,8 @@ pub async fn run_worker_loop(mut receiver: mpsc::Receiver<Job>) {
                             "[JobRunner] 🔴 КРИТИЧЕСКАЯ УЯЗВИМОСТЬ RCE на {}: {}",
                             job.target, findings
                         );
+                        feedback_store
+                            .record_finding(&job.target, &format!("RCE: {}", findings));
                         let payload = format!("RCE_VULN: {} -> {}", job.target, findings);
                         if let Err(err) = send_intel(payload).await {
                             println!("[JobRunner] ⚠️ Ошибка отправки в Redpanda: {}", err);
@@ -116,6 +135,10 @@ pub async fn run_worker_loop(mut receiver: mpsc::Receiver<Job>) {
                         println!(
                             "[JobRunner] ⚠️ НАЙДЕНЫ СЛЕДЫ УТЕЧЕК для {}: {}",
                             job.target, findings
+                        );
+                        feedback_store.record_finding(
+                            &job.target,
+                            &format!("Breach Data: {}", findings),
                         );
                         let payload = format!("BREACH_DATA: {} -> {}", job.target, findings);
                         if let Err(err) = send_intel(payload).await {
@@ -135,6 +158,10 @@ pub async fn run_worker_loop(mut receiver: mpsc::Receiver<Job>) {
                         println!(
                             "[JobRunner] 🟢 НАЙДЕНА УЯЗВИМОСТЬ СЕССИИ на {}: {}",
                             job.target, vulns
+                        );
+                        feedback_store.record_finding(
+                            &job.target,
+                            &format!("Session Vuln: {}", vulns),
                         );
                         let payload = format!("SESSION_VULN: {} -> {}", job.target, vulns);
                         if let Err(err) = send_intel(payload).await {

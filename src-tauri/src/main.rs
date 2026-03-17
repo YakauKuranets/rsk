@@ -28,6 +28,7 @@ pub mod broker;
 pub mod exploit_searcher;
 pub mod exploit_verifier;
 mod ffmpeg;
+mod feedback_store;
 mod fuzzer;
 mod knowledge;
 mod job_runner;
@@ -6338,9 +6339,12 @@ fn main() {
     dotenv().ok();
     start_background_scheduler();
 
+    let feedback_store = Arc::new(feedback_store::FeedbackStore::new());
+
     let (job_manager, job_receiver) = job_runner::JobManager::new();
+    let worker_feedback_store = feedback_store.clone();
     tauri::async_runtime::spawn(async move {
-        job_runner::run_worker_loop(job_receiver).await;
+        job_runner::run_worker_loop(job_receiver, worker_feedback_store).await;
     });
 
     let hls_path = get_vault_path().join("hls_cache");
@@ -6442,6 +6446,7 @@ fn main() {
             semaphore: Arc::new(Semaphore::new(2)),
         })
         .manage(Arc::new(job_manager))
+        .manage(feedback_store.clone())
         .manage(archive_ai::AiState {
             is_running: Arc::new(AtomicBool::new(false)),
         })
