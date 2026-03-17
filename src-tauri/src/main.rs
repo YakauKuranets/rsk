@@ -30,6 +30,7 @@ pub mod exploit_verifier;
 mod ffmpeg;
 mod fuzzer;
 mod knowledge;
+mod job_runner;
 pub mod mass_auditor;
 pub mod metadata_extractor;
 mod nexus;
@@ -79,6 +80,10 @@ struct DownloadCancelState {
 
 struct FfmpegLimiterState {
     semaphore: Arc<Semaphore>,
+}
+
+struct JobManagerState {
+    manager: job_runner::JobManager,
 }
 
 // 🔥 СТЕЙТ ДЛЯ ПУЛЬТА ГИПЕРИОНА (nexus)
@@ -6335,6 +6340,11 @@ fn main() {
     dotenv().ok();
     start_background_scheduler();
 
+    let (job_manager, job_receiver) = job_runner::JobManager::new();
+    tauri::async_runtime::spawn(async move {
+        job_runner::run_worker_loop(job_receiver).await;
+    });
+
     let hls_path = get_vault_path().join("hls_cache");
     let _ = std::fs::create_dir_all(&hls_path);
     let server_path = hls_path.clone();
@@ -6432,6 +6442,9 @@ fn main() {
         })
         .manage(FfmpegLimiterState {
             semaphore: Arc::new(Semaphore::new(2)),
+        })
+        .manage(JobManagerState {
+            manager: job_manager,
         })
         .manage(archive_ai::AiState {
             is_running: Arc::new(AtomicBool::new(false)),
