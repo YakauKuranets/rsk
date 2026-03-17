@@ -13,6 +13,10 @@ import SpiderControl from './features/spider/SpiderControl';
 import MassAudit from './features/mass-audit/MassAudit';
 import AssetDiscovery from './features/discovery/AssetDiscovery';
 import AttackGraph from './features/attack-graph/AttackGraph';
+import PlaybookRunner from './features/playbook/PlaybookRunner';
+import CampaignList from './features/campaign/CampaignList';
+import CampaignDashboard from './features/campaign/CampaignDashboard';
+import PassiveScanner from './features/passive-scan/PassiveScanner';
 import { useAppStore } from './store/appStore';
 import ToastHost from './components/ToastHost';
 import { toast } from './utils/toast';
@@ -65,6 +69,10 @@ export default function App() {
   const [singleStreamCamera, setSingleStreamCamera] = useState(null);
   const [singleStreamSession, setSingleStreamSession] = useState(null);
   const [selectedTerminal, setSelectedTerminal] = useState(null);
+  const [showPlaybooks, setShowPlaybooks] = useState(false);
+  const [showCampaigns, setShowCampaigns] = useState(false);
+  const [showIotAudit, setShowIotAudit] = useState(false);
+  const [activeCampaignId, setActiveCampaignId] = useState(null);
 
   const [addressQuery, setAddressQuery] = useState('');
   const [mapCenter, setMapCenter] = useState([53.9, 27.56]);
@@ -1429,7 +1437,22 @@ const handleSecurityAudit = async () => {
           )}
 
           <div style={{ position: 'absolute', top: 16, right: 16, width: '400px', backgroundColor: '#111115', borderLeft: '2px solid #ff003c', padding: '20px', maxHeight: 'calc(100% - 32px)', overflowY: 'auto', pointerEvents: 'auto' }}>
+
         <h2 style={{ color: '#ff003c', fontSize: '1.2rem', marginBottom: '20px' }}>HYPERION NODE</h2>
+
+        <div style={{ border: '1px solid #222', padding: '8px', marginBottom: '12px' }}>
+          <button style={{ width: '100%', marginBottom: '6px' }} onClick={() => setShowPlaybooks(v => !v)}>PLAYBOOKS</button>
+          {showPlaybooks && <PlaybookRunner />}
+          <button style={{ width: '100%', marginBottom: '6px' }} onClick={() => setShowCampaigns(v => !v)}>КАМПАНИИ</button>
+          {showCampaigns && (
+            <>
+              <CampaignList onOpen={setActiveCampaignId} />
+              <CampaignDashboard campaignId={activeCampaignId} />
+            </>
+          )}
+          <button style={{ width: '100%' }} onClick={() => setShowIotAudit(v => !v)}>IoT АУДИТ</button>
+          {showIotAudit && <PassiveScanner />}
+        </div>
 
         <div style={{ border: '1px solid #2f9a4f', padding: '10px', backgroundColor: '#07130b', marginBottom: '20px' }}>
           <h3 style={{ color: '#7dff9c', marginTop: '0', fontSize: '0.9rem' }}>📌 СТАТУС РЕАЛИЗАЦИИ</h3>

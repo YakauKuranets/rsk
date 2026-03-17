@@ -29,6 +29,7 @@ mod breach_analyzer;
 pub mod broker;
 mod camera_discovery;
 mod compliance_checker;
+mod campaign;
 mod credential_auditor;
 mod device_metadata;
 pub mod exploit_searcher;
@@ -45,12 +46,14 @@ mod nexus;
 pub mod persistence_checker;
 pub mod rce_verifier;
 mod report_export;
+mod playbook;
 pub mod session_checker;
 pub mod spider;
 mod streaming;
 pub mod subnet_scanner;
 mod system_cmds;
 mod traffic_analyzer;
+mod passive_scanner;
 mod unified_archive;
 mod vuln_db_updater;
 pub mod vuln_scanner;
@@ -6494,6 +6497,10 @@ fn main() {
         lines: nexus_log_state,
     };
 
+    let playbook_exec_state = playbook::executor::PlaybookExecutionState {
+        active_execution: std::sync::Arc::new(std::sync::Mutex::new(None)),
+    };
+
     tauri::Builder::default()
         .setup(move |app| {
             let app_handle = app.handle().clone();
@@ -6533,6 +6540,7 @@ fn main() {
         .manage(archive_ai::AiState {
             is_running: Arc::new(AtomicBool::new(false)),
         })
+        .manage(playbook_exec_state)
         .invoke_handler(tauri::generate_handler![
             save_target,
             read_target,
@@ -6632,7 +6640,22 @@ fn main() {
             compliance_checker::check_compliance,
             api_fuzzer::smart_fuzz_api,
             vuln_db_updater::update_vuln_database,
-            vuln_db_updater::query_local_vuln_db
+            vuln_db_updater::query_local_vuln_db,
+            playbook::executor::start_playbook,
+            playbook::executor::approve_playbook_step,
+            playbook::executor::get_playbook_status,
+            campaign::create_campaign,
+            campaign::list_campaigns,
+            campaign::get_campaign,
+            campaign::update_campaign_status,
+            campaign::add_campaign_finding,
+            campaign::update_finding_status,
+            campaign::add_campaign_note,
+            campaign::add_timeline_event,
+            campaign::import_scan_results,
+            campaign::export_campaign_report,
+            passive_scanner::passive_scan_network,
+            passive_scanner::analyze_pcap_file,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
