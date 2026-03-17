@@ -1,6 +1,7 @@
 import React from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { SPIDER_MODULES_CONFIG, useAppStore } from '../../store/appStore';
+import { toast } from '../../utils/toast';
 
 export default function SpiderControl({ handleStartNemesis, handleAnalyzeSources, handlePlayFuzzedLink }) {
   const spiderTarget = useAppStore((s) => s.spiderTarget);
@@ -123,7 +124,7 @@ export default function SpiderControl({ handleStartNemesis, handleAnalyzeSources
           <button
             disabled={spiderRunning}
             onClick={async () => {
-              if (!spiderTarget.trim()) return alert('Введите URL цели');
+              if (!spiderTarget.trim()) return toast('Введите URL цели');
               setSpiderRunning(true);
               setSpiderReport(null);
               try {
@@ -147,7 +148,7 @@ export default function SpiderControl({ handleStartNemesis, handleAnalyzeSources
                 });
                 setSpiderReport(report);
               } catch (err) {
-                alert(`Spider error: ${err}`);
+                toast(`Spider error: ${err}`);
               } finally {
                 setSpiderRunning(false);
               }

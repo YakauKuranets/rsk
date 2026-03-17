@@ -1,6 +1,7 @@
 import React from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { useAppStore } from '../../store/appStore';
+import { toast } from '../../utils/toast';
 
 export default function MassAudit() {
   const massAuditIps = useAppStore((s) => s.massAuditIps);
@@ -25,7 +26,7 @@ export default function MassAudit() {
     const uniqueIps = [...new Set(extractedIps)];
 
     if (uniqueIps.length === 0) {
-      alert('В тексте не найдено валидных IP-адресов!');
+      toast('В тексте не найдено валидных IP-адресов!');
       setMassAuditing(false);
       return;
     }
@@ -38,7 +39,7 @@ export default function MassAudit() {
       });
       setMassAuditResults(results);
     } catch (error) {
-      alert(`Ошибка массового аудита: ${error}`);
+      toast(`Ошибка массового аудита: ${error}`);
     } finally {
       setMassAuditing(false);
     }
@@ -47,9 +48,9 @@ export default function MassAudit() {
   const handleGetMetadata = async (ip) => {
     try {
       const meta = await invoke('collect_metadata', { ip });
-      alert(`Метаданные для ${ip}\nНазвание: ${meta.sessionName || meta.session_name}\nСервер: ${meta.serverHeader || meta.server_header}`);
+      toast(`Метаданные для ${ip}\nНазвание: ${meta.sessionName || meta.session_name}\nСервер: ${meta.serverHeader || meta.server_header}`);
     } catch (error) {
-      alert(`Не удалось получить метаданные: ${error}`);
+      toast(`Не удалось получить метаданные: ${error}`);
     }
   };
 

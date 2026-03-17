@@ -3,6 +3,7 @@ import mpegts from 'mpegts.js';
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 import { getCurrentWindow } from '@tauri-apps/api/window';
+import { toast } from './utils/toast';
 
 export default function StreamPlayer({ streamUrl, cameraName, terminal, channel, hubCookie, onRefresh, onClose, onPlayArchive }) {
   const containerRef = useRef(null);
@@ -87,7 +88,7 @@ export default function StreamPlayer({ streamUrl, cameraName, terminal, channel,
         pass: terminal?.password || ''
       });
     } catch (err) {
-      alert("Ошибка запуска ИИ: " + err);
+      toast("Ошибка запуска ИИ: " + err);
       setAiAnalyzing(false);
     }
   };
@@ -161,7 +162,7 @@ export default function StreamPlayer({ streamUrl, cameraName, terminal, channel,
     try {
       await invoke('stop_archive_analysis');
     } catch (err) {
-      alert('Ошибка остановки ИИ: ' + err);
+      toast('Ошибка остановки ИИ: ' + err);
     } finally {
       setAiAnalyzing(false);
     }
@@ -185,7 +186,7 @@ export default function StreamPlayer({ streamUrl, cameraName, terminal, channel,
   };
 
   const handleSearchArchive = async () => {
-    if (!terminal) return alert('Ошибка: данные камеры не переданы в плеер!');
+    if (!terminal) return toast('Ошибка: данные камеры не переданы в плеер!');
 
     setLoadingArchive(true);
     setRecords([]);
@@ -208,7 +209,7 @@ export default function StreamPlayer({ streamUrl, cameraName, terminal, channel,
           label: r.verdict || 'Запись Хаба'
         }));
 
-        if (videoRoutes.length === 0) alert('Записей на Хабе за эту дату не найдено.');
+        if (videoRoutes.length === 0) toast('Записей на Хабе за эту дату не найдено.');
         setRecords(videoRoutes);
 
       } else {
@@ -226,7 +227,7 @@ export default function StreamPlayer({ streamUrl, cameraName, terminal, channel,
             toTime,
           });
 
-          if (!result || result.length === 0) alert('Нет записей за эту дату (XM).');
+          if (!result || result.length === 0) toast('Нет записей за эту дату (XM).');
           setRecords((result || []).map(rec => ({ ...rec, playbackUri: rec.playbackUri || withRtspAuth(rec.playbackUri) })));
         } else {
           const result = await invoke('search_isapi_recordings', {
@@ -239,12 +240,12 @@ export default function StreamPlayer({ streamUrl, cameraName, terminal, channel,
             cameraChannelId: channelId
           });
 
-          if (!result || result.length === 0) alert('Нет записей за эту дату (ISAPI).');
+          if (!result || result.length === 0) toast('Нет записей за эту дату (ISAPI).');
           setRecords((result || []).map(rec => ({ ...rec, playbackUri: withRtspAuth(rec.playbackUri) })));
         }
       }
     } catch(e) {
-      alert('Ошибка поиска: ' + e);
+      toast('Ошибка поиска: ' + e);
     } finally {
       setLoadingArchive(false);
     }
@@ -288,7 +289,7 @@ export default function StreamPlayer({ streamUrl, cameraName, terminal, channel,
       await appWindow.setAlwaysOnTop(newState);
       setIsPinned(newState); // Если всё ок, меняем цвет кнопки
     } catch (err) {
-      alert("Ошибка закрепления окна Tauri:\n" + err);
+      toast("Ошибка закрепления окна Tauri:\n" + err);
       console.error('Tauri window pin error:', err);
     }
   };
