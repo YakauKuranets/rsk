@@ -51,6 +51,7 @@ mod streaming;
 pub mod subnet_scanner;
 mod system_cmds;
 mod traffic_analyzer;
+mod unified_archive;
 mod vuln_db_updater;
 pub mod vuln_scanner;
 mod vuln_verifier;
@@ -6611,6 +6612,8 @@ fn main() {
             // ---------------------------------------------
             capture_archive_segment,
             download_http_archive,
+            unified_archive::search_archive_unified,
+            unified_archive::download_archive_unified,
             recon_hub_archive_routes,
             spider::spider_full_scan,
             spider::fuzz_cctv_api,
