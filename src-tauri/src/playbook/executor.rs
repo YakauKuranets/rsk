@@ -189,20 +189,30 @@ pub async fn approve_playbook_step(
     let idx = exec.current_step_index;
     let step = exec.playbook.steps.get(idx).cloned().ok_or("Invalid step index")?;
 
-    if let Some(last) = exec.results.last_mut() {
-        if last.step_id == step_id {
-            if !approved {
+    let last_idx = exec.results.len().saturating_sub(1);
+    let last_step_matches = exec
+        .results
+        .get(last_idx)
+        .map(|r| r.step_id == step_id)
+        .unwrap_or(false);
+
+    if last_step_matches {
+        if !approved {
+            if let Some(last) = exec.results.get_mut(last_idx) {
                 last.status = StepStatus::Cancelled;
                 last.output = json!({"approved": false});
-            } else {
-                let t0 = Instant::now();
-                let mut previous_outputs = HashMap::new();
-                for r in &exec.results {
-                    if matches!(r.status, StepStatus::Completed) {
-                        previous_outputs.insert(r.step_id.clone(), r.output.clone());
-                    }
+            }
+        } else {
+            let t0 = Instant::now();
+            let mut previous_outputs = HashMap::new();
+            for r in &exec.results {
+                if matches!(r.status, StepStatus::Completed) {
+                    previous_outputs.insert(r.step_id.clone(), r.output.clone());
                 }
-                match steps::execute_step(&step, &exec.playbook.scope, &exec.playbook.variables, &previous_outputs).await {
+            }
+            let exec_result = steps::execute_step(&step, &exec.playbook.scope, &exec.playbook.variables, &previous_outputs).await;
+            if let Some(last) = exec.results.get_mut(last_idx) {
+                match exec_result {
                     Ok(output) => {
                         last.status = StepStatus::Completed;
                         last.output = output;
