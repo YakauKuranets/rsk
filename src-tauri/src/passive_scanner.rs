@@ -72,12 +72,15 @@ fn classify_device(manufacturer: &str, banners: &HashMap<u16, String>, open_port
 async fn lookup_cves_for_device(manufacturer: &str, firmware: Option<&str>, _device_type: &str) -> Vec<KnownCve> {
     let query = if let Some(fw) = firmware { format!("{} {}", manufacturer, fw) } else { manufacturer.to_string() };
     let local = crate::vuln_db_updater::query_local_vuln_db(manufacturer.to_string(), query.clone()).await.unwrap_or_default();
-    let mut out: Vec<KnownCve> = local.into_iter().take(10).map(|x| KnownCve {
-        cve_id: x.cve_id,
-        description: x.description,
-        cvss_score: x.cvss_v31,
-        affected_versions: "unknown".to_string(),
-        reference_url: format!("https://nvd.nist.gov/vuln/detail/{}", x.cve_id),
+    let mut out: Vec<KnownCve> = local.into_iter().take(10).map(|x| {
+        let cve_id = x.cve_id.clone();
+        KnownCve {
+            cve_id,
+            description: x.description,
+            cvss_score: x.cvss_v31,
+            affected_versions: "unknown".to_string(),
+            reference_url: format!("https://nvd.nist.gov/vuln/detail/{}", x.cve_id),
+        }
     }).collect();
     out.sort_by(|a,b| b.cvss_score.partial_cmp(&a.cvss_score).unwrap_or(std::cmp::Ordering::Equal));
     out

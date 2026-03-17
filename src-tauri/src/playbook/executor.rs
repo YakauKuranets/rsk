@@ -179,15 +179,30 @@ pub async fn approve_playbook_step(
     log_state: State<'_, crate::LogState>,
     exec_state: State<'_, PlaybookExecutionState>,
 ) -> Result<serde_json::Value, String> {
-    let mut guard = exec_state.active_execution.lock().map_err(|_| "playbook state lock poisoned")?;
-    let Some(exec) = guard.as_mut() else { return Err("No active playbook execution".into()); };
+    let mut exec = {
+        let mut guard = exec_state
+            .active_execution
+            .lock()
+            .map_err(|_| "playbook state lock poisoned")?;
+        guard.take().ok_or("No active playbook execution")?
+    };
 
     if exec.pending_approval.as_deref() != Some(step_id.as_str()) {
+        let mut guard = exec_state
+            .active_execution
+            .lock()
+            .map_err(|_| "playbook state lock poisoned")?;
+        *guard = Some(exec);
         return Err("Requested step is not pending approval".into());
     }
 
     let idx = exec.current_step_index;
-    let step = exec.playbook.steps.get(idx).cloned().ok_or("Invalid step index")?;
+    let step = exec
+        .playbook
+        .steps
+        .get(idx)
+        .cloned()
+        .ok_or("Invalid step index")?;
 
     let last_idx = exec.results.len().saturating_sub(1);
     let last_step_matches = exec
@@ -210,7 +225,13 @@ pub async fn approve_playbook_step(
                     previous_outputs.insert(r.step_id.clone(), r.output.clone());
                 }
             }
-            let exec_result = steps::execute_step(&step, &exec.playbook.scope, &exec.playbook.variables, &previous_outputs).await;
+            let exec_result = steps::execute_step(
+                &step,
+                &exec.playbook.scope,
+                &exec.playbook.variables,
+                &previous_outputs,
+            )
+            .await;
             if let Some(last) = exec.results.get_mut(last_idx) {
                 match exec_result {
                     Ok(output) => {
@@ -231,10 +252,17 @@ pub async fn approve_playbook_step(
     exec.pending_approval = None;
     if exec.status != "failed" {
         exec.status = "running".to_string();
-        continue_execution(exec, &log_state, idx + 1).await?;
+        continue_execution(&mut exec, &log_state, idx + 1).await?;
     }
 
-    Ok(status_payload(exec))
+    let payload = status_payload(&exec);
+    let mut guard = exec_state
+        .active_execution
+        .lock()
+        .map_err(|_| "playbook state lock poisoned")?;
+    *guard = Some(exec);
+
+    Ok(payload)
 }
 
 #[tauri::command]
