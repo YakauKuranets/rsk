@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { invoke } from '@tauri-apps/api/core';
+import { listen } from '@tauri-apps/api/event';
 import 'leaflet/dist/leaflet.css';
 import './App.css';
 import NemesisArchiveTerminal from './NemesisArchiveTerminal';
@@ -185,6 +186,25 @@ export default function App() {
       localStorage.setItem('hyperion_download_tasks', JSON.stringify(downloadTasks.slice(0, 50)));
     } catch {}
   }, [downloadTasks]);
+
+  useEffect(() => {
+    let disposed = false;
+    let unlistenFn = null;
+
+    listen('hyperion-audit-event', (event) => {
+      if (disposed) return;
+      const line = String(event.payload || '');
+      console.log('Получено событие от Паука:', line);
+      setRuntimeLogs((prev) => [...prev, line].slice(-300));
+    }).then((fn) => {
+      unlistenFn = fn;
+    }).catch(() => {});
+
+    return () => {
+      disposed = true;
+      if (unlistenFn) unlistenFn();
+    };
+  }, []);
 
   useEffect(() => {
     let disposed = false;

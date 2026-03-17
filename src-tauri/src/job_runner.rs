@@ -9,7 +9,7 @@ use crate::session_checker;
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
-use tauri::State;
+use tauri::{AppHandle, Emitter, State};
 use tokio::sync::mpsc;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -56,7 +56,11 @@ impl JobManager {
 }
 
 // Фоновый воркер, который будет разгребать очередь
-pub async fn run_worker_loop(mut receiver: mpsc::Receiver<Job>, feedback_store: Arc<FeedbackStore>) {
+pub async fn run_worker_loop(
+    mut receiver: mpsc::Receiver<Job>,
+    feedback_store: Arc<FeedbackStore>,
+    app_handle: AppHandle,
+) {
     println!("[JobRunner] Worker loop started...");
     while let Some(job) = receiver.recv().await {
         println!(
@@ -78,7 +82,12 @@ pub async fn run_worker_loop(mut receiver: mpsc::Receiver<Job>, feedback_store: 
                 match auditor::adaptive_credential_audit(job.target.clone(), vendor, None).await {
                     Ok(Some((login, password))) => {
                         let credentials = format!("{}:{}", login, password);
-                        println!("[JobRunner] 🟢 УЯЗВИМОСТЬ НАЙДЕНА: {}", credentials);
+                        let msg = format!(
+                            "🟢 НАЙДЕНА УЯЗВИМОСТЬ на {}: {}",
+                            job.target, credentials
+                        );
+                        println!("[JobRunner] {}", msg);
+                        let _ = app_handle.emit("hyperion-audit-event", msg);
                         feedback_store.record_finding(
                             &job.target,
                             &format!("FTP Creds: {}", credentials),
@@ -96,10 +105,12 @@ pub async fn run_worker_loop(mut receiver: mpsc::Receiver<Job>, feedback_store: 
             JobModule::ApiFuzzer => {
                 match api_fuzzer::run_fuzzer(&job.target).await {
                     Ok(Some(findings)) => {
-                        println!(
-                            "[JobRunner] 🟢 НАЙДЕНЫ СКРЫТЫЕ API на {}: {}",
+                        let msg = format!(
+                            "🟢 НАЙДЕНЫ СКРЫТЫЕ API на {}: {}",
                             job.target, findings
                         );
+                        println!("[JobRunner] {}", msg);
+                        let _ = app_handle.emit("hyperion-audit-event", msg);
                         feedback_store.record_finding(
                             &job.target,
                             &format!("API Discovery: {}", findings),
@@ -116,10 +127,12 @@ pub async fn run_worker_loop(mut receiver: mpsc::Receiver<Job>, feedback_store: 
             JobModule::RceVerifier => {
                 match rce_verifier::verify_rce(&job.target).await {
                     Ok(Some(findings)) => {
-                        println!(
-                            "[JobRunner] 🔴 КРИТИЧЕСКАЯ УЯЗВИМОСТЬ RCE на {}: {}",
+                        let msg = format!(
+                            "🔴 КРИТИЧЕСКАЯ УЯЗВИМОСТЬ RCE на {}: {}",
                             job.target, findings
                         );
+                        println!("[JobRunner] {}", msg);
+                        let _ = app_handle.emit("hyperion-audit-event", msg);
                         feedback_store
                             .record_finding(&job.target, &format!("RCE: {}", findings));
                         let payload = format!("RCE_VULN: {} -> {}", job.target, findings);
@@ -134,10 +147,12 @@ pub async fn run_worker_loop(mut receiver: mpsc::Receiver<Job>, feedback_store: 
             JobModule::BreachAnalyzer => {
                 match breach_analyzer::check_breaches(&job.target).await {
                     Ok(Some(findings)) => {
-                        println!(
-                            "[JobRunner] ⚠️ НАЙДЕНЫ СЛЕДЫ УТЕЧЕК для {}: {}",
+                        let msg = format!(
+                            "⚠️ НАЙДЕНЫ СЛЕДЫ УТЕЧЕК для {}: {}",
                             job.target, findings
                         );
+                        println!("[JobRunner] {}", msg);
+                        let _ = app_handle.emit("hyperion-audit-event", msg);
                         feedback_store.record_finding(
                             &job.target,
                             &format!("Breach Data: {}", findings),
@@ -168,10 +183,12 @@ pub async fn run_worker_loop(mut receiver: mpsc::Receiver<Job>, feedback_store: 
 
                 match lateral_scanner::check_neighbors(&job.target, known_vulns).await {
                     Ok(Some(findings)) => {
-                        println!(
-                            "[JobRunner] 🕸️ УСПЕШНОЕ БОКОВОЕ ПЕРЕМЕЩЕНИЕ от {}: {}",
+                        let msg = format!(
+                            "🕸️ УСПЕШНОЕ БОКОВОЕ ПЕРЕМЕЩЕНИЕ от {}: {}",
                             job.target, findings
                         );
+                        println!("[JobRunner] {}", msg);
+                        let _ = app_handle.emit("hyperion-audit-event", msg);
                         feedback_store
                             .record_finding(&job.target, &format!("Lateral: {}", findings));
                         let payload = format!("LATERAL_MOVEMENT: {} -> {}", job.target, findings);
@@ -186,10 +203,12 @@ pub async fn run_worker_loop(mut receiver: mpsc::Receiver<Job>, feedback_store: 
             JobModule::SessionChecker => {
                 match session_checker::check_session(&job.target).await {
                     Ok(Some(vulns)) => {
-                        println!(
-                            "[JobRunner] 🟢 НАЙДЕНА УЯЗВИМОСТЬ СЕССИИ на {}: {}",
+                        let msg = format!(
+                            "🟢 НАЙДЕНА УЯЗВИМОСТЬ СЕССИИ на {}: {}",
                             job.target, vulns
                         );
+                        println!("[JobRunner] {}", msg);
+                        let _ = app_handle.emit("hyperion-audit-event", msg);
                         feedback_store.record_finding(
                             &job.target,
                             &format!("Session Vuln: {}", vulns),

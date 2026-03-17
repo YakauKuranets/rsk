@@ -6344,9 +6344,7 @@ fn main() {
 
     let (job_manager, job_receiver) = job_runner::JobManager::new();
     let worker_feedback_store = feedback_store.clone();
-    tauri::async_runtime::spawn(async move {
-        job_runner::run_worker_loop(job_receiver, worker_feedback_store).await;
-    });
+    let mut job_receiver_slot = Some(job_receiver);
 
     let hls_path = get_vault_path().join("hls_cache");
     let _ = std::fs::create_dir_all(&hls_path);
@@ -6430,6 +6428,19 @@ fn main() {
     };
 
     tauri::Builder::default()
+        .setup(move |app| {
+            let app_handle = app.handle().clone();
+            let feedback_store = worker_feedback_store.clone();
+            let rx = job_receiver_slot
+                .take()
+                .expect("JobRunner receiver already taken");
+
+            tauri::async_runtime::spawn(async move {
+                job_runner::run_worker_loop(rx, feedback_store, app_handle).await;
+            });
+
+            Ok(())
+        })
         .manage(hyperion_state)
         .manage(nexus_log_shared)
         .manage(StreamState {
