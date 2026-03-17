@@ -6530,6 +6530,7 @@ fn main() {
             job_runner::start_rce_job,
             job_runner::start_breach_job,
             job_runner::start_lateral_job,
+            lateral_scanner::scan_lateral_movement,
             job_runner::start_sniffer_job,
             breach_analyzer::check_password_breach,
             session_checker::check_session_security,

@@ -51,3 +51,10 @@ pcap = { version = "2.0", optional = true }
 [features]
 default = []
 traffic-capture = ["pcap"]
+
+[profile.release]
+lto = true
+codegen-units = 1
+strip = true
+opt-level = "z"
+panic = "abort"
