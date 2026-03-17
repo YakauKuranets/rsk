@@ -17,10 +17,15 @@ export default defineConfig({
       output: {
         manualChunks(id) {
           if (id.includes('node_modules')) {
+            if (id.includes('react-dom')) return 'vendor-react';
             if (id.includes('react')) return 'vendor-react';
             if (id.includes('zustand')) return 'vendor-state';
             if (id.includes('@tauri-apps')) return 'vendor-tauri';
-            return 'vendor'; // Все остальные зависимости
+            if (id.includes('leaflet') || id.includes('react-leaflet')) return 'vendor-map';
+            if (id.includes('video.js') || id.includes('videojs')) return 'vendor-video';
+            if (id.includes('hls.js')) return 'vendor-hls';
+            if (id.includes('mpegts')) return 'vendor-mpegts';
+            return 'vendor';
           }
         }
       }

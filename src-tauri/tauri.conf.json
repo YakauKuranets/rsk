@@ -12,13 +12,17 @@
   "app": {
     "windows": [
       {
-        "title": "hyperion",
-        "width": 800,
-        "height": 600
+        "title": "Hyperion",
+        "width": 1366,
+        "height": 900,
+        "minWidth": 1024,
+        "minHeight": 700,
+        "resizable": true,
+        "center": true
       }
     ],
     "security": {
-      "csp": null
+      "csp": "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https://*.tile.openstreetmap.org https://*.basemaps.cartocdn.com; connect-src 'self' http://127.0.0.1:* ws://127.0.0.1:* https://api.shodan.io https://dns.google https://crt.sh https://services.nvd.nist.gov https://api.github.com https://api.pwnedpasswords.com https://nominatim.openstreetmap.org"
     }
   },
   "bundle": {

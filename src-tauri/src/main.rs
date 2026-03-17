@@ -22,29 +22,39 @@ use std::sync::{Arc, OnceLock};
 pub mod api_fuzzer;
 mod archive;
 mod archive_ai;
+mod asset_discovery;
+mod attack_graph;
 mod auditor;
 mod breach_analyzer;
 pub mod broker;
+mod camera_discovery;
+mod compliance_checker;
+mod credential_auditor;
+mod device_metadata;
 pub mod exploit_searcher;
 pub mod exploit_verifier;
-mod ffmpeg;
 mod feedback_store;
+mod ffmpeg;
 mod fuzzer;
+mod job_runner;
 mod knowledge;
 mod lateral_scanner;
-mod traffic_analyzer;
-mod job_runner;
 pub mod mass_auditor;
 pub mod metadata_extractor;
 mod nexus;
 pub mod persistence_checker;
 pub mod rce_verifier;
+mod report_export;
 pub mod session_checker;
 pub mod spider;
 mod streaming;
 pub mod subnet_scanner;
 mod system_cmds;
+mod traffic_analyzer;
+mod unified_archive;
+mod vuln_db_updater;
 pub mod vuln_scanner;
+mod vuln_verifier;
 use suppaftp::FtpStream;
 use tauri::State;
 use tokio::sync::Mutex as TokioMutex;
@@ -65,6 +75,7 @@ struct StreamState {
 
 struct ActiveStreamProcess {
     child: TokioChild,
+    ws_url: String,
     shutdown_ws: Option<tokio::sync::oneshot::Sender<()>>,
     ws_task: Option<JoinHandle<()>>,
     stdout_task: Option<JoinHandle<()>>,
@@ -72,6 +83,14 @@ struct ActiveStreamProcess {
 
 struct VideodvorState {
     scanner: TokioMutex<videodvor_scanner::VideodvorScanner>,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ActiveStreamInfo {
+    pub target_id: String,
+    pub ws_url: String,
+    pub is_alive: bool,
 }
 
 pub struct LogState {
@@ -85,7 +104,6 @@ struct DownloadCancelState {
 struct FfmpegLimiterState {
     semaphore: Arc<Semaphore>,
 }
-
 
 // 🔥 СТЕЙТ ДЛЯ ПУЛЬТА ГИПЕРИОНА (nexus)
 struct HyperionState {
@@ -670,6 +688,7 @@ pub async fn start_hub_stream(
         target_id.clone(),
         ActiveStreamProcess {
             child,
+            ws_url: relay.ws_url.clone(),
             shutdown_ws: Some(relay.shutdown_tx),
             ws_task: Some(relay.ws_task),
             stdout_task: Some(relay.stdout_task),
@@ -981,6 +1000,7 @@ pub async fn start_stream(
         target_id,
         ActiveStreamProcess {
             child,
+            ws_url: relay.ws_url.clone(),
             shutdown_ws: Some(relay.shutdown_tx),
             ws_task: Some(relay.ws_task),
             stdout_task: Some(relay.stdout_task),
@@ -1039,6 +1059,52 @@ fn stop_stream(
     } else {
         Ok("Inactive".into())
     }
+}
+
+fn list_active_streams(state: State<'_, StreamState>) -> Result<Vec<ActiveStreamInfo>, String> {
+    let mut streams = state.active_streams.lock().unwrap();
+    let mut result = Vec::new();
+    let mut dead_ids = Vec::new();
+
+    for (id, stream) in streams.iter_mut() {
+        let alive = match stream.child.try_wait() {
+            Ok(Some(_)) => false,
+            Ok(None) => true,
+            Err(_) => false,
+        };
+
+        if !alive {
+            dead_ids.push(id.clone());
+        }
+
+        result.push(ActiveStreamInfo {
+            target_id: id.clone(),
+            ws_url: stream.ws_url.clone(),
+            is_alive: alive,
+        });
+    }
+
+    for id in dead_ids {
+        if let Some(old) = streams.remove(&id) {
+            terminate_stream_process(old);
+        }
+    }
+
+    Ok(result)
+}
+
+fn stop_all_streams(
+    state: State<'_, StreamState>,
+    log_state: State<'_, LogState>,
+) -> Result<String, String> {
+    let mut streams = state.active_streams.lock().unwrap();
+    let count = streams.len();
+    for (_, stream) in streams.drain() {
+        terminate_stream_process(stream);
+    }
+
+    push_runtime_log(&log_state, format!("Stopped all {} streams", count));
+    Ok(format!("Stopped {} streams", count))
 }
 
 // --- НОВЫЙ БЛОК FTP-НАВИГАТОРА ---
@@ -6440,6 +6506,10 @@ fn main() {
                 job_runner::run_worker_loop(rx, feedback_store, app_handle).await;
             });
 
+            tauri::async_runtime::spawn(async move {
+                let _ = vuln_db_updater::auto_update_if_needed().await;
+            });
+
             Ok(())
         })
         .manage(hyperion_state)
@@ -6472,6 +6542,8 @@ fn main() {
             streaming::stop_stream,
             streaming::check_stream_alive,
             streaming::restart_stream,
+            streaming::list_active_streams,
+            streaming::stop_all_streams,
             geocode_address,
             generate_nvr_channels,
             fuzzer::probe_rtsp_path,
@@ -6483,6 +6555,7 @@ fn main() {
             videodvor_list_archive,
             videodvor_download_file,
             external_search, // <-- ВАЖНО: Пришел на замену shodan_search
+            asset_discovery::discover_external_assets,
             streaming::start_hub_stream,
             system_cmds::scan_host_ports,
             get_runtime_logs,
@@ -6510,17 +6583,20 @@ fn main() {
             fuzzer::nemesis_fuzz_archive_endpoint,
             fuzzer::nemesis_fuzz_post_endpoints,
             auditor::adaptive_credential_audit,
+            credential_auditor::advanced_credential_audit,
             job_runner::start_audit_job,
             job_runner::start_session_job,
             job_runner::start_fuzzer_job,
             job_runner::start_rce_job,
             job_runner::start_breach_job,
             job_runner::start_lateral_job,
+            lateral_scanner::scan_lateral_movement,
             job_runner::start_sniffer_job,
             breach_analyzer::check_password_breach,
             session_checker::check_session_security,
             api_fuzzer::run_api_fuzzer,
             vuln_scanner::verify_vulnerabilities,
+            vuln_verifier::verify_vulnerability,
             persistence_checker::assess_persistence_risk,
             subnet_scanner::scan_neighborhood,
             exploit_searcher::search_public_exploits,
@@ -6536,13 +6612,27 @@ fn main() {
             // ---------------------------------------------
             capture_archive_segment,
             download_http_archive,
+            unified_archive::search_archive_unified,
+            unified_archive::download_archive_unified,
             recon_hub_archive_routes,
             spider::spider_full_scan,
             spider::fuzz_cctv_api,
             relay_ping,
             relay_list_files,
             relay_download_file,
-            broker::test_broker_connection
+            broker::test_broker_connection,
+            traffic_analyzer::analyze_traffic,
+            attack_graph::generate_attack_graph,
+            camera_discovery::unified_camera_scan,
+            device_metadata::collect_device_metadata,
+            report_export::export_report_json,
+            report_export::export_report_csv,
+            report_export::export_report_markdown,
+            report_export::send_to_syslog,
+            compliance_checker::check_compliance,
+            api_fuzzer::smart_fuzz_api,
+            vuln_db_updater::update_vuln_database,
+            vuln_db_updater::query_local_vuln_db
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

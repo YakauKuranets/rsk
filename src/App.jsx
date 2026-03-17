@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { invoke } from '@tauri-apps/api/core';
+import { getRuntimeLogs, scanHostPorts } from './api/tauri';
 import { listen } from '@tauri-apps/api/event';
 import 'leaflet/dist/leaflet.css';
 import './App.css';
@@ -8,7 +9,11 @@ import ArchiveViewer from './features/archive/ArchiveViewer';
 import StreamGrid from './features/streams/StreamGrid';
 import SpiderControl from './features/spider/SpiderControl';
 import MassAudit from './features/mass-audit/MassAudit';
+import AssetDiscovery from './features/discovery/AssetDiscovery';
+import AttackGraph from './features/attack-graph/AttackGraph';
 import { useAppStore } from './store/appStore';
+import ToastHost from './components/ToastHost';
+import { toast } from './utils/toast';
 
 function normalizeTargetRecords(rawTargets) {
   const normalized = [];
@@ -98,7 +103,6 @@ export default function App() {
   const setSourceAnalysis = useAppStore((s) => s.setSourceAnalysis);
   const setHubCookie = useAppStore((s) => s.setHubCookie);
 
-  const [shodanResults, setShodanResults] = useState([]);
   const [portScanHost, setPortScanHost] = useState('');
   const [portScanResult, setPortScanResult] = useState([]);
   const [runtimeLogs, setRuntimeLogs] = useState([]);
@@ -211,7 +215,7 @@ export default function App() {
 
     const fetchLogs = async () => {
       try {
-        const logs = await invoke('get_runtime_logs', { limit: 200 });
+        const logs = await getRuntimeLogs(200);
         if (!disposed) {
           setRuntimeLogs(logs);
 
@@ -297,7 +301,7 @@ export default function App() {
   };
 
   const handleSmartSave = async () => {
-    if (!form.host) return alert("Требуется IP");
+    if (!form.host) return toast("Требуется IP");
     const autoId = `nvr_${Date.now()}`;
     const channels = Array.from({length: form.channelCount}, (_, i) => ({ id: `ch${i+1}`, index: i+1, name: `Камера ${i+1}` }));
     const payload = JSON.stringify({ ...form, id: autoId, channels });
@@ -316,7 +320,7 @@ export default function App() {
     try {
       const [lat, lng] = await invoke('geocode_address', { address: addressQuery });
       setForm({ ...form, lat, lng }); setMapCenter([lat, lng]);
-    } catch (err) { alert("Не найдено"); }
+    } catch (err) { toast("Не найдено"); }
   };
 
   const handleStartStream = async (terminal, channel) => {
@@ -390,7 +394,7 @@ export default function App() {
         } catch (e) {}
       }, 5000);
     } catch (err) {
-      alert("СБОЙ: " + err);
+      toast("СБОЙ: " + err);
       setLoading(false);
     }
   };
@@ -423,7 +427,7 @@ export default function App() {
       setActiveStream(wsUrl);
 
     } catch (err) {
-      alert('Ошибка перезапуска: ' + err);
+      toast('Ошибка перезапуска: ' + err);
     }
     setLoading(false);
   };
@@ -455,7 +459,7 @@ export default function App() {
       setActiveStream(wsUrl);
 
     } catch (err) {
-      alert('Ошибка запуска архива: ' + err);
+      toast('Ошибка запуска архива: ' + err);
     }
     setLoading(false);
   };
@@ -465,11 +469,11 @@ export default function App() {
         setLoading(true);
         setRadarStatus('СКАНИРОВАНИЕ БАЗЫ ХАБА...');
         const res = await invoke('search_global_hub', { query: hubSearch, cookie: hubConfig.cookie });
-        if (res.length === 0) alert("Поиск не дал результатов. Проверьте адрес или обновите PHPSESSID в коде!");
+        if (res.length === 0) toast("Поиск не дал результатов. Проверьте адрес или обновите PHPSESSID в коде!");
         setHubResults(res);
         setLoading(false);
     } catch (err) {
-        alert("ОШИБКА РАЗВЕДКИ: " + err);
+        toast("ОШИБКА РАЗВЕДКИ: " + err);
         setLoading(false);
     }
   };
@@ -515,7 +519,7 @@ export default function App() {
         const folders = await invoke('get_ftp_folders', { serverAlias, folderPath: path });
         setFtpItems(folders);
     } catch (err) {
-        alert(`Сбой подключения к ${serverAlias.toUpperCase()}:\n${err}\n\nЕсли FTP недоступен с этого IP — настройте relay в панели ниже.`);
+        toast(`Сбой подключения к ${serverAlias.toUpperCase()}:\n${err}\n\nЕсли FTP недоступен с этого IP — настройте relay в панели ниже.`);
         setFtpItems([]);
     } finally {
         setLoading(false);
@@ -590,12 +594,12 @@ export default function App() {
             : t,
         ));
 
-        alert(`Файл ${filename} скачан в ${report.savePath || 'archives'}`);
+        toast(`Файл ${filename} скачан в ${report.savePath || 'archives'}`);
     } catch (err) {
         setDownloadTasks(prev => prev.map(t =>
           t.id === taskId ? { ...t, status: 'error', percent: 0, error: String(err) } : t,
         ));
-        alert(`Ошибка скачивания: ${err}`);
+        toast(`Ошибка скачивания: ${err}`);
     } finally {
         setLoading(false);
     }
@@ -604,7 +608,7 @@ export default function App() {
   // --- NEMESIS: универсальный запуск по введенной цели и выбранному протоколу ---
   const handleStartNemesis = async () => {
     const target = String(targetInput || '').trim();
-    if (!target) return alert('Введите IP или URL цели.');
+    if (!target) return toast('Введите IP или URL цели.');
 
     setLoading(true);
     setFuzzResults([`$ ${attackType} ${target}`]);
@@ -653,7 +657,7 @@ export default function App() {
         }));
       }
     } catch (err) {
-      alert(`Ошибка Fuzzer: ${err}`);
+      toast(`Ошибка Fuzzer: ${err}`);
     } finally {
       setLoading(false);
     }
@@ -697,7 +701,7 @@ export default function App() {
       setActiveStream(wsUrl);
 
     } catch (err) {
-      alert("Ошибка перехвата потока: " + err);
+      toast("Ошибка перехвата потока: " + err);
     } finally {
       setLoading(false);
     }
@@ -705,7 +709,7 @@ export default function App() {
 
   // --- 🔥 НОВАЯ ФУНКЦИЯ: ЗАПУСК FUZZER-ПРОТОКОЛА NEMESIS ---
   const handleAnalyzeSources = async () => {
-    if (!fuzzPassword) return alert("Нужен пароль для авторизации!");
+    if (!fuzzPassword) return toast("Нужен пароль для авторизации!");
     setLoading(true);
     setRadarStatus('АНАЛИЗ DOM-ДЕРЕВА И ПОИСК СКРЫТЫХ API...');
     try {
@@ -713,12 +717,12 @@ export default function App() {
 
       // Бьем прямо в главную страницу или панель поиска
       const results = await invoke('nemesis_analyze_web_sources', {
-        targetUrl: 'https://videodvor.by/stream/check.php',
+        targetUrl: 'https://stream.example.local/check.php',
         adminHash
       });
       setSourceAnalysis(results);
     } catch (err) {
-      alert(`Ошибка DOM-анализатора: ${err}`);
+      toast(`Ошибка DOM-анализатора: ${err}`);
     } finally {
       setLoading(false);
     }
@@ -884,7 +888,7 @@ export default function App() {
         t.id === task.id ? { ...t, status: 'cancelled', error: 'Отменено пользователем' } : t,
       ));
     } catch (err) {
-      alert(`Ошибка отмены загрузки: ${err}`);
+      toast(`Ошибка отмены загрузки: ${err}`);
     }
   };
 
@@ -898,7 +902,7 @@ export default function App() {
     const autoId = `hub_${cam.id}_${Date.now()}`;
     const channels = cam.channels.map(ch => ({ id: `ch${ch}`, index: ch, name: `Камера ${parseInt(ch) + 1}` }));
     const payload = JSON.stringify({
-      id: autoId, name: `ХАБ: ${cam.ip}`, host: `videodvor.by_user${cam.id}`, hub_id: cam.id, type: 'hub', lat: lat, lng: lng, channels: channels
+      id: autoId, name: `ХАБ: ${cam.ip}`, host: `streamhub_user${cam.id}`, hub_id: cam.id, type: 'hub', lat: lat, lng: lng, channels: channels
     });
     await invoke('save_target', { targetId: autoId, payload });
     loadTargets();
@@ -916,9 +920,9 @@ export default function App() {
 
       setNvrProbeResults(probes);
       const detected = probes.filter(p => p.status === 'detected').length;
-      alert(`ПРОВЕРКА NVR (${terminal.host})\n\nНайдено подтвержденных endpoint: ${detected} из ${probes.length}.\nДетали доступны в панели "NVR PROBE".`);
+      toast(`ПРОВЕРКА NVR (${terminal.host})\n\nНайдено подтвержденных endpoint: ${detected} из ${probes.length}.\nДетали доступны в панели "NVR PROBE".`);
     } catch (err) {
-      alert(`Ошибка проверки протоколов: ${err}`);
+      toast(`Ошибка проверки протоколов: ${err}`);
     } finally {
       setLoading(false);
     }
@@ -935,7 +939,7 @@ export default function App() {
       });
       setNvrDeviceInfo(info);
     } catch (err) {
-      alert(`Ошибка ISAPI deviceInfo: ${err}`);
+      toast(`Ошибка ISAPI deviceInfo: ${err}`);
     } finally {
       setLoading(false);
     }
@@ -961,13 +965,13 @@ export default function App() {
       const confidences = (result || []).map((x) => Number(x?.confidence ?? 0)).filter((x) => Number.isFinite(x));
       const maxConfidence = confidences.length ? Math.max(...confidences) : 0;
       const avgConfidence = confidences.length ? Math.round(confidences.reduce((a, b) => a + b, 0) / confidences.length) : 0;
-      alert(`ISAPI search (${terminal.host})
+      toast(`ISAPI search (${terminal.host})
 Найдено записей: ${result.length}
 playable: ${playableCount}
 downloadable: ${downloadableCount}
 confidence(avg/max): ${avgConfidence}/${maxConfidence}`);
     } catch (err) {
-      alert(`Ошибка ISAPI search: ${err}`);
+      toast(`Ошибка ISAPI search: ${err}`);
     } finally {
       setLoading(false);
     }
@@ -984,7 +988,7 @@ confidence(avg/max): ${avgConfidence}/${maxConfidence}`);
       });
       setOnvifDeviceInfo(info);
     } catch (err) {
-      alert(`Ошибка ONVIF deviceInfo: ${err}`);
+      toast(`Ошибка ONVIF deviceInfo: ${err}`);
     } finally {
       setLoading(false);
     }
@@ -1031,27 +1035,27 @@ confidence(avg/max): ${avgConfidence}/${maxConfidence}`);
 
   const handleCaptureIsapiPlayback = async (item) => {
     if (!item?.playbackUri) {
-      return alert('Для этой записи отсутствует playback URI');
+      return toast('Для этой записи отсутствует playback URI');
     }
     const durationSec = getIsapiCaptureDurationSeconds(item);
     const normalizedUri = normalizePlaybackUri(item.playbackUri);
     if (!normalizedUri) {
-      return alert('Некорректный playback URI для capture');
+      return toast('Некорректный playback URI для capture');
     }
     await handleCaptureArchive(normalizedUri, getIsapiFilenameHint(normalizedUri, 'isapi_capture.mp4'), durationSec);
   };
 
   const handleDownloadIsapiPlayback = async (item) => {
     if (!item?.playbackUri) {
-      return alert('Для этой записи отсутствует playback URI');
+      return toast('Для этой записи отсутствует playback URI');
     }
     if (!isDownloadableRecord(item)) {
-      return alert('Запись помечена как non-downloadable по probe-классификации. Используй fallback/capture.');
+      return toast('Запись помечена как non-downloadable по probe-классификации. Используй fallback/capture.');
     }
 
     const normalizedUri = normalizePlaybackUri(item.playbackUri);
     if (!normalizedUri) {
-      return alert('Некорректный playback URI для download');
+      return toast('Некорректный playback URI для download');
     }
     const filenameHint = getIsapiFilenameHint(normalizedUri, 'isapi_record.mp4');
     const taskId = `isapi_${Date.now()}`;
@@ -1092,7 +1096,7 @@ confidence(avg/max): ${avgConfidence}/${maxConfidence}`);
         setDownloadTasks(prev => prev.map(t =>
           t.id === taskId ? { ...t, status: 'error', percent: 0, error: reason || 'Archive export failed', stageSummary, stageDetails, finalStatus: job?.finalStatus || 'failed', retryCount: Number(job?.retryCount || 0), stageCount: Number(job?.stageCount || stageDetails.length), fallbackDurationSeconds: Number(job?.fallbackDurationSeconds || 0) } : t,
         ));
-        alert(`Ошибка ISAPI download: ${reason || 'Archive export failed'}`);
+        toast(`Ошибка ISAPI download: ${reason || 'Archive export failed'}`);
         return;
       }
 
@@ -1124,13 +1128,13 @@ confidence(avg/max): ${avgConfidence}/${maxConfidence}`);
       ));
       if (job.selectedStage !== 'direct') {
         const note = job.finalReason ? `\nПричина direct: ${job.finalReason}` : '';
-        alert(`Прямой export отказал, задача завершена через ${job.selectedStage}.${note}`);
+        toast(`Прямой export отказал, задача завершена через ${job.selectedStage}.${note}`);
       }
     } catch (err) {
       setDownloadTasks(prev => prev.map(t =>
         t.id === taskId ? { ...t, status: 'error', percent: 0, error: String(err) } : t,
       ));
-      alert(`Ошибка ISAPI download: ${err}`);
+      toast(`Ошибка ISAPI download: ${err}`);
     } finally {
       setLoading(false);
     }
@@ -1149,10 +1153,10 @@ confidence(avg/max): ${avgConfidence}/${maxConfidence}`);
       });
       setOnvifRecordingTokens(result);
       setOnvifSearchAuth({ login, pass });
-      alert(`ONVIF recordings (${terminal.host})
+      toast(`ONVIF recordings (${terminal.host})
 Найдено токенов: ${result.length}`);
     } catch (err) {
-      alert(`Ошибка ONVIF recordings search: ${err}`);
+      toast(`Ошибка ONVIF recordings search: ${err}`);
     } finally {
       setLoading(false);
     }
@@ -1199,7 +1203,7 @@ confidence(avg/max): ${avgConfidence}/${maxConfidence}`);
       setDownloadTasks(prev => prev.map(t =>
         t.id === taskId ? { ...t, status: 'error', percent: 0, error: String(err) } : t,
       ));
-      alert(`Ошибка ONVIF download: ${err}`);
+      toast(`Ошибка ONVIF download: ${err}`);
     } finally {
       setLoading(false);
     }
@@ -1216,11 +1220,11 @@ confidence(avg/max): ${avgConfidence}/${maxConfidence}`);
       });
       setArchiveProbeResults(result);
       const detected = result.filter((x) => x.status === 'detected').length;
-      alert(`ПРОВЕРКА EXPORT-ENDPOINT (${terminal.host})
+      toast(`ПРОВЕРКА EXPORT-ENDPOINT (${terminal.host})
 
 Найдено потенциальных endpoint: ${detected} из ${result.length}.`);
     } catch (err) {
-      alert(`Ошибка проверки export-endpoint: ${err}`);
+      toast(`Ошибка проверки export-endpoint: ${err}`);
     } finally {
       setLoading(false);
     }
@@ -1252,15 +1256,15 @@ confidence(avg/max): ${avgConfidence}/${maxConfidence}`);
 
   const handlePortScan = async () => {
     const host = portScanHost.trim();
-    if (!host) return alert('Укажите host/IP для сканирования');
+    if (!host) return toast('Укажите host/IP для сканирования');
 
     setLoading(true);
     setRadarStatus(`АНАЛИЗ УЗЛА ${host}...`);
     try {
-      const result = await invoke('scan_host_ports', { host });
+      const result = await scanHostPorts(host);
       setPortScanResult(result);
     } catch (err) {
-      alert(`Ошибка сканирования: ${err}`);
+      toast(`Ошибка сканирования: ${err}`);
     } finally {
       setLoading(false);
     }
@@ -1268,7 +1272,7 @@ confidence(avg/max): ${avgConfidence}/${maxConfidence}`);
 
 const handleSecurityAudit = async () => {
     const host = portScanHost.trim();
-    if (!host) return alert('Укажите host/IP для аудита');
+    if (!host) return toast('Укажите host/IP для аудита');
 
     setLoading(true);
     setRadarStatus(`ГЛУБОКИЙ АУДИТ ЗАГОЛОВКОВ ${host}...`);
@@ -1277,30 +1281,15 @@ const handleSecurityAudit = async () => {
       const results = await invoke('analyze_security_headers', { targetUrl });
       setAuditResults(results);
     } catch (err) {
-      alert(`Ошибка аудита: ${err}`);
+      toast(`Ошибка аудита: ${err}`);
     } finally {
       setLoading(false);
     }
   };
 
-
-
-  const handleTestBrokerConnection = () => {
-    console.log("Попытка отправки данных в Redpanda...");
-    invoke('test_broker_connection', { message: "TEST_LEAK: IP 192.168.1.5 -> root:toor" })
-      .then(res => console.log("🟢 ОТВЕТ ОТ БРОКЕРА:", res))
-      .catch(err => console.error("🔴 ОШИБКА БРОКЕРА:", err));
-  };
-
-  const handleTestJobRunner = () => {
-    console.log("Отправка задачи в JobRunner...");
-    invoke('start_audit_job', { target: "192.168.1.5" })
-      .then(res => console.log("🟢 JOB RUNNER:", res))
-      .catch(err => console.error("🔴 ОШИБКА:", err));
-  };
-
   return (
     <div style={{ display: 'flex', height: '100vh', width: '100vw', backgroundColor: '#0a0a0c', color: '#fff', fontFamily: 'monospace' }}>
+      <ToastHost />
 
       {loading && (
         <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(0,0,0,0.95)', zIndex: 9999, display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center', color: '#00f0ff' }}>
@@ -1335,31 +1324,6 @@ const handleSecurityAudit = async () => {
       <div style={{ width: '400px', backgroundColor: '#111115', borderLeft: '2px solid #ff003c', padding: '20px', overflowY: 'auto' }}>
         <h2 style={{ color: '#ff003c', fontSize: '1.2rem', marginBottom: '20px' }}>HYPERION NODE</h2>
 
-
-        <button
-          onClick={handleTestJobRunner}
-          style={{ padding: '12px 24px', background: '#ff9900', color: '#111', fontWeight: 'bold', margin: '0 0 15px 0', border: 'none', borderRadius: '6px', cursor: 'pointer' }}
-        >
-          ⚡ ТЕСТ JOB RUNNER ⚡
-        </button>
-
-        <button
-          onClick={handleTestBrokerConnection}
-          style={{
-            padding: '12px 24px',
-            background: '#ff0044',
-            color: 'white',
-            fontWeight: 'bold',
-            margin: '15px 0',
-            border: 'none',
-            borderRadius: '6px',
-            cursor: 'pointer',
-            boxShadow: '0 4px 6px rgba(0,0,0,0.3)'
-          }}
-        >
-          🔥 ТЕСТ REDPANDA 🔥
-        </button>
-
         <div style={{ border: '1px solid #2f9a4f', padding: '10px', backgroundColor: '#07130b', marginBottom: '20px' }}>
           <h3 style={{ color: '#7dff9c', marginTop: '0', fontSize: '0.9rem' }}>📌 СТАТУС РЕАЛИЗАЦИИ</h3>
           {implementationStatus ? (
@@ -1390,7 +1354,7 @@ const handleSecurityAudit = async () => {
         <div style={{ border: '1px solid #00ff9c', padding: '10px', backgroundColor: '#001a0a', marginBottom: '20px', boxShadow: '0 0 10px rgba(0,255,156,0.15)' }}>
           <h3 style={{ color: '#00ff9c', marginTop: '0', fontSize: '0.9rem' }}>🔍 РАЗВЕДКА АРХИВА (HUB)</h3>
           <div style={{ fontSize: '10px', color: '#6b9', marginBottom: '8px' }}>
-            Прощупывает все PHP-эндпоинты videodvor.by на наличие архивного доступа для конкретной камеры.
+            Прощупывает все PHP-эндпоинты stream.example.local на наличие архивного доступа для конкретной камеры.
           </div>
 
           <div style={{ display: 'flex', gap: '6px', marginBottom: '6px' }}>
@@ -1417,7 +1381,7 @@ const handleSecurityAudit = async () => {
           <button
             disabled={reconRunning}
             onClick={async () => {
-              if (!reconUserId.trim()) return alert('Введите User ID камеры');
+              if (!reconUserId.trim()) return toast('Введите User ID камеры');
               setReconRunning(true);
               setReconResults([]);
               try {
@@ -1430,7 +1394,7 @@ const handleSecurityAudit = async () => {
                 });
                 setReconResults(results);
               } catch (err) {
-                alert(`Ошибка разведки: ${err}`);
+                toast(`Ошибка разведки: ${err}`);
               } finally {
                 setReconRunning(false);
               }
@@ -1470,7 +1434,7 @@ const handleSecurityAudit = async () => {
                     <button
                       onClick={() => {
                         setCaptureUrl(r.url);
-                        handleCaptureArchive(r.url, `recon_${reconUserId}_ch${reconChannelId}_${reconDate}.mp4`, captureDuration, `Cookie: ${hubConfig.cookie}\r\nReferer: https://videodvor.by/stream/admin.php\r\n`);
+                        handleCaptureArchive(r.url, `recon_${reconUserId}_ch${reconChannelId}_${reconDate}.mp4`, captureDuration, `Cookie: ${hubConfig.cookie}\r\nReferer: https://stream.example.local/stream/admin.php\r\n`);
                       }}
                       style={{ marginTop: '4px', background: '#1a4a1a', color: '#00ff9c', border: '1px solid #00ff9c', padding: '3px 8px', cursor: 'pointer', fontSize: '9px', fontWeight: 'bold' }}
                     >
@@ -1480,7 +1444,7 @@ const handleSecurityAudit = async () => {
                   {r.isRedirect && r.redirectTo && (
                     <button
                       onClick={() => {
-                        const fullUrl = r.redirectTo.startsWith('http') ? r.redirectTo : `https://videodvor.by${r.redirectTo}`;
+                        const fullUrl = r.redirectTo.startsWith('http') ? r.redirectTo : `https://stream.example.local${r.redirectTo}`;
                         setCaptureUrl(fullUrl);
                       }}
                       style={{ marginTop: '4px', background: '#4a4a1a', color: '#ffcc00', border: '1px solid #ffcc00', padding: '3px 8px', cursor: 'pointer', fontSize: '9px' }}
@@ -1494,30 +1458,8 @@ const handleSecurityAudit = async () => {
           )}
         </div>
 
-        <div style={{ border: '1px solid #00f0ff', padding: '10px', backgroundColor: '#001a1a', marginBottom: '20px' }}>
-          <h3 style={{ color: '#00f0ff', marginTop: '0', fontSize: '0.9rem' }}>🌐 SHODAN API SCANNER</h3>
-          <div style={{ display: 'flex', gap: '10px', marginBottom: '10px' }}>
-            <button
-              onClick={async () => {
-                setLoading(true); setRadarStatus('ЗАПРОС К СЕРВЕРАМ SHODAN...');
-                try { setShodanResults(await invoke('shodan_search', { country: 'BY', city: 'Minsk' })); }
-                catch (err) { alert(err); }
-                setLoading(false);
-              }}
-              style={{ flex: 1, backgroundColor: '#00f0ff', color: '#000', border: 'none', padding: '10px', cursor: 'pointer', fontWeight: 'bold' }}
-            >
-              🕷️ ЗАПУСТИТЬ СБОР ДАННЫХ
-            </button>
-          </div>
-          <div style={{ maxHeight: '200px', overflowY: 'auto' }}>
-            {shodanResults.map(dev => (
-              <div key={dev.id} style={{ border: '1px solid #00f0ff', padding: '8px', marginBottom: '5px', background: '#001111' }}>
-                <div style={{ color: '#00f0ff', fontSize: '11px', fontWeight: 'bold' }}>IP: {dev.ip}</div>
-                <div style={{ color: '#888', fontSize: '10px' }}>{dev.status}</div>
-              </div>
-            ))}
-          </div>
-        </div>
+        <AssetDiscovery />
+        <AttackGraph targets={filteredTargets} />
 
         <div style={{ border: '1px solid #ff003c', padding: '10px', backgroundColor: '#1a0505', marginBottom: '20px' }}>
           <h3 style={{ color: '#ff003c', marginTop: '0', fontSize: '0.9rem' }}>GLOBAL HUB: MVD LINK</h3>
@@ -1587,7 +1529,7 @@ const handleSecurityAudit = async () => {
           <div style={{ display: 'flex', gap: '6px' }}>
             <button
               onClick={() => {
-                if (!captureUrl.trim()) return alert('Введите URL источника');
+                if (!captureUrl.trim()) return toast('Введите URL источника');
                 handleCaptureArchive(captureUrl, captureFilename || null, captureDuration);
               }}
               style={{ flex: 1, backgroundColor: '#ff9900', color: '#000', border: 'none', padding: '8px', cursor: 'pointer', fontWeight: 'bold', fontSize: '11px' }}
@@ -1596,7 +1538,7 @@ const handleSecurityAudit = async () => {
             </button>
             <button
               onClick={() => {
-                if (!captureUrl.trim()) return alert('Введите URL для скачивания');
+                if (!captureUrl.trim()) return toast('Введите URL для скачивания');
                 handleDownloadHttp(captureUrl, { filenameHint: captureFilename || null });
               }}
               style={{ flex: 1, backgroundColor: '#1a4a1a', color: '#9f9', border: '1px solid #4a4', padding: '8px', cursor: 'pointer', fontWeight: 'bold', fontSize: '11px' }}
@@ -1878,17 +1820,17 @@ const handleSecurityAudit = async () => {
           </div>
           <button
             onClick={async () => {
-              if (!relayUrl.trim()) return alert('Введите URL relay');
+              if (!relayUrl.trim()) return toast('Введите URL relay');
               try {
                 const resp = await invoke('relay_ping', {
                   relayUrl: relayUrl.trim(),
                   relayToken: relayToken.trim() || null,
                 });
                 setRelayStatus('ok');
-                alert(`Relay доступен! Версия: ${resp.version || '?'}, uptime: ${resp.uptime_sec || 0}s`);
+                toast(`Relay доступен! Версия: ${resp.version || '?'}, uptime: ${resp.uptime_sec || 0}s`);
               } catch (err) {
                 setRelayStatus('error');
-                alert(`Relay недоступен: ${err}`);
+                toast(`Relay недоступен: ${err}`);
               }
             }}
             style={{ width: '100%', backgroundColor: relayStatus === 'ok' ? '#1a4a1a' : relayStatus === 'error' ? '#4a1a1a' : '#1a1a4a', color: '#6a6aff', border: '1px solid #6a6aff', padding: '6px', cursor: 'pointer', fontWeight: 'bold', fontSize: '11px' }}

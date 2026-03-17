@@ -1,6 +1,7 @@
 import React from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { SPIDER_MODULES_CONFIG, useAppStore } from '../../store/appStore';
+import { toast } from '../../utils/toast';
 
 export default function SpiderControl({ handleStartNemesis, handleAnalyzeSources, handlePlayFuzzedLink }) {
   const spiderTarget = useAppStore((s) => s.spiderTarget);
@@ -123,7 +124,7 @@ export default function SpiderControl({ handleStartNemesis, handleAnalyzeSources
           <button
             disabled={spiderRunning}
             onClick={async () => {
-              if (!spiderTarget.trim()) return alert('Введите URL цели');
+              if (!spiderTarget.trim()) return toast('Введите URL цели');
               setSpiderRunning(true);
               setSpiderReport(null);
               try {
@@ -147,7 +148,7 @@ export default function SpiderControl({ handleStartNemesis, handleAnalyzeSources
                 });
                 setSpiderReport(report);
               } catch (err) {
-                alert(`Spider error: ${err}`);
+                toast(`Spider error: ${err}`);
               } finally {
                 setSpiderRunning(false);
               }
@@ -325,7 +326,7 @@ export default function SpiderControl({ handleStartNemesis, handleAnalyzeSources
           <div style={{ display: 'flex', gap: '6px', marginBottom: '6px' }}>
             <input
               style={{ flex: 1, backgroundColor: '#000', border: '1px solid #ffaa00', color: '#ffaa00', padding: '6px', boxSizing: 'border-box' }}
-              placeholder="Логин (mvd)"
+              placeholder="Логин (admin)"
               value={fuzzLogin}
               onChange={e => setFuzzLogin(e.target.value)}
             />
@@ -340,7 +341,7 @@ export default function SpiderControl({ handleStartNemesis, handleAnalyzeSources
 
           <textarea
             style={{ width: '100%', backgroundColor: '#000', border: '1px solid #ffaa00', color: '#ffaa00', padding: '6px', marginBottom: '8px', boxSizing: 'border-box', height: '50px', fontSize: '10px', resize: 'none' }}
-            placeholder="Целевой путь: video0/[Minsk_ul._...]"
+            placeholder="Целевой путь: archive/path/file.mkv"
             value={fuzzPath}
             onChange={e => setFuzzPath(e.target.value)}
           />
