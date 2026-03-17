@@ -11,6 +11,8 @@ export const startStream = (targetId, rtspUrl) => invoke('start_stream', { targe
 export const stopStream = (targetId) => invoke('stop_stream', { targetId });
 export const checkStreamAlive = (targetId) => invoke('check_stream_alive', { targetId });
 export const restartStream = (targetId, rtspUrl) => invoke('restart_stream', { targetId, rtspUrl });
+export const listActiveStreams = () => invoke('list_active_streams');
+export const stopAllStreams = () => invoke('stop_all_streams');
 export const startHubStream = (targetId, userId, channelId, cookie) =>
   invoke('start_hub_stream', { targetId, userId, channelId, cookie });
 

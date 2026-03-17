@@ -74,6 +74,7 @@ struct StreamState {
 
 struct ActiveStreamProcess {
     child: TokioChild,
+    ws_url: String,
     shutdown_ws: Option<tokio::sync::oneshot::Sender<()>>,
     ws_task: Option<JoinHandle<()>>,
     stdout_task: Option<JoinHandle<()>>,
@@ -81,6 +82,14 @@ struct ActiveStreamProcess {
 
 struct VideodvorState {
     scanner: TokioMutex<videodvor_scanner::VideodvorScanner>,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ActiveStreamInfo {
+    pub target_id: String,
+    pub ws_url: String,
+    pub is_alive: bool,
 }
 
 pub struct LogState {
@@ -678,6 +687,7 @@ pub async fn start_hub_stream(
         target_id.clone(),
         ActiveStreamProcess {
             child,
+            ws_url: relay.ws_url.clone(),
             shutdown_ws: Some(relay.shutdown_tx),
             ws_task: Some(relay.ws_task),
             stdout_task: Some(relay.stdout_task),
@@ -989,6 +999,7 @@ pub async fn start_stream(
         target_id,
         ActiveStreamProcess {
             child,
+            ws_url: relay.ws_url.clone(),
             shutdown_ws: Some(relay.shutdown_tx),
             ws_task: Some(relay.ws_task),
             stdout_task: Some(relay.stdout_task),
@@ -1047,6 +1058,54 @@ fn stop_stream(
     } else {
         Ok("Inactive".into())
     }
+}
+
+#[tauri::command]
+fn list_active_streams(state: State<'_, StreamState>) -> Result<Vec<ActiveStreamInfo>, String> {
+    let mut streams = state.active_streams.lock().unwrap();
+    let mut result = Vec::new();
+    let mut dead_ids = Vec::new();
+
+    for (id, stream) in streams.iter_mut() {
+        let alive = match stream.child.try_wait() {
+            Ok(Some(_)) => false,
+            Ok(None) => true,
+            Err(_) => false,
+        };
+
+        if !alive {
+            dead_ids.push(id.clone());
+        }
+
+        result.push(ActiveStreamInfo {
+            target_id: id.clone(),
+            ws_url: stream.ws_url.clone(),
+            is_alive: alive,
+        });
+    }
+
+    for id in dead_ids {
+        if let Some(old) = streams.remove(&id) {
+            terminate_stream_process(old);
+        }
+    }
+
+    Ok(result)
+}
+
+#[tauri::command]
+fn stop_all_streams(
+    state: State<'_, StreamState>,
+    log_state: State<'_, LogState>,
+) -> Result<String, String> {
+    let mut streams = state.active_streams.lock().unwrap();
+    let count = streams.len();
+    for (_, stream) in streams.drain() {
+        terminate_stream_process(stream);
+    }
+
+    push_runtime_log(&log_state, format!("Stopped all {} streams", count));
+    Ok(format!("Stopped {} streams", count))
 }
 
 // --- НОВЫЙ БЛОК FTP-НАВИГАТОРА ---
@@ -6484,6 +6543,8 @@ fn main() {
             streaming::stop_stream,
             streaming::check_stream_alive,
             streaming::restart_stream,
+            streaming::list_active_streams,
+            streaming::stop_all_streams,
             geocode_address,
             generate_nvr_channels,
             fuzzer::probe_rtsp_path,

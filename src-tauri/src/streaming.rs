@@ -48,3 +48,16 @@ pub fn stop_stream(
 ) -> Result<String, String> {
     super::stop_stream(target_id, state, log_state)
 }
+
+#[tauri::command]
+pub fn list_active_streams(state: State<'_, StreamState>) -> Result<Vec<ActiveStreamInfo>, String> {
+    super::list_active_streams(state)
+}
+
+#[tauri::command]
+pub fn stop_all_streams(
+    state: State<'_, StreamState>,
+    log_state: State<'_, LogState>,
+) -> Result<String, String> {
+    super::stop_all_streams(state, log_state)
+}
