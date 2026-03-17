@@ -21,24 +21,24 @@ use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, OnceLock};
 pub mod api_fuzzer;
 mod archive;
-mod attack_graph;
-mod asset_discovery;
 mod archive_ai;
+mod asset_discovery;
+mod attack_graph;
 mod auditor;
 mod breach_analyzer;
+pub mod broker;
+mod camera_discovery;
+mod compliance_checker;
 mod credential_auditor;
 mod device_metadata;
-mod compliance_checker;
-pub mod broker;
 pub mod exploit_searcher;
 pub mod exploit_verifier;
-mod ffmpeg;
 mod feedback_store;
+mod ffmpeg;
 mod fuzzer;
+mod job_runner;
 mod knowledge;
 mod lateral_scanner;
-mod traffic_analyzer;
-mod job_runner;
 pub mod mass_auditor;
 pub mod metadata_extractor;
 mod nexus;
@@ -50,9 +50,10 @@ pub mod spider;
 mod streaming;
 pub mod subnet_scanner;
 mod system_cmds;
+mod traffic_analyzer;
+mod vuln_db_updater;
 pub mod vuln_scanner;
 mod vuln_verifier;
-mod vuln_db_updater;
 use suppaftp::FtpStream;
 use tauri::State;
 use tokio::sync::Mutex as TokioMutex;
@@ -93,7 +94,6 @@ struct DownloadCancelState {
 struct FfmpegLimiterState {
     semaphore: Arc<Semaphore>,
 }
-
 
 // 🔥 СТЕЙТ ДЛЯ ПУЛЬТА ГИПЕРИОНА (nexus)
 struct HyperionState {
@@ -6561,6 +6561,7 @@ fn main() {
             broker::test_broker_connection,
             traffic_analyzer::analyze_traffic,
             attack_graph::generate_attack_graph,
+            camera_discovery::unified_camera_scan,
             device_metadata::collect_device_metadata,
             report_export::export_report_json,
             report_export::export_report_csv,
