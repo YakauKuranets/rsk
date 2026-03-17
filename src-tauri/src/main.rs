@@ -47,6 +47,7 @@ mod streaming;
 pub mod subnet_scanner;
 mod system_cmds;
 pub mod vuln_scanner;
+mod vuln_verifier;
 use suppaftp::FtpStream;
 use tauri::State;
 use tokio::sync::Mutex as TokioMutex;
@@ -6525,6 +6526,7 @@ fn main() {
             session_checker::check_session_security,
             api_fuzzer::run_api_fuzzer,
             vuln_scanner::verify_vulnerabilities,
+            vuln_verifier::verify_vulnerability,
             persistence_checker::assess_persistence_risk,
             subnet_scanner::scan_neighborhood,
             exploit_searcher::search_public_exploits,
