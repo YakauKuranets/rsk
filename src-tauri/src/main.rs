@@ -21,6 +21,7 @@ use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, OnceLock};
 pub mod api_fuzzer;
 mod archive;
+mod asset_discovery;
 mod archive_ai;
 mod auditor;
 mod breach_analyzer;
@@ -6483,6 +6484,7 @@ fn main() {
             videodvor_list_archive,
             videodvor_download_file,
             external_search, // <-- ВАЖНО: Пришел на замену shodan_search
+            asset_discovery::discover_external_assets,
             streaming::start_hub_stream,
             system_cmds::scan_host_ports,
             get_runtime_logs,
