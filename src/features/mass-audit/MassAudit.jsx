@@ -51,6 +51,31 @@ export default function MassAudit() {
     }
   };
 
+
+  const handleCheckWebshells = async () => {
+    const ipRegex = /\b(?:[0-9]{1,3}\.){3}[0-9]{1,3}\b/g;
+    const extractedIps = massAuditIps.match(ipRegex) || [];
+    const targetIp = extractedIps[0] || '';
+
+    if (!targetIp) {
+      toast('Выберите цель! Укажите хотя бы один IP.');
+      return;
+    }
+
+    try {
+      toast('Запуск поиска веб-шеллов...');
+      const result = await invoke('check_persistence', { target: targetIp });
+      if (result.length > 0) {
+        toast(`⚠️ НАЙДЕНО ШЕЛЛОВ: ${result.length}`);
+        console.log('Шеллы:', result);
+      } else {
+        toast('Веб-шеллы не обнаружены (Чисто)');
+      }
+    } catch (err) {
+      toast('Ошибка проверки: ' + err);
+    }
+  };
+
   const handleGetMetadata = async (ip) => {
     try {
       const meta = await invoke('collect_metadata', { ip });
@@ -95,6 +120,13 @@ export default function MassAudit() {
           style={{ width: '100%', padding: '6px', background: '#000', color: '#ff3366', border: '1px solid #ff3366', fontSize: '11px' }}
         />
       </div>
+
+      <button
+        onClick={handleCheckWebshells}
+        style={{ padding: '8px', background: '#330000', color: '#ff3366', border: '1px solid #ff3366', cursor: 'pointer', fontSize: '11px', width: '100%', marginBottom: '8px' }}
+      >
+        🦠 ИСКАТЬ WEBSHELL (PTES)
+      </button>
 
       <button disabled={massAuditing} onClick={handleMassAudit} style={{ width: '100%', backgroundColor: massAuditing ? '#334' : '#6a88ff', color: '#fff', border: 'none', padding: '8px', cursor: massAuditing ? 'default' : 'pointer', fontWeight: 'bold' }}>
         {massAuditing ? '⏳ Идет сканирование...' : 'Запустить массовый аудит'}
