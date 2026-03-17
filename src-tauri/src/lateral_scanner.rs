@@ -62,3 +62,62 @@ pub async fn scan_lateral_movement(
 
     Ok(reports)
 }
+
+
+pub async fn check_neighbors(
+    target_ip: &str,
+    known_creds: Vec<String>,
+) -> Result<Option<String>, String> {
+    let mut known_logins = Vec::new();
+    let mut known_passwords = Vec::new();
+
+    for entry in known_creds {
+        if let Some((l, p)) = entry.split_once(':') {
+            let login = l.trim();
+            let pass = p.trim();
+            if !login.is_empty() && !pass.is_empty() {
+                known_logins.push(login.to_string());
+                known_passwords.push(pass.to_string());
+            }
+        }
+    }
+
+    if known_logins.is_empty() || known_passwords.is_empty() {
+        return Ok(None);
+    }
+
+    let neighbors = generate_neighbors(target_ip, 2);
+    if neighbors.is_empty() {
+        return Ok(None);
+    }
+
+    let results = scan_lateral_movement(neighbors, known_logins, known_passwords).await?;
+    if results.is_empty() {
+        return Ok(None);
+    }
+
+    let summary = results
+        .iter()
+        .map(|r| format!("{} [{}]", r.target_ip, r.service))
+        .collect::<Vec<_>>()
+        .join(" | ");
+
+    Ok(Some(summary))
+}
+
+fn generate_neighbors(ip: &str, range: u8) -> Vec<String> {
+    let mut neighbors = Vec::new();
+    if let Some(dot_idx) = ip.rfind('.') {
+        let prefix = &ip[..dot_idx];
+        if let Ok(last) = ip[dot_idx + 1..].parse::<u16>() {
+            let start = (last as i32 - range as i32).max(1) as u16;
+            let end = (last + range as u16).min(254);
+            for i in start..=end {
+                if i != last {
+                    neighbors.push(format!("{}.{}", prefix, i));
+                }
+            }
+        }
+    }
+    neighbors
+}
