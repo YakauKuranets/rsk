@@ -31,6 +31,7 @@ mod ffmpeg;
 mod feedback_store;
 mod fuzzer;
 mod knowledge;
+mod lateral_scanner;
 mod job_runner;
 pub mod mass_auditor;
 pub mod metadata_extractor;
@@ -6502,6 +6503,7 @@ fn main() {
             job_runner::start_fuzzer_job,
             job_runner::start_rce_job,
             job_runner::start_breach_job,
+            job_runner::start_lateral_job,
             breach_analyzer::check_password_breach,
             session_checker::check_session_security,
             api_fuzzer::run_api_fuzzer,

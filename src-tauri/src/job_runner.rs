@@ -3,6 +3,7 @@ use crate::auditor;
 use crate::broker::send_intel;
 use crate::breach_analyzer;
 use crate::feedback_store::FeedbackStore;
+use crate::lateral_scanner;
 use crate::rce_verifier;
 use crate::session_checker;
 use chrono::Utc;
@@ -19,6 +20,7 @@ pub enum JobModule {
     SessionChecker,
     RceVerifier,
     BreachAnalyzer,
+    LateralScanner,
     // В будущем добавим новые модули сюда
 }
 
@@ -152,6 +154,35 @@ pub async fn run_worker_loop(mut receiver: mpsc::Receiver<Job>, feedback_store: 
                     ),
                 }
             }
+            JobModule::LateralScanner => {
+                // 1. Получаем известные креды из памяти для этого таргета!
+                let known_vulns = feedback_store.get_findings(&job.target).unwrap_or_default();
+
+                if known_vulns.is_empty() {
+                    println!(
+                        "[JobRunner] ⏭️ Пропуск Lateral Movement: нет известных кредов для {}",
+                        job.target
+                    );
+                    continue;
+                }
+
+                match lateral_scanner::check_neighbors(&job.target, known_vulns).await {
+                    Ok(Some(findings)) => {
+                        println!(
+                            "[JobRunner] 🕸️ УСПЕШНОЕ БОКОВОЕ ПЕРЕМЕЩЕНИЕ от {}: {}",
+                            job.target, findings
+                        );
+                        feedback_store
+                            .record_finding(&job.target, &format!("Lateral: {}", findings));
+                        let payload = format!("LATERAL_MOVEMENT: {} -> {}", job.target, findings);
+                        if let Err(err) = send_intel(payload).await {
+                            println!("[JobRunner] ⚠️ Ошибка отправки в Redpanda: {}", err);
+                        }
+                    }
+                    Ok(None) => println!("[JobRunner] ⚪ Соседи {} безопасны.", job.target),
+                    Err(e) => println!("[JobRunner] 🔴 Ошибка Lateral Scanner на {}: {}", job.target, e),
+                }
+            }
             JobModule::SessionChecker => {
                 match session_checker::check_session(&job.target).await {
                     Ok(Some(vulns)) => {
@@ -268,6 +299,25 @@ pub async fn start_breach_job(
     job_manager.submit_job(job).await?;
     Ok(format!(
         "Задача проверки утечек (Breach Data) для {} добавлена в очередь",
+        target
+    ))
+}
+
+
+#[tauri::command]
+pub async fn start_lateral_job(
+    target: String,
+    job_manager: State<'_, Arc<JobManager>>,
+) -> Result<String, String> {
+    let job = Job {
+        id: Utc::now().timestamp_millis().to_string(),
+        target: target.clone(),
+        module: JobModule::LateralScanner,
+        payload: None,
+    };
+    job_manager.submit_job(job).await?;
+    Ok(format!(
+        "Задача Lateral Scanner для {} добавлена в очередь",
         target
     ))
 }
