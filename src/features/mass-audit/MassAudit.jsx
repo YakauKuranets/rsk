@@ -15,6 +15,7 @@ export default function MassAudit() {
   const setMassAuditResults = useAppStore((s) => s.setMassAuditResults);
   const setMassAuditing = useAppStore((s) => s.setMassAuditing);
   const [proxyList, setProxyList] = useState('');
+  const [osintWords, setOsintWords] = useState('');
 
   const handleMassAudit = async () => {
     if (!massAuditIps.trim()) return;
@@ -34,11 +35,13 @@ export default function MassAudit() {
 
     try {
       const proxies = proxyList.split('\n').map((p) => p.trim()).filter((p) => p.length > 0);
+      const osintContext = osintWords.split(',').map((w) => w.trim()).filter((w) => w.length > 0);
       const results = await invoke('run_mass_audit', {
         targetIps: uniqueIps,
         knownLogin: massAuditLogin,
         knownPass: massAuditPass,
         proxies,
+        osintContext,
       });
       setMassAuditResults(results);
     } catch (error) {
@@ -76,6 +79,20 @@ export default function MassAudit() {
           onChange={e => setProxyList(e.target.value)}
           placeholder={'socks5://127.0.0.1:9050\nhttp://user:pass@192.168.1.55:8080'}
           style={{ width: '100%', height: '60px', background: '#000', color: '#ffcc00', border: '1px solid #ffcc00', padding: '4px', fontSize: '10px' }}
+        />
+      </div>
+
+
+      <div style={{ marginTop: '10px', marginBottom: '10px' }}>
+        <div style={{ fontSize: '10px', color: '#ff3366', marginBottom: '4px' }}>
+          🧠 OSINT СЛОВАРЬ (Слова через запятую: компания, город, год):
+        </div>
+        <input
+          type="text"
+          value={osintWords}
+          onChange={e => setOsintWords(e.target.value)}
+          placeholder="Например: gazprom, moscow, admin"
+          style={{ width: '100%', padding: '6px', background: '#000', color: '#ff3366', border: '1px solid #ff3366', fontSize: '11px' }}
         />
       </div>
 
