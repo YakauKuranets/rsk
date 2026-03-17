@@ -425,10 +425,10 @@ async fn download_via_ftp_to_file(
     ftp.login(login, pass)
         .map_err(|e| format!("FTP login: {}", e))?;
 
-    let bytes = ftp
-        .simple_retr(remote_path)
-        .map_err(|e| format!("FTP retr: {}", e))?
-        .into_inner();
+    let cursor = ftp
+        .retr_as_buffer(remote_path)
+        .map_err(|e| format!("FTP retr error: {}", e))?;
+    let bytes = cursor.into_inner();
 
     let mut reader = Cursor::new(bytes);
     let mut file = std::fs::File::create(save_path).map_err(|e| format!("File create: {}", e))?;
