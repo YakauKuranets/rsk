@@ -21,6 +21,7 @@ use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, OnceLock};
 pub mod api_fuzzer;
 mod archive;
+mod attack_graph;
 mod asset_discovery;
 mod archive_ai;
 mod auditor;
@@ -6549,7 +6550,8 @@ fn main() {
             relay_list_files,
             relay_download_file,
             broker::test_broker_connection,
-            traffic_analyzer::analyze_traffic
+            traffic_analyzer::analyze_traffic,
+            attack_graph::generate_attack_graph
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

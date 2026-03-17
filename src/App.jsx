@@ -9,6 +9,7 @@ import StreamGrid from './features/streams/StreamGrid';
 import SpiderControl from './features/spider/SpiderControl';
 import MassAudit from './features/mass-audit/MassAudit';
 import AssetDiscovery from './features/discovery/AssetDiscovery';
+import AttackGraph from './features/attack-graph/AttackGraph';
 import { useAppStore } from './store/appStore';
 
 function normalizeTargetRecords(rawTargets) {
@@ -1495,6 +1496,7 @@ const handleSecurityAudit = async () => {
         </div>
 
         <AssetDiscovery />
+        <AttackGraph targets={filteredTargets} />
 
         <div style={{ border: '1px solid #ff003c', padding: '10px', backgroundColor: '#1a0505', marginBottom: '20px' }}>
           <h3 style={{ color: '#ff003c', marginTop: '0', fontSize: '0.9rem' }}>GLOBAL HUB: MVD LINK</h3>
