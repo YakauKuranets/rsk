@@ -1,6 +1,7 @@
 use crate::api_fuzzer;
 use crate::auditor;
 use crate::broker::send_intel;
+use crate::rce_verifier;
 use crate::session_checker;
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
@@ -14,6 +15,7 @@ pub enum JobModule {
     PortScanner,
     ApiFuzzer,
     SessionChecker,
+    RceVerifier,
     // В будущем добавим новые модули сюда
 }
 
@@ -88,6 +90,22 @@ pub async fn run_worker_loop(mut receiver: mpsc::Receiver<Job>) {
                     }
                     Ok(None) => println!("[JobRunner] ⚪ API не обнаружены: {}", job.target),
                     Err(e) => println!("[JobRunner] 🔴 Ошибка фаззера на {}: {}", job.target, e),
+                }
+            }
+            JobModule::RceVerifier => {
+                match rce_verifier::verify_rce(&job.target).await {
+                    Ok(Some(findings)) => {
+                        println!(
+                            "[JobRunner] 🔴 КРИТИЧЕСКАЯ УЯЗВИМОСТЬ RCE на {}: {}",
+                            job.target, findings
+                        );
+                        let payload = format!("RCE_VULN: {} -> {}", job.target, findings);
+                        if let Err(err) = send_intel(payload).await {
+                            println!("[JobRunner] ⚠️ Ошибка отправки в Redpanda: {}", err);
+                        }
+                    }
+                    Ok(None) => println!("[JobRunner] ⚪ RCE не обнаружено: {}", job.target),
+                    Err(e) => println!("[JobRunner] ⚠️ Ошибка проверки RCE на {}: {}", job.target, e),
                 }
             }
             JobModule::SessionChecker => {
@@ -169,4 +187,20 @@ pub async fn start_fuzzer_job(
     };
     job_manager.submit_job(job).await?;
     Ok(format!("Задача API Fuzzer для {} добавлена в очередь", target))
+}
+
+
+#[tauri::command]
+pub async fn start_rce_job(
+    target: String,
+    job_manager: State<'_, Arc<JobManager>>,
+) -> Result<String, String> {
+    let job = Job {
+        id: Utc::now().timestamp_millis().to_string(),
+        target: target.clone(),
+        module: JobModule::RceVerifier,
+        payload: None,
+    };
+    job_manager.submit_job(job).await?;
+    Ok(format!("Задача RCE Verifier для {} добавлена в очередь", target))
 }

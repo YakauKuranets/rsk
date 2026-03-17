@@ -35,6 +35,7 @@ pub mod mass_auditor;
 pub mod metadata_extractor;
 mod nexus;
 pub mod persistence_checker;
+pub mod rce_verifier;
 pub mod session_checker;
 pub mod spider;
 mod streaming;
@@ -6494,6 +6495,7 @@ fn main() {
             job_runner::start_audit_job,
             job_runner::start_session_job,
             job_runner::start_fuzzer_job,
+            job_runner::start_rce_job,
             breach_analyzer::check_password_breach,
             session_checker::check_session_security,
             api_fuzzer::run_api_fuzzer,
