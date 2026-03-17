@@ -6610,6 +6610,7 @@ fn main() {
             persistence_checker::check_persistence,
             subnet_scanner::scan_neighborhood,
             exploit_searcher::search_public_exploits,
+            exploit_searcher::search_github_poc,
             exploit_verifier::verify_exploit_docker,
             mass_auditor::run_mass_audit,
             metadata_extractor::collect_metadata,

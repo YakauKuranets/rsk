@@ -21,6 +21,9 @@ export default function MassAudit() {
   const [smartFuzzing, setSmartFuzzing] = useState(false);
   const [smartFindings, setSmartFindings] = useState([]);
   const [useEvasion, setUseEvasion] = useState(false);
+  const [cveId, setCveId] = useState('');
+  const [pocResults, setPocResults] = useState(null);
+  const [isSearchingPoc, setIsSearchingPoc] = useState(false);
 
   const handleMassAudit = async () => {
     if (!massAuditIps.trim()) return;
@@ -110,6 +113,32 @@ export default function MassAudit() {
       toast('Ошибка SMART FUZZER: ' + err);
     } finally {
       setSmartFuzzing(false);
+    }
+  };
+
+  const handlePocSearch = async () => {
+    if (!cveId.match(/^CVE-\d{4}-\d{4,}$/i)) {
+      toast('Введите корректный CVE (например, CVE-2021-44228)', 'error');
+      return;
+    }
+
+    setIsSearchingPoc(true);
+    setPocResults(null);
+
+    try {
+      const normalized = cveId.toUpperCase();
+      toast(`Поиск эксплойтов для ${normalized}...`);
+      const results = await invoke('search_github_poc', { cveId: normalized });
+      setPocResults(results);
+      if (results.length > 0) {
+        toast(`Найдено ${results.length} публичных PoC!`, 'error');
+      } else {
+        toast('Публичные эксплойты не найдены (0-day / Private).', 'success');
+      }
+    } catch (err) {
+      toast('Ошибка поиска: ' + err, 'error');
+    } finally {
+      setIsSearchingPoc(false);
     }
   };
 
@@ -243,6 +272,51 @@ export default function MassAudit() {
         </button>
       </div>
 
+      <div style={{ marginTop: '20px', padding: '15px', background: '#1a0d00', border: '1px solid #ff9900', borderRadius: '4px' }}>
+        <h3 style={{ color: '#ff9900', marginTop: 0, fontSize: '14px' }}>🎯 WEAPONIZATION: Авто-сбор PoC</h3>
+        <div style={{ fontSize: '11px', color: '#cc7a00', marginBottom: '10px' }}>
+          Поиск готовых скриптов эксплуатации (Proof-of-Concept) по базам исследователей безопасности.
+        </div>
+        <div style={{ display: 'flex', gap: '10px' }}>
+          <input
+            type="text"
+            value={cveId}
+            onChange={e => setCveId(e.target.value)}
+            placeholder="Введите CVE (напр. CVE-2023-23397)"
+            style={{ flex: 1, padding: '8px', background: '#000', color: '#ff9900', border: '1px solid #ff9900' }}
+          />
+          <button
+            onClick={handlePocSearch}
+            disabled={isSearchingPoc}
+            style={{ padding: '8px 15px', background: '#ff9900', color: '#000', fontWeight: 'bold', border: 'none', cursor: isSearchingPoc ? 'wait' : 'pointer' }}
+          >
+            {isSearchingPoc ? 'ПОИСК...' : 'НАЙТИ ЭКСПЛОЙТ'}
+          </button>
+        </div>
+
+        {pocResults && (
+          <div style={{ marginTop: '15px' }}>
+            {pocResults.length === 0 ? (
+              <div style={{ color: '#888' }}>Готовых скриптов эксплуатации не найдено.</div>
+            ) : (
+              <div style={{ display: 'grid', gap: '10px' }}>
+                {pocResults.map((poc, i) => (
+                  <div key={`poc_${i}`} style={{ background: '#000', padding: '10px', borderLeft: '3px solid #ff9900', fontSize: '12px' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                      <strong style={{ color: '#ff9900' }}>{poc.repoName}</strong>
+                      <span style={{ color: '#ffcc00' }}>⭐ {poc.stars}</span>
+                    </div>
+                    <div style={{ color: '#aaa', margin: '6px 0' }}>{poc.description}</div>
+                    <a href={poc.htmlUrl} target="_blank" rel="noreferrer" style={{ color: '#00f0ff', textDecoration: 'none', fontWeight: 'bold' }}>
+                      [ ПОСМОТРЕТЬ ИСХОДНЫЙ КОД ]
+                    </a>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+      </div>
 
       {smartFindings.length > 0 && (
         <div style={{ marginTop: '10px', border: '1px solid #2f5f2a', background: '#071108', maxHeight: '200px', overflowY: 'auto', padding: '6px' }}>
