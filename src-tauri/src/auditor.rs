@@ -128,10 +128,17 @@ pub async fn adaptive_credential_audit(
         }
 
         println!(
-            "[AUDITOR] Неудача ({} / {}). Ожидание {}ms...",
+            "[AUDITOR] Неудача ({} / {}). Этический лимит 300ms + adaptive {}ms...",
             login, pass, base_delay
         );
-        sleep(Duration::from_millis(base_delay)).await;
+
+        // Safe-Rate Guardrail: минимальная пауза между попытками брутфорса.
+        sleep(Duration::from_millis(300)).await;
+
+        // Сохраняем адаптивный backoff поверх безопасного минимума.
+        if base_delay > 300 {
+            sleep(Duration::from_millis(base_delay - 300)).await;
+        }
     }
 
     println!("[AUDITOR] 🛑 Аудит завершен. Подходящих кредов в базовом словаре не найдено.");

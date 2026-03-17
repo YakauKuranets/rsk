@@ -1,3 +1,5 @@
+use crate::auditor;
+use crate::broker::send_intel;
 use serde::{Deserialize, Serialize};
 use tokio::sync::mpsc;
 
@@ -49,9 +51,28 @@ pub async fn run_worker_loop(mut receiver: mpsc::Receiver<Job>) {
             job.id, job.target
         );
 
-        // Здесь в будущем будет вызов конкретных сканеров через match job.module
-        // Пока просто симулируем работу
-        tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
+        match job.module {
+            JobModule::FtpScanner => {
+                let vendor = job.payload.clone().unwrap_or_else(|| "hikvision".to_string());
+                match auditor::adaptive_credential_audit(job.target.clone(), vendor, None).await {
+                    Ok(Some((login, password))) => {
+                        let credentials = format!("{}:{}", login, password);
+                        println!("[JobRunner] 🟢 УЯЗВИМОСТЬ НАЙДЕНА: {}", credentials);
+
+                        let payload = format!("LEAK: {} -> {}", job.target, credentials);
+                        if let Err(err) = send_intel(payload).await {
+                            println!("[JobRunner] ⚠️ Ошибка отправки в Redpanda: {}", err);
+                        }
+                    }
+                    Ok(None) => println!("[JobRunner] ⚪ Цель безопасна: {}", job.target),
+                    Err(e) => println!("[JobRunner] 🔴 Ошибка сканирования {}: {}", job.target, e),
+                }
+            }
+            // Заглушки для будущих модулей
+            _ => {
+                println!("[JobRunner] Module not implemented yet.");
+            }
+        }
 
         println!("[JobRunner] Job {} finished.", job.id);
     }
