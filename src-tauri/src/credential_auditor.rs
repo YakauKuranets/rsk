@@ -1,3 +1,5 @@
+use rand::seq::SliceRandom;
+use reqwest::{Client, Proxy};
 use serde::Serialize;
 use std::collections::HashSet;
 use std::sync::Arc;
@@ -42,6 +44,26 @@ impl Default for CredentialAuditConfig {
     }
 }
 
+
+fn build_rotated_client(proxies: &Option<Vec<String>>) -> Result<Client, String> {
+    let mut builder = Client::builder()
+        .timeout(Duration::from_secs(8))
+        .danger_accept_invalid_certs(true);
+
+    if let Some(proxy_list) = proxies {
+        if !proxy_list.is_empty() {
+            let mut rng = rand::thread_rng();
+            if let Some(proxy_url) = proxy_list.choose(&mut rng) {
+                if let Ok(proxy) = Proxy::all(proxy_url) {
+                    builder = builder.proxy(proxy);
+                }
+            }
+        }
+    }
+
+    builder.build().map_err(|e| e.to_string())
+}
+
 fn credential_probe_semaphore() -> Arc<Semaphore> {
     static SEM: OnceLock<Arc<Semaphore>> = OnceLock::new();
     SEM.get_or_init(|| Arc::new(Semaphore::new(4))).clone()
@@ -54,6 +76,7 @@ pub async fn advanced_credential_audit(
     custom_wordlist: Option<Vec<String>>,
     max_attempts: Option<u32>,
     osint_context: Option<String>,
+    proxies: Option<Vec<String>>,
     log_state: State<'_, crate::LogState>,
 ) -> Result<CredentialAuditResult, String> {
     let start = Instant::now();
@@ -118,6 +141,9 @@ pub async fn advanced_credential_audit(
 
     for (login, pass) in &wordlist {
         attempts += 1;
+
+        // Credential spraying через прокси-меш: создаем клиент на каждую попытку
+        let _rotated_client = build_rotated_client(&proxies)?;
 
         let test_url = build_rtsp_url(&vendor, &ip, login, pass);
 

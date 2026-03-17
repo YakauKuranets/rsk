@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { useAppStore } from '../../store/appStore';
 import { toast } from '../../utils/toast';
@@ -14,6 +14,7 @@ export default function MassAudit() {
   const setMassAuditPass = useAppStore((s) => s.setMassAuditPass);
   const setMassAuditResults = useAppStore((s) => s.setMassAuditResults);
   const setMassAuditing = useAppStore((s) => s.setMassAuditing);
+  const [proxyList, setProxyList] = useState('');
 
   const handleMassAudit = async () => {
     if (!massAuditIps.trim()) return;
@@ -32,10 +33,12 @@ export default function MassAudit() {
     }
 
     try {
+      const proxies = proxyList.split('\n').map((p) => p.trim()).filter((p) => p.length > 0);
       const results = await invoke('run_mass_audit', {
         targetIps: uniqueIps,
         knownLogin: massAuditLogin,
         knownPass: massAuditPass,
+        proxies,
       });
       setMassAuditResults(results);
     } catch (error) {
@@ -63,6 +66,18 @@ export default function MassAudit() {
       </div>
 
       <textarea style={{ width: '100%', minHeight: '70px', backgroundColor: '#000', border: '1px solid #6a88ff', color: '#9fc2ff', padding: '6px', fontSize: '11px', marginBottom: '8px' }} placeholder="IP через запятую/пробел" value={massAuditIps} onChange={(e) => setMassAuditIps(e.target.value)} />
+
+      <div style={{ marginTop: '10px', marginBottom: '10px' }}>
+        <div style={{ fontSize: '10px', color: '#ffcc00', marginBottom: '4px' }}>
+          🌐 PROXY MESH (SOCKS5/HTTP) — По одному на строку:
+        </div>
+        <textarea
+          value={proxyList}
+          onChange={e => setProxyList(e.target.value)}
+          placeholder={'socks5://127.0.0.1:9050\nhttp://user:pass@192.168.1.55:8080'}
+          style={{ width: '100%', height: '60px', background: '#000', color: '#ffcc00', border: '1px solid #ffcc00', padding: '4px', fontSize: '10px' }}
+        />
+      </div>
 
       <button disabled={massAuditing} onClick={handleMassAudit} style={{ width: '100%', backgroundColor: massAuditing ? '#334' : '#6a88ff', color: '#fff', border: 'none', padding: '8px', cursor: massAuditing ? 'default' : 'pointer', fontWeight: 'bold' }}>
         {massAuditing ? '⏳ Идет сканирование...' : 'Запустить массовый аудит'}
