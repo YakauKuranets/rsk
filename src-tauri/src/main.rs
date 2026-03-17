@@ -27,6 +27,8 @@ mod archive_ai;
 mod auditor;
 mod breach_analyzer;
 mod credential_auditor;
+mod device_metadata;
+mod compliance_checker;
 pub mod broker;
 pub mod exploit_searcher;
 pub mod exploit_verifier;
@@ -42,6 +44,7 @@ pub mod metadata_extractor;
 mod nexus;
 pub mod persistence_checker;
 pub mod rce_verifier;
+mod report_export;
 pub mod session_checker;
 pub mod spider;
 mod streaming;
@@ -49,6 +52,7 @@ pub mod subnet_scanner;
 mod system_cmds;
 pub mod vuln_scanner;
 mod vuln_verifier;
+mod vuln_db_updater;
 use suppaftp::FtpStream;
 use tauri::State;
 use tokio::sync::Mutex as TokioMutex;
@@ -6444,6 +6448,10 @@ fn main() {
                 job_runner::run_worker_loop(rx, feedback_store, app_handle).await;
             });
 
+            tauri::async_runtime::spawn(async move {
+                let _ = vuln_db_updater::auto_update_if_needed().await;
+            });
+
             Ok(())
         })
         .manage(hyperion_state)
@@ -6551,7 +6559,16 @@ fn main() {
             relay_download_file,
             broker::test_broker_connection,
             traffic_analyzer::analyze_traffic,
-            attack_graph::generate_attack_graph
+            attack_graph::generate_attack_graph,
+            device_metadata::collect_device_metadata,
+            report_export::export_report_json,
+            report_export::export_report_csv,
+            report_export::export_report_markdown,
+            report_export::send_to_syslog,
+            compliance_checker::check_compliance,
+            api_fuzzer::smart_fuzz_api,
+            vuln_db_updater::update_vuln_database,
+            vuln_db_updater::query_local_vuln_db
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
