@@ -25,6 +25,7 @@ mod asset_discovery;
 mod archive_ai;
 mod auditor;
 mod breach_analyzer;
+mod credential_auditor;
 pub mod broker;
 pub mod exploit_searcher;
 pub mod exploit_verifier;
@@ -6512,6 +6513,7 @@ fn main() {
             fuzzer::nemesis_fuzz_archive_endpoint,
             fuzzer::nemesis_fuzz_post_endpoints,
             auditor::adaptive_credential_audit,
+            credential_auditor::advanced_credential_audit,
             job_runner::start_audit_job,
             job_runner::start_session_job,
             job_runner::start_fuzzer_job,
