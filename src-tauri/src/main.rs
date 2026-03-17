@@ -28,8 +28,8 @@ mod auditor;
 mod breach_analyzer;
 pub mod broker;
 mod camera_discovery;
-mod compliance_checker;
 mod campaign;
+mod compliance_checker;
 mod credential_auditor;
 mod device_metadata;
 pub mod exploit_searcher;
@@ -43,17 +43,17 @@ mod lateral_scanner;
 pub mod mass_auditor;
 pub mod metadata_extractor;
 mod nexus;
+mod passive_scanner;
 pub mod persistence_checker;
+mod playbook;
 pub mod rce_verifier;
 mod report_export;
-mod playbook;
 pub mod session_checker;
 pub mod spider;
 mod streaming;
 pub mod subnet_scanner;
 mod system_cmds;
 mod traffic_analyzer;
-mod passive_scanner;
 mod unified_archive;
 mod vuln_db_updater;
 pub mod vuln_scanner;
@@ -6631,6 +6631,7 @@ fn main() {
             relay_download_file,
             broker::test_broker_connection,
             traffic_analyzer::analyze_traffic,
+            traffic_analyzer::start_passive_sniffer,
             attack_graph::generate_attack_graph,
             camera_discovery::unified_camera_scan,
             device_metadata::collect_device_metadata,

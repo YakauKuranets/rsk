@@ -28,6 +28,95 @@ pub struct TrafficAnalysisReport {
     pub warnings: Vec<String>,
 }
 
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct InterceptedEvent {
+    pub protocol: String,
+    pub details: String,
+}
+
+#[tauri::command]
+pub fn start_passive_sniffer(app_handle: tauri::AppHandle) -> Result<String, String> {
+    use pcap::{Capture, Device};
+    use tauri::Emitter;
+
+    let main_device = Device::lookup()
+        .map_err(|e| format!("Ошибка поиска интерфейса: {}", e))?
+        .ok_or("Нет доступных сетевых интерфейсов")?;
+
+    let device_name = main_device.name.clone();
+
+    app_handle
+        .emit(
+            "hyperion-audit-event",
+            format!(
+                "🕵️ Сниффер запущен на интерфейсе [{}]. Ожидание нешифрованных пакетов...",
+                device_name
+            ),
+        )
+        .map_err(|e| e.to_string())?;
+
+    std::thread::spawn(move || {
+        let mut cap = match Capture::from_device(main_device)
+            .and_then(|d| d.promisc(true).snaplen(1024).timeout(1000).open())
+        {
+            Ok(cap) => cap,
+            Err(err) => {
+                let _ = app_handle.emit(
+                    "hyperion-audit-event",
+                    format!("[SNIFFER] Ошибка запуска pcap: {}", err),
+                );
+                return;
+            }
+        };
+
+        if let Err(err) = cap.filter("tcp port 80 or tcp port 21", true) {
+            let _ = app_handle.emit(
+                "hyperion-audit-event",
+                format!("[SNIFFER] Ошибка установки фильтра: {}", err),
+            );
+            return;
+        }
+
+        while let Ok(packet) = cap.next_packet() {
+            if let Ok(payload) = std::str::from_utf8(packet.data) {
+                if payload.contains("Authorization: Basic ") {
+                    let _ = app_handle.emit(
+                        "intercepted_credential",
+                        InterceptedEvent {
+                            protocol: "HTTP Basic".to_string(),
+                            details:
+                                "Перехват: Обнаружена передача токена авторизации в открытом виде!"
+                                    .to_string(),
+                        },
+                    );
+                    let _ = app_handle.emit(
+                        "hyperion-audit-event",
+                        "🚨 ALERT: Перехвачен HTTP Basic Auth токен!",
+                    );
+                }
+
+                if payload.contains("USER ") || payload.contains("PASS ") {
+                    let _ = app_handle.emit(
+                        "intercepted_credential",
+                        InterceptedEvent {
+                            protocol: "FTP".to_string(),
+                            details: "Перехват: Обнаружена попытка входа по FTP без шифрования!"
+                                .to_string(),
+                        },
+                    );
+                    let _ = app_handle.emit(
+                        "hyperion-audit-event",
+                        "🚨 ALERT: Перехвачены FTP учетные данные!",
+                    );
+                }
+            }
+        }
+    });
+
+    Ok(format!("Слушаем эфир на {}", device_name))
+}
+
 #[tauri::command]
 pub async fn analyze_traffic(
     interface: String,

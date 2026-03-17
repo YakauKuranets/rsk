@@ -47,11 +47,11 @@ rand = "0.8.5"
 ort = { version = "2.0.0-rc.2", features = ["ndarray"] }
 ndarray = "0.15.6"
 ipnetwork = "0.20"
-pcap = { version = "2.0", optional = true }
+pcap = "1.1.0"
 
 [features]
 default = []
-traffic-capture = ["pcap"]
+traffic-capture = []
 
 [profile.release]
 lto = true

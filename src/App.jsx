@@ -156,6 +156,8 @@ export default function App() {
   const [archiveProbeResults, setArchiveProbeResults] = useState([]);
   const [implementationStatus, setImplementationStatus] = useState(null);
   const [auditResults, setAuditResults] = useState([]);
+  const [interceptLogs, setInterceptLogs] = useState([]);
+  const [isSniffing, setIsSniffing] = useState(false);
 
 
   // --- CAPTURE ARCHIVE STATE ---
@@ -227,6 +229,37 @@ export default function App() {
       if (unlistenFn) unlistenFn();
     };
   }, []);
+
+
+  useEffect(() => {
+    let disposed = false;
+    let unlistenFn = null;
+
+    listen('intercepted_credential', (event) => {
+      if (disposed) return;
+      const payload = event?.payload || {};
+      toast(`ПЕРЕХВАТ: ${payload.protocol || 'UNKNOWN'}`, 'error');
+      setInterceptLogs((prev) => [...prev, payload].slice(-100));
+    }).then((fn) => {
+      unlistenFn = fn;
+    }).catch(() => {});
+
+    return () => {
+      disposed = true;
+      if (unlistenFn) unlistenFn();
+    };
+  }, []);
+
+  const handleStartSniffer = async () => {
+    try {
+      setIsSniffing(true);
+      const msg = await invoke('start_passive_sniffer');
+      toast(msg, 'success');
+    } catch (err) {
+      toast('Ошибка сниффера (нужны админ права?): ' + err, 'error');
+      setIsSniffing(false);
+    }
+  };
 
   useEffect(() => {
     let disposed = false;
@@ -1459,6 +1492,23 @@ const handleSecurityAudit = async () => {
             УЛЬТИМАТИВНЫЙ РАДАР КАМЕР
           </button>
           {showCameraRadar && <CameraScanPanel onPlayCamera={(cam) => setPendingCameraStream(cam)} />}
+
+          <button
+            onClick={handleStartSniffer}
+            disabled={isSniffing}
+            style={{ width: '100%', padding: '8px', background: isSniffing ? '#003300' : '#00ffcc', color: '#000', fontWeight: 'bold', marginTop: '6px', marginBottom: '6px', cursor: isSniffing ? 'default' : 'pointer' }}
+          >
+            {isSniffing ? '🎧 СЛУШАЮ ЭФИР (СНИФФЕР)...' : '🎧 ЗАПУСТИТЬ ПАССИВНЫЙ ПЕРЕХВАТ'}
+          </button>
+
+          {interceptLogs.length > 0 && (
+            <div style={{ background: '#111', padding: '10px', border: '1px solid #00ffcc', marginBottom: '10px', fontSize: '11px', color: '#00ffcc' }}>
+              <div>УЯЗВИМЫЙ ТРАФИК В СЕТИ:</div>
+              {interceptLogs.map((log, i) => (
+                <div key={`intercept_${i}`}>[{log.protocol}] {log.details}</div>
+              ))}
+            </div>
+          )}
         </div>
 
         <div style={{ border: '1px solid #2f9a4f', padding: '10px', backgroundColor: '#07130b', marginBottom: '20px' }}>
