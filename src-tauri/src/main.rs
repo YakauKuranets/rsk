@@ -6546,7 +6546,8 @@ fn main() {
             relay_ping,
             relay_list_files,
             relay_download_file,
-            broker::test_broker_connection
+            broker::test_broker_connection,
+            traffic_analyzer::analyze_traffic
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
