@@ -6,6 +6,7 @@ use crate::feedback_store::FeedbackStore;
 use crate::lateral_scanner;
 use crate::rce_verifier;
 use crate::session_checker;
+use crate::traffic_analyzer;
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
@@ -21,6 +22,7 @@ pub enum JobModule {
     RceVerifier,
     BreachAnalyzer,
     LateralScanner,
+    TrafficAnalyzer,
     // В будущем добавим новые модули сюда
 }
 
@@ -200,6 +202,33 @@ pub async fn run_worker_loop(
                     Err(e) => println!("[JobRunner] 🔴 Ошибка Lateral Scanner на {}: {}", job.target, e),
                 }
             }
+            JobModule::TrafficAnalyzer => {
+                // Слушаем трафик 5 секунд (передаем имя интерфейса в target)
+                match traffic_analyzer::sniff_traffic(&job.target, 5).await {
+                    Ok(Some(findings)) => {
+                        let msg = format!("🎧 ПЕРЕХВАТ ТРАФИКА на [{}]: {}", job.target, findings);
+                        println!("[JobRunner] {}", msg);
+
+                        // Записываем в память, чтобы другие сканеры могли это использовать!
+                        feedback_store.record_finding(&job.target, &format!("Sniffed: {}", findings));
+
+                        // Отправляем в React интерфейс
+                        let _ = app_handle.emit("hyperion-audit-event", msg.clone());
+
+                        // Отправляем в Redpanda
+                        let payload = format!("PASSIVE_INTEL: {} -> {}", job.target, findings);
+                        if let Err(err) = send_intel(payload).await {
+                            println!("[JobRunner] ⚠️ Ошибка отправки в Redpanda: {}", err);
+                        }
+                    }
+                    Ok(None) => {
+                        let msg = format!("⚪ Чистый эфир на интерфейсе {}", job.target);
+                        println!("[JobRunner] {}", msg);
+                        let _ = app_handle.emit("hyperion-audit-event", msg);
+                    }
+                    Err(e) => println!("[JobRunner] 🔴 Ошибка сниффера: {}", e),
+                }
+            }
             JobModule::SessionChecker => {
                 match session_checker::check_session(&job.target).await {
                     Ok(Some(vulns)) => {
@@ -337,6 +366,25 @@ pub async fn start_lateral_job(
     job_manager.submit_job(job).await?;
     Ok(format!(
         "Задача Lateral Scanner для {} добавлена в очередь",
+        target
+    ))
+}
+
+
+#[tauri::command]
+pub async fn start_sniffer_job(
+    target: String,
+    job_manager: State<'_, Arc<JobManager>>,
+) -> Result<String, String> {
+    let job = Job {
+        id: Utc::now().timestamp_millis().to_string(),
+        target: target.clone(),
+        module: JobModule::TrafficAnalyzer,
+        payload: None,
+    };
+    job_manager.submit_job(job).await?;
+    Ok(format!(
+        "Задача Passive Traffic Analyzer для {} добавлена в очередь",
         target
     ))
 }
