@@ -1,6 +1,7 @@
 use crate::api_fuzzer;
 use crate::auditor;
 use crate::broker::send_intel;
+use crate::breach_analyzer;
 use crate::rce_verifier;
 use crate::session_checker;
 use chrono::Utc;
@@ -16,6 +17,7 @@ pub enum JobModule {
     ApiFuzzer,
     SessionChecker,
     RceVerifier,
+    BreachAnalyzer,
     // В будущем добавим новые модули сюда
 }
 
@@ -106,6 +108,25 @@ pub async fn run_worker_loop(mut receiver: mpsc::Receiver<Job>) {
                     }
                     Ok(None) => println!("[JobRunner] ⚪ RCE не обнаружено: {}", job.target),
                     Err(e) => println!("[JobRunner] ⚠️ Ошибка проверки RCE на {}: {}", job.target, e),
+                }
+            }
+            JobModule::BreachAnalyzer => {
+                match breach_analyzer::check_breaches(&job.target).await {
+                    Ok(Some(findings)) => {
+                        println!(
+                            "[JobRunner] ⚠️ НАЙДЕНЫ СЛЕДЫ УТЕЧЕК для {}: {}",
+                            job.target, findings
+                        );
+                        let payload = format!("BREACH_DATA: {} -> {}", job.target, findings);
+                        if let Err(err) = send_intel(payload).await {
+                            println!("[JobRunner] ⚠️ Ошибка отправки в Redpanda: {}", err);
+                        }
+                    }
+                    Ok(None) => println!("[JobRunner] ⚪ В базах утечек не числится: {}", job.target),
+                    Err(e) => println!(
+                        "[JobRunner] 🔴 Ошибка анализа утечек для {}: {}",
+                        job.target, e
+                    ),
                 }
             }
             JobModule::SessionChecker => {
@@ -203,4 +224,23 @@ pub async fn start_rce_job(
     };
     job_manager.submit_job(job).await?;
     Ok(format!("Задача RCE Verifier для {} добавлена в очередь", target))
+}
+
+
+#[tauri::command]
+pub async fn start_breach_job(
+    target: String,
+    job_manager: State<'_, Arc<JobManager>>,
+) -> Result<String, String> {
+    let job = Job {
+        id: Utc::now().timestamp_millis().to_string(),
+        target: target.clone(),
+        module: JobModule::BreachAnalyzer,
+        payload: None,
+    };
+    job_manager.submit_job(job).await?;
+    Ok(format!(
+        "Задача проверки утечек (Breach Data) для {} добавлена в очередь",
+        target
+    ))
 }
