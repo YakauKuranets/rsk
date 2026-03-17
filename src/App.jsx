@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { invoke } from '@tauri-apps/api/core';
+import { getRuntimeLogs, scanHostPorts } from './api/tauri';
 import { listen } from '@tauri-apps/api/event';
 import 'leaflet/dist/leaflet.css';
 import './App.css';
@@ -212,7 +213,7 @@ export default function App() {
 
     const fetchLogs = async () => {
       try {
-        const logs = await invoke('get_runtime_logs', { limit: 200 });
+        const logs = await getRuntimeLogs(200);
         if (!disposed) {
           setRuntimeLogs(logs);
 
@@ -1258,7 +1259,7 @@ confidence(avg/max): ${avgConfidence}/${maxConfidence}`);
     setLoading(true);
     setRadarStatus(`АНАЛИЗ УЗЛА ${host}...`);
     try {
-      const result = await invoke('scan_host_ports', { host });
+      const result = await scanHostPorts(host);
       setPortScanResult(result);
     } catch (err) {
       alert(`Ошибка сканирования: ${err}`);

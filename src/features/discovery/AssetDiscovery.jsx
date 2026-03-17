@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { invoke } from '@tauri-apps/api/core';
+import { discoverExternalAssets } from '../../api/tauri';
 
 export default function AssetDiscovery() {
   const [targetDomain, setTargetDomain] = useState('example.com');
@@ -14,7 +14,7 @@ export default function AssetDiscovery() {
     setLoading(true);
     setError('');
     try {
-      const result = await invoke('discover_external_assets', {
+      const result = await discoverExternalAssets({
         targetDomain,
         shodanApiKey: shodanApiKey.trim() || null,
         enableCertTransparency,

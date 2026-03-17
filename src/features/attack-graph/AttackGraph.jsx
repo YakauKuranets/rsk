@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from 'react';
-import { invoke } from '@tauri-apps/api/core';
+import { generateAttackGraph } from '../../api/tauri';
 
 function normalizeTargets(targets) {
   return (targets || []).map((t) => {
@@ -38,9 +38,7 @@ export default function AttackGraph({ targets }) {
     setLoading(true);
     setError('');
     try {
-      const result = await invoke('generate_attack_graph', {
-        targetsJson: JSON.stringify(campaignTargets),
-      });
+      const result = await generateAttackGraph(JSON.stringify(campaignTargets));
       setGraph(result);
     } catch (e) {
       setError(String(e));
