@@ -1,3 +1,4 @@
+use crate::api_fuzzer;
 use crate::auditor;
 use crate::broker::send_intel;
 use crate::session_checker;
@@ -73,6 +74,22 @@ pub async fn run_worker_loop(mut receiver: mpsc::Receiver<Job>) {
                     Err(e) => println!("[JobRunner] 🔴 Ошибка сканирования {}: {}", job.target, e),
                 }
             }
+            JobModule::ApiFuzzer => {
+                match api_fuzzer::run_fuzzer(&job.target).await {
+                    Ok(Some(findings)) => {
+                        println!(
+                            "[JobRunner] 🟢 НАЙДЕНЫ СКРЫТЫЕ API на {}: {}",
+                            job.target, findings
+                        );
+                        let payload = format!("API_DISCOVERY: {} -> {}", job.target, findings);
+                        if let Err(err) = send_intel(payload).await {
+                            println!("[JobRunner] ⚠️ Ошибка отправки в Redpanda: {}", err);
+                        }
+                    }
+                    Ok(None) => println!("[JobRunner] ⚪ API не обнаружены: {}", job.target),
+                    Err(e) => println!("[JobRunner] 🔴 Ошибка фаззера на {}: {}", job.target, e),
+                }
+            }
             JobModule::SessionChecker => {
                 match session_checker::check_session(&job.target).await {
                     Ok(Some(vulns)) => {
@@ -136,4 +153,20 @@ pub async fn start_session_job(
         "Задача проверки сессий для {} добавлена в очередь",
         target
     ))
+}
+
+
+#[tauri::command]
+pub async fn start_fuzzer_job(
+    target: String,
+    job_manager: State<'_, Arc<JobManager>>,
+) -> Result<String, String> {
+    let job = Job {
+        id: Utc::now().timestamp_millis().to_string(),
+        target: target.clone(),
+        module: JobModule::ApiFuzzer,
+        payload: None,
+    };
+    job_manager.submit_job(job).await?;
+    Ok(format!("Задача API Fuzzer для {} добавлена в очередь", target))
 }

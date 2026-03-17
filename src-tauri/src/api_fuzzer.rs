@@ -1,114 +1,59 @@
 use reqwest::Client;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
-/// Интеллектуальный предохранитель (Circuit Breaker)
-struct CircuitBreaker {
-    max_rtt_ms: u128,
-    max_errors: u8,
-    current_errors: u8,
-}
+pub async fn run_fuzzer(target_url: &str) -> Result<Option<String>, String> {
+    let base_url = if !target_url.starts_with("http") {
+        format!("http://{}", target_url)
+    } else {
+        target_url.to_string()
+    };
 
-impl CircuitBreaker {
-    fn new() -> Self {
-        Self {
-            max_rtt_ms: 1500,
-            max_errors: 2,
-            current_errors: 0,
-        }
-    }
-
-    fn register_response(&mut self, rtt: u128, status_is_5xx: bool) -> Result<(), &'static str> {
-        if status_is_5xx {
-            self.current_errors += 1;
-        }
-        if self.current_errors >= self.max_errors {
-            return Err("Слишком много 5xx ошибок");
-        }
-        if rtt > self.max_rtt_ms {
-            return Err("Критическая задержка ответа (RTT)");
-        }
-        Ok(())
-    }
-}
-
-/// Безопасный мутационный фаззинг API
-#[tauri::command]
-pub async fn run_api_fuzzer(ip: String) -> Result<String, String> {
     let client = Client::builder()
+        .timeout(Duration::from_secs(3)) // Строгий таймаут (Guardrail)
         .danger_accept_invalid_certs(true)
-        .timeout(Duration::from_secs(2)) // Жесткий таймаут!
         .build()
         .map_err(|e| e.to_string())?;
 
-    // 1. Быстрый поиск альтернативных веб-портов
-    let common_ports = [80, 81, 8080, 8000, 8443];
-    let mut target_port = 0;
-
-    for port in common_ports {
-        let url = format!("http://{}:{}", ip, port);
-        if client.get(&url).send().await.is_ok() {
-            target_port = port;
-            break;
-        }
-    }
-
-    if target_port == 0 {
-        return Ok(format!(
-            "[-] Фаззинг отменен: Веб-интерфейс не найден ни на одном из портов ({:?})",
-            common_ports
-        ));
-    }
-
-    let mut report = format!(
-        "[API_FUZZER] 🎯 Найден веб-сервер на порту {}. Начинаем безопасный фаззинг...\n",
-        target_port
-    );
-    let mut breaker = CircuitBreaker::new();
-
-    // 2. Словарь скрытых эндпоинтов для IoT
-    let endpoints = [
-        "/cgi-bin/snapshot.cgi", // Снимок без пароля
-        "/config/get",           // Утечка конфига
-        "/onvif/device_service", // Открытый ONVIF
-        "/system/deviceInfo",    // Данные о прошивке
+    // Soft payloads: ищем только чувствительные точки конфигурации и API
+    let common_paths = vec![
+        "api/v1/users",
+        "swagger/v1/swagger.json",
+        "swagger-ui.html",
+        "openapi.json",
+        "api/health",
+        "graphql",
+        ".env",
+        "config.json",
     ];
 
-    for ep in endpoints {
-        let url = format!("http://{}:{}{}", ip, target_port, ep);
-        let start = Instant::now();
+    let mut found_endpoints = Vec::new();
 
-        let response = client.get(&url).send().await;
-        let rtt = start.elapsed().as_millis();
+    for path in common_paths {
+        let url = format!("{}/{}", base_url.trim_end_matches('/'), path);
 
-        match response {
-            Ok(resp) => {
-                let status = resp.status();
+        // Этическая задержка (Rate-limit Guardrail)
+        tokio::time::sleep(Duration::from_millis(300)).await;
 
-                // Проверка предохранителя
-                if let Err(reason) = breaker.register_response(rtt, status.is_server_error()) {
-                    report.push_str(&format!(
-                        "🛑 ПРЕДОХРАНИТЕЛЬ СРАБОТАЛ: {}. Фаззинг прерван для защиты устройства!\n",
-                        reason
-                    ));
-                    break;
-                }
-
-                if status.is_success() && resp.content_length().unwrap_or(0) > 0 {
-                    report.push_str(&format!(
-                        "🚨 НАЙДЕН ОТКРЫТЫЙ ЭНДПОИНТ: {} (HTTP {})\n",
-                        ep, status
-                    ));
-                }
-            }
-            Err(_) => {
-                // Если соединение рвется, лучше остановиться
-                report.push_str("⚠️ Ошибка соединения. Прерываем фаззинг.\n");
-                break;
+        if let Ok(response) = client.get(&url).send().await {
+            // Реагируем на 200 OK или 401 Unauthorized (означает, что эндпоинт существует)
+            let status = response.status();
+            if status.is_success() || status == reqwest::StatusCode::UNAUTHORIZED {
+                found_endpoints.push(format!("/{} ({})", path, status));
             }
         }
-        // Пауза между запросами (Имитация легитимного трафика)
-        tokio::time::sleep(Duration::from_millis(300)).await;
     }
 
-    Ok(report)
+    if found_endpoints.is_empty() {
+        Ok(None)
+    } else {
+        Ok(Some(found_endpoints.join(", ")))
+    }
+}
+
+#[tauri::command]
+pub async fn run_api_fuzzer(ip: String) -> Result<String, String> {
+    match run_fuzzer(&ip).await? {
+        Some(findings) => Ok(format!("[API_FUZZER] Найдены эндпоинты: {}", findings)),
+        None => Ok("[API_FUZZER] Эндпоинты не обнаружены".to_string()),
+    }
 }
