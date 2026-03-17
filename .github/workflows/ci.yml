@@ -1,0 +1,49 @@
+name: Hyperion CI
+
+on:
+  push:
+    branches: [ "main", "master", "codex/*" ]
+  pull_request:
+    branches: [ "main", "master" ]
+
+jobs:
+  quality-gates:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install Tauri OS Dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf libxdo-dev
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Frontend Quality Gates (NPM)
+        run: |
+          npm install
+          npm audit --audit-level=high || true
+          npm run build
+
+      - name: Setup Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy, rustfmt
+
+      - name: Rust Cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: "src-tauri -> target"
+
+      - name: Backend Quality Gates (Cargo)
+        working-directory: ./src-tauri
+        run: |
+          cargo fmt --all -- --check
+          cargo clippy -- -D warnings
+          cargo check
