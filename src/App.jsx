@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { invoke } from '@tauri-apps/api/core';
+import { listen } from '@tauri-apps/api/event';
 import 'leaflet/dist/leaflet.css';
 import './App.css';
 import NemesisArchiveTerminal from './NemesisArchiveTerminal';
@@ -185,6 +186,25 @@ export default function App() {
       localStorage.setItem('hyperion_download_tasks', JSON.stringify(downloadTasks.slice(0, 50)));
     } catch {}
   }, [downloadTasks]);
+
+  useEffect(() => {
+    let disposed = false;
+    let unlistenFn = null;
+
+    listen('hyperion-audit-event', (event) => {
+      if (disposed) return;
+      const line = String(event.payload || '');
+      console.log('Получено событие от Паука:', line);
+      setRuntimeLogs((prev) => [...prev, line].slice(-300));
+    }).then((fn) => {
+      unlistenFn = fn;
+    }).catch(() => {});
+
+    return () => {
+      disposed = true;
+      if (unlistenFn) unlistenFn();
+    };
+  }, []);
 
   useEffect(() => {
     let disposed = false;
@@ -1272,6 +1292,13 @@ const handleSecurityAudit = async () => {
       .catch(err => console.error("🔴 ОШИБКА БРОКЕРА:", err));
   };
 
+  const handleTestJobRunner = () => {
+    console.log("Отправка задачи в JobRunner...");
+    invoke('start_audit_job', { target: "192.168.1.5" })
+      .then(res => console.log("🟢 JOB RUNNER:", res))
+      .catch(err => console.error("🔴 ОШИБКА:", err));
+  };
+
   return (
     <div style={{ display: 'flex', height: '100vh', width: '100vw', backgroundColor: '#0a0a0c', color: '#fff', fontFamily: 'monospace' }}>
 
@@ -1307,6 +1334,14 @@ const handleSecurityAudit = async () => {
 
       <div style={{ width: '400px', backgroundColor: '#111115', borderLeft: '2px solid #ff003c', padding: '20px', overflowY: 'auto' }}>
         <h2 style={{ color: '#ff003c', fontSize: '1.2rem', marginBottom: '20px' }}>HYPERION NODE</h2>
+
+
+        <button
+          onClick={handleTestJobRunner}
+          style={{ padding: '12px 24px', background: '#ff9900', color: '#111', fontWeight: 'bold', margin: '0 0 15px 0', border: 'none', borderRadius: '6px', cursor: 'pointer' }}
+        >
+          ⚡ ТЕСТ JOB RUNNER ⚡
+        </button>
 
         <button
           onClick={handleTestBrokerConnection}

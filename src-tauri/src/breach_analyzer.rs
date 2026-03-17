@@ -1,6 +1,37 @@
 use reqwest::Client;
 use sha1::{Digest, Sha1};
+use std::time::Duration;
 use tauri::command;
+
+pub async fn check_breaches(target: &str) -> Result<Option<String>, String> {
+    // Guardrail: Этическая задержка имитирующая запрос к локальной БД или k-anonymity API
+    tokio::time::sleep(Duration::from_millis(800)).await;
+
+    // В будущем здесь будет загрузка SQLite базы с хэшами утечек (k-anonymity).
+    // Для безопасного PoC используем хардкод-кэш известных скомпрометированных тестовых данных.
+    let local_breach_cache = vec![
+        ("admin@hikvision.com", "CamLeak2021 (Passwords, Emails)"),
+        ("root@192.168.1.5", "LocalIoT_Breach (Default Creds)"),
+        ("test@example.com", "ExampleDB_2019"),
+    ];
+
+    let mut found_breaches = Vec::new();
+
+    for (compromised_target, breach_name) in local_breach_cache {
+        if target.contains(compromised_target) {
+            found_breaches.push(breach_name.to_string());
+        }
+    }
+
+    if found_breaches.is_empty() {
+        Ok(None)
+    } else {
+        Ok(Some(format!(
+            "Скомпрометирован в базах: {}",
+            found_breaches.join(", ")
+        )))
+    }
+}
 
 /// Безопасная проверка пароля по базе Have I Been Pwned (k-Anonymity)
 #[command]

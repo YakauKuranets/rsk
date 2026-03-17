@@ -28,12 +28,17 @@ pub mod broker;
 pub mod exploit_searcher;
 pub mod exploit_verifier;
 mod ffmpeg;
+mod feedback_store;
 mod fuzzer;
 mod knowledge;
+mod lateral_scanner;
+mod traffic_analyzer;
+mod job_runner;
 pub mod mass_auditor;
 pub mod metadata_extractor;
 mod nexus;
 pub mod persistence_checker;
+pub mod rce_verifier;
 pub mod session_checker;
 pub mod spider;
 mod streaming;
@@ -80,6 +85,7 @@ struct DownloadCancelState {
 struct FfmpegLimiterState {
     semaphore: Arc<Semaphore>,
 }
+
 
 // 🔥 СТЕЙТ ДЛЯ ПУЛЬТА ГИПЕРИОНА (nexus)
 struct HyperionState {
@@ -6335,6 +6341,12 @@ fn main() {
     dotenv().ok();
     start_background_scheduler();
 
+    let feedback_store = Arc::new(feedback_store::FeedbackStore::new());
+
+    let (job_manager, job_receiver) = job_runner::JobManager::new();
+    let worker_feedback_store = feedback_store.clone();
+    let mut job_receiver_slot = Some(job_receiver);
+
     let hls_path = get_vault_path().join("hls_cache");
     let _ = std::fs::create_dir_all(&hls_path);
     let server_path = hls_path.clone();
@@ -6417,6 +6429,19 @@ fn main() {
     };
 
     tauri::Builder::default()
+        .setup(move |app| {
+            let app_handle = app.handle().clone();
+            let feedback_store = worker_feedback_store.clone();
+            let rx = job_receiver_slot
+                .take()
+                .expect("JobRunner receiver already taken");
+
+            tauri::async_runtime::spawn(async move {
+                job_runner::run_worker_loop(rx, feedback_store, app_handle).await;
+            });
+
+            Ok(())
+        })
         .manage(hyperion_state)
         .manage(nexus_log_shared)
         .manage(StreamState {
@@ -6433,6 +6458,8 @@ fn main() {
         .manage(FfmpegLimiterState {
             semaphore: Arc::new(Semaphore::new(2)),
         })
+        .manage(Arc::new(job_manager))
+        .manage(feedback_store.clone())
         .manage(archive_ai::AiState {
             is_running: Arc::new(AtomicBool::new(false)),
         })
@@ -6483,6 +6510,13 @@ fn main() {
             fuzzer::nemesis_fuzz_archive_endpoint,
             fuzzer::nemesis_fuzz_post_endpoints,
             auditor::adaptive_credential_audit,
+            job_runner::start_audit_job,
+            job_runner::start_session_job,
+            job_runner::start_fuzzer_job,
+            job_runner::start_rce_job,
+            job_runner::start_breach_job,
+            job_runner::start_lateral_job,
+            job_runner::start_sniffer_job,
             breach_analyzer::check_password_breach,
             session_checker::check_session_security,
             api_fuzzer::run_api_fuzzer,

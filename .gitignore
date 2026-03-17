@@ -1,0 +1,5 @@
+# Heavy Binaries & ML Models
+/resources/binaries/
+yolov8s.pt
+*.dll
+*.ocx
