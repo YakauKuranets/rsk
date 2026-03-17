@@ -82,9 +82,6 @@ struct FfmpegLimiterState {
     semaphore: Arc<Semaphore>,
 }
 
-struct JobManagerState {
-    manager: job_runner::JobManager,
-}
 
 // 🔥 СТЕЙТ ДЛЯ ПУЛЬТА ГИПЕРИОНА (nexus)
 struct HyperionState {
@@ -6443,9 +6440,7 @@ fn main() {
         .manage(FfmpegLimiterState {
             semaphore: Arc::new(Semaphore::new(2)),
         })
-        .manage(JobManagerState {
-            manager: job_manager,
-        })
+        .manage(Arc::new(job_manager))
         .manage(archive_ai::AiState {
             is_running: Arc::new(AtomicBool::new(false)),
         })
@@ -6496,6 +6491,7 @@ fn main() {
             fuzzer::nemesis_fuzz_archive_endpoint,
             fuzzer::nemesis_fuzz_post_endpoints,
             auditor::adaptive_credential_audit,
+            job_runner::start_audit_job,
             breach_analyzer::check_password_breach,
             session_checker::check_session_security,
             api_fuzzer::run_api_fuzzer,

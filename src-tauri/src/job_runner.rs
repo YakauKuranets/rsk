@@ -1,6 +1,9 @@
 use crate::auditor;
 use crate::broker::send_intel;
+use chrono::Utc;
 use serde::{Deserialize, Serialize};
+use std::sync::Arc;
+use tauri::State;
 use tokio::sync::mpsc;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -76,4 +79,23 @@ pub async fn run_worker_loop(mut receiver: mpsc::Receiver<Job>) {
 
         println!("[JobRunner] Job {} finished.", job.id);
     }
+}
+
+#[tauri::command]
+pub async fn start_audit_job(
+    target: String,
+    job_manager: State<'_, Arc<JobManager>>,
+) -> Result<String, String> {
+    let job = Job {
+        id: Utc::now().timestamp_millis().to_string(),
+        target: target.clone(),
+        module: JobModule::FtpScanner,
+        payload: None,
+    };
+
+    job_manager.submit_job(job).await?;
+    Ok(format!(
+        "Задача для {} успешно добавлена в очередь JobRunner",
+        target
+    ))
 }
