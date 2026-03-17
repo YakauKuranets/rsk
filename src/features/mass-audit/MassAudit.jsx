@@ -16,6 +16,8 @@ export default function MassAudit() {
   const setMassAuditing = useAppStore((s) => s.setMassAuditing);
   const [proxyList, setProxyList] = useState('');
   const [osintWords, setOsintWords] = useState('');
+  const [neighbors, setNeighbors] = useState('192.168.1.10, 192.168.1.11');
+  const [foundCreds, setFoundCreds] = useState('admin:12345');
 
   const handleMassAudit = async () => {
     if (!massAuditIps.trim()) return;
@@ -76,6 +78,37 @@ export default function MassAudit() {
     }
   };
 
+
+  const handleLateralMovement = async () => {
+    if (!neighbors || !foundCreds) {
+      toast('Заполните поля!');
+      return;
+    }
+
+    const targetIps = neighbors.split(',').map((ip) => ip.trim()).filter(Boolean);
+    const creds = foundCreds.split(',').map((c) => c.trim()).filter(Boolean);
+    const knownLogins = creds.map((c) => c.split(':')[0]?.trim()).filter(Boolean);
+    const knownPasswords = creds.map((c) => c.split(':')[1]?.trim()).filter(Boolean);
+
+    try {
+      toast('🕷️ Паук начал боковое перемещение...');
+      const result = await invoke('scan_lateral_movement', {
+        targetIps,
+        knownLogins,
+        knownPasswords,
+      });
+
+      if (result.length > 0) {
+        toast(`🚨 Успешный захват! Подошли к ${result.length} узлам.`);
+        console.log('Захваченные узлы:', result);
+      } else {
+        toast('Пароли не подошли к соседям (Изоляция работает).');
+      }
+    } catch (err) {
+      toast('Ошибка Паука: ' + err);
+    }
+  };
+
   const handleGetMetadata = async (ip) => {
     try {
       const meta = await invoke('collect_metadata', { ip });
@@ -131,6 +164,28 @@ export default function MassAudit() {
       <button disabled={massAuditing} onClick={handleMassAudit} style={{ width: '100%', backgroundColor: massAuditing ? '#334' : '#6a88ff', color: '#fff', border: 'none', padding: '8px', cursor: massAuditing ? 'default' : 'pointer', fontWeight: 'bold' }}>
         {massAuditing ? '⏳ Идет сканирование...' : 'Запустить массовый аудит'}
       </button>
+
+
+      <div style={{ marginTop: '15px', padding: '10px', background: '#111', border: '1px solid #444' }}>
+        <div style={{ color: '#ffcc00', fontSize: '11px', marginBottom: '8px' }}>🕷️ LATERAL MOVEMENT (CREDENTIAL REUSE)</div>
+        <input
+          type="text"
+          value={neighbors}
+          onChange={e => setNeighbors(e.target.value)}
+          placeholder="Соседние IP через запятую"
+          style={{ width: '100%', marginBottom: '5px', padding: '5px', background: '#000', color: '#fff' }}
+        />
+        <input
+          type="text"
+          value={foundCreds}
+          onChange={e => setFoundCreds(e.target.value)}
+          placeholder="Успешные креды (login:pass, ...)"
+          style={{ width: '100%', marginBottom: '5px', padding: '5px', background: '#000', color: '#fff' }}
+        />
+        <button onClick={handleLateralMovement} style={{ width: '100%', padding: '6px', background: '#ffcc00', color: '#000', fontWeight: 'bold', cursor: 'pointer' }}>
+          ЗАПУСТИТЬ ПАУКА НА СОСЕДЕЙ
+        </button>
+      </div>
 
       {massAuditResults.length > 0 && (
         <div style={{ marginTop: '10px', border: '1px solid #30406a', background: '#050913', maxHeight: '220px', overflowY: 'auto', padding: '6px' }}>
