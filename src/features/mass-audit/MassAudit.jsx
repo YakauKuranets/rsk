@@ -20,6 +20,7 @@ export default function MassAudit() {
   const [foundCreds, setFoundCreds] = useState('admin:12345');
   const [smartFuzzing, setSmartFuzzing] = useState(false);
   const [smartFindings, setSmartFindings] = useState([]);
+  const [useEvasion, setUseEvasion] = useState(false);
 
   const handleMassAudit = async () => {
     if (!massAuditIps.trim()) return;
@@ -97,7 +98,7 @@ export default function MassAudit() {
     try {
       const findings = await invoke('smart_fuzz_api', {
         targetUrl: targetIp,
-        mode: 'quick',
+        useEvasion,
       });
       setSmartFindings(findings);
       if (findings.length > 0) {
@@ -195,10 +196,23 @@ export default function MassAudit() {
       </button>
 
 
+      <div style={{ marginTop: '10px', display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '6px' }}>
+        <input
+          type="checkbox"
+          id="wafEvasion"
+          checked={useEvasion}
+          onChange={e => setUseEvasion(e.target.checked)}
+          style={{ accentColor: '#ff00ff', cursor: 'pointer' }}
+        />
+        <label htmlFor="wafEvasion" style={{ color: '#ff00ff', fontSize: '11px', cursor: 'pointer' }}>
+          🛡️ Включить WAF Evasion (Полиморфные мутации пейлоадов)
+        </label>
+      </div>
+
       <button
         disabled={smartFuzzing}
         onClick={handleSmartFuzz}
-        style={{ padding: '8px', background: smartFuzzing ? '#273319' : '#102600', color: '#8fff7d', border: '1px solid #5eff42', cursor: smartFuzzing ? 'default' : 'pointer', fontSize: '11px', width: '100%', marginBottom: '8px', fontWeight: 'bold' }}
+        style={{ padding: '8px', background: smartFuzzing ? '#3a1a3a' : '#330033', color: '#ff00ff', border: '1px solid #ff00ff', cursor: smartFuzzing ? 'default' : 'pointer', fontSize: '11px', marginTop: '6px', width: '100%', marginBottom: '8px', fontWeight: 'bold' }}
       >
         {smartFuzzing ? '🧪 SMART FUZZER работает...' : '🧪 SMART FUZZER (OWASP)'}
       </button>

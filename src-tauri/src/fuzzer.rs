@@ -3,6 +3,48 @@ use tauri::command;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
 
+/// Движок генерации полиморфных пейлоадов (WAF Evasion)
+pub fn generate_evasion_payloads(base_payload: &str, enable_evasion: bool) -> Vec<String> {
+    let mut mutated = vec![base_payload.to_string()];
+
+    if !enable_evasion {
+        return mutated;
+    }
+
+    // 1. Стандартный URL Encode
+    let url_encoded = urlencoding::encode(base_payload).to_string();
+    mutated.push(url_encoded.clone());
+
+    // 2. Double URL Encode
+    mutated.push(urlencoding::encode(&url_encoded).to_string());
+
+    // 3. Null-байт
+    mutated.push(format!("%00{}", base_payload));
+
+    // 4. Обход пробелов
+    if base_payload.contains(' ') {
+        mutated.push(base_payload.replace(' ', "/**/"));
+        mutated.push(base_payload.replace(' ', "%09"));
+        mutated.push(base_payload.replace(' ', "%0A"));
+    }
+
+    // 5. Case mutation
+    let mixed_case: String = base_payload
+        .chars()
+        .enumerate()
+        .map(|(i, c)| {
+            if i % 2 == 0 {
+                c.to_ascii_uppercase()
+            } else {
+                c.to_ascii_lowercase()
+            }
+        })
+        .collect();
+    mutated.push(mixed_case);
+
+    mutated
+}
+
 /// Ультимативный Сканер: Анализ проприетарных портов + RTSP Fingerprinting
 async fn fingerprint_vendor_deep(ip: &str) -> &'static str {
     let timeout = std::time::Duration::from_millis(800);

