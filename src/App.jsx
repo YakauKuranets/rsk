@@ -17,6 +17,7 @@ import PlaybookRunner from './features/playbook/PlaybookRunner';
 import CampaignList from './features/campaign/CampaignList';
 import CampaignDashboard from './features/campaign/CampaignDashboard';
 import PassiveScanner from './features/passive-scan/PassiveScanner';
+import CameraScanPanel from './features/scan/CameraScanPanel';
 import { useAppStore } from './store/appStore';
 import ToastHost from './components/ToastHost';
 import { toast } from './utils/toast';
@@ -72,6 +73,7 @@ export default function App() {
   const [showPlaybooks, setShowPlaybooks] = useState(false);
   const [showCampaigns, setShowCampaigns] = useState(false);
   const [showIotAudit, setShowIotAudit] = useState(false);
+  const [showCameraRadar, setShowCameraRadar] = useState(false);
   const [activeCampaignId, setActiveCampaignId] = useState(null);
 
   const [addressQuery, setAddressQuery] = useState('');
@@ -1452,6 +1454,11 @@ const handleSecurityAudit = async () => {
           )}
           <button style={{ width: '100%' }} onClick={() => setShowIotAudit(v => !v)}>IoT АУДИТ</button>
           {showIotAudit && <PassiveScanner />}
+
+          <button style={{ width: '100%', marginTop: '6px', marginBottom: '6px', backgroundColor: showCameraRadar ? '#00f0ff' : '#111', color: showCameraRadar ? '#000' : '#fff' }} onClick={() => setShowCameraRadar(v => !v)}>
+            УЛЬТИМАТИВНЫЙ РАДАР КАМЕР
+          </button>
+          {showCameraRadar && <CameraScanPanel onPlayCamera={(cam) => setPendingCameraStream(cam)} />}
         </div>
 
         <div style={{ border: '1px solid #2f9a4f', padding: '10px', backgroundColor: '#07130b', marginBottom: '20px' }}>
