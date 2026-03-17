@@ -36,6 +36,7 @@ pub mod exploit_searcher;
 pub mod exploit_verifier;
 mod feedback_store;
 mod ffmpeg;
+mod firmware_analyzer;
 mod fuzzer;
 mod job_runner;
 mod knowledge;
@@ -6612,6 +6613,7 @@ fn main() {
             exploit_searcher::search_public_exploits,
             exploit_searcher::search_github_poc,
             exploit_verifier::verify_exploit_docker,
+            firmware_analyzer::analyze_firmware,
             mass_auditor::run_mass_audit,
             metadata_extractor::collect_metadata,
             // ---------------------------------------------

@@ -24,6 +24,9 @@ export default function MassAudit() {
   const [cveId, setCveId] = useState('');
   const [pocResults, setPocResults] = useState(null);
   const [isSearchingPoc, setIsSearchingPoc] = useState(false);
+  const [firmwarePath, setFirmwarePath] = useState('');
+  const [firmwareFindings, setFirmwareFindings] = useState(null);
+  const [isAnalyzingFirmware, setIsAnalyzingFirmware] = useState(false);
 
   const handleMassAudit = async () => {
     if (!massAuditIps.trim()) return;
@@ -139,6 +142,32 @@ export default function MassAudit() {
       toast('Ошибка поиска: ' + err, 'error');
     } finally {
       setIsSearchingPoc(false);
+    }
+  };
+
+
+  const handleFirmwareAnalyze = async () => {
+    if (!firmwarePath.trim()) {
+      toast('Укажите абсолютный путь к .bin / .dav файлу', 'error');
+      return;
+    }
+
+    setIsAnalyzingFirmware(true);
+    setFirmwareFindings(null);
+
+    try {
+      toast('🔬 Распаковка и статический анализ бинарника...');
+      const results = await invoke('analyze_firmware', { filePath: firmwarePath.trim() });
+      setFirmwareFindings(results);
+      if (results.length > 0) {
+        toast(`🚨 Обнаружено ${results.length} критических находок в коде!`, 'error');
+      } else {
+        toast('Бинарник выглядит чистым. Секретов не найдено.', 'success');
+      }
+    } catch (err) {
+      toast('Ошибка анализатора: ' + err, 'error');
+    } finally {
+      setIsAnalyzingFirmware(false);
     }
   };
 
@@ -310,6 +339,49 @@ export default function MassAudit() {
                     <a href={poc.htmlUrl} target="_blank" rel="noreferrer" style={{ color: '#00f0ff', textDecoration: 'none', fontWeight: 'bold' }}>
                       [ ПОСМОТРЕТЬ ИСХОДНЫЙ КОД ]
                     </a>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+
+      <div style={{ marginTop: '20px', padding: '15px', background: '#0a1a1a', border: '1px solid #00ffcc', borderRadius: '4px' }}>
+        <h3 style={{ color: '#00ffcc', marginTop: 0, fontSize: '14px' }}>🔬 ZERO-DAY: Анализ Прошивок</h3>
+        <div style={{ fontSize: '11px', color: '#6bb3b3', marginBottom: '10px' }}>
+          Статический бинарный анализ (.bin, .dav) на наличие вшитых RSA ключей, бэкдоров и паролей (Supply Chain).
+        </div>
+        <div style={{ display: 'flex', gap: '10px' }}>
+          <input
+            type="text"
+            value={firmwarePath}
+            onChange={e => setFirmwarePath(e.target.value)}
+            placeholder="Путь к файлу (напр: C:\\firmware\\update.bin)"
+            style={{ flex: 1, padding: '8px', background: '#000', color: '#00ffcc', border: '1px solid #00ffcc' }}
+          />
+          <button
+            onClick={handleFirmwareAnalyze}
+            disabled={isAnalyzingFirmware}
+            style={{ padding: '8px 15px', background: '#00ffcc', color: '#000', fontWeight: 'bold', border: 'none', cursor: isAnalyzingFirmware ? 'wait' : 'pointer' }}
+          >
+            {isAnalyzingFirmware ? 'АНАЛИЗ...' : 'ИССЛЕДОВАТЬ БИНАРНИК'}
+          </button>
+        </div>
+
+        {firmwareFindings && (
+          <div style={{ marginTop: '15px' }}>
+            {firmwareFindings.length === 0 ? (
+              <div style={{ color: '#888' }}>Секретов и бэкдоров не обнаружено.</div>
+            ) : (
+              <div style={{ display: 'grid', gap: '10px' }}>
+                {firmwareFindings.map((finding, i) => (
+                  <div key={`firmware_${i}`} style={{ background: '#000', padding: '10px', borderLeft: `3px solid ${finding.severity === 'CRITICAL' ? '#ff003c' : '#ffcc00'}`, fontSize: '12px' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px' }}>
+                      <strong style={{ color: '#fff' }}>[{finding.category}]</strong>
+                      <span style={{ color: finding.severity === 'CRITICAL' ? '#ff003c' : '#ffcc00', fontWeight: 'bold' }}>{finding.severity}</span>
+                    </div>
+                    <div style={{ color: '#00ffcc' }}>{finding.finding}</div>
                   </div>
                 ))}
               </div>
