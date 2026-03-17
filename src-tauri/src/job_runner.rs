@@ -1,5 +1,6 @@
 use crate::auditor;
 use crate::broker::send_intel;
+use crate::session_checker;
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
@@ -11,6 +12,7 @@ pub enum JobModule {
     FtpScanner,
     PortScanner,
     ApiFuzzer,
+    SessionChecker,
     // В будущем добавим новые модули сюда
 }
 
@@ -71,6 +73,22 @@ pub async fn run_worker_loop(mut receiver: mpsc::Receiver<Job>) {
                     Err(e) => println!("[JobRunner] 🔴 Ошибка сканирования {}: {}", job.target, e),
                 }
             }
+            JobModule::SessionChecker => {
+                match session_checker::check_session(&job.target).await {
+                    Ok(Some(vulns)) => {
+                        println!(
+                            "[JobRunner] 🟢 НАЙДЕНА УЯЗВИМОСТЬ СЕССИИ на {}: {}",
+                            job.target, vulns
+                        );
+                        let payload = format!("SESSION_VULN: {} -> {}", job.target, vulns);
+                        if let Err(err) = send_intel(payload).await {
+                            println!("[JobRunner] ⚠️ Ошибка отправки в Redpanda: {}", err);
+                        }
+                    }
+                    Ok(None) => println!("[JobRunner] ⚪ Сессии безопасны: {}", job.target),
+                    Err(e) => println!("[JobRunner] 🔴 Ошибка HTTP на {}: {}", job.target, e),
+                }
+            }
             // Заглушки для будущих модулей
             _ => {
                 println!("[JobRunner] Module not implemented yet.");
@@ -96,6 +114,26 @@ pub async fn start_audit_job(
     job_manager.submit_job(job).await?;
     Ok(format!(
         "Задача для {} успешно добавлена в очередь JobRunner",
+        target
+    ))
+}
+
+
+#[tauri::command]
+pub async fn start_session_job(
+    target: String,
+    job_manager: State<'_, Arc<JobManager>>,
+) -> Result<String, String> {
+    let job = Job {
+        id: Utc::now().timestamp_millis().to_string(),
+        target: target.clone(),
+        module: JobModule::SessionChecker,
+        payload: None,
+    };
+
+    job_manager.submit_job(job).await?;
+    Ok(format!(
+        "Задача проверки сессий для {} добавлена в очередь",
         target
     ))
 }
