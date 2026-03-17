@@ -1,126 +1,17 @@
 import { create } from 'zustand';
+import { createSpiderSlice } from './slices/spiderSlice';
+import { createFtpSlice } from './slices/ftpSlice';
+import { createFuzzSlice } from './slices/fuzzSlice';
+import { createMassAuditSlice } from './slices/massAuditSlice';
 
-export const SPIDER_MODULES_CONFIG = [
-  {
-    id: 'dir_bruteforce',
-    title: 'Брутфорс директорий',
-    desc: 'Поиск скрытых папок и файлов (например: /admin, /backup, /config). Помогает найти скрытые панели управления.',
-  },
-  {
-    id: 'enable_vuln_verification',
-    title: 'Сверка с базами CVE',
-    desc: 'Анализ версии прошивки и поиск известных уязвимостей (например, обход авторизации в старых Hikvision).',
-  },
-  {
-    id: 'enable_video_stream_analyzer',
-    title: 'Анализ видеопотока',
-    desc: 'Извлечение метаданных камеры через ffprobe (кодек, битрейт, FPS, разрешение) без фактической записи видео.',
-  },
-  {
-    id: 'enable_passive_arp_discovery',
-    title: 'Пассивный ARP-скан',
-    desc: 'Поиск скрытых устройств в локальной сети на основе ARP-таблицы (MAC-адреса).',
-  },
-  {
-    id: 'enable_credential_depth_audit',
-    title: 'Аудит учетных записей',
-    desc: 'Безопасная проверка использования стандартных заводских или слабых паролей (admin:admin, admin:12345).',
-  },
-  {
-    id: 'enable_open_share_scanner',
-    title: 'Сканер открытых шар (FTP)',
-    desc: 'Проверка наличия анонимного доступа к файловой системе камеры или регистратора.',
-  },
-  {
-    id: 'enable_osint_import',
-    title: 'OSINT обогащение',
-    desc: 'Сбор информации об IP-адресе из внешних баз данных и открытых поисковиков.',
-  },
-  {
-    id: 'enable_topology_discovery',
-    title: 'Топология сети',
-    desc: 'Построение карты связей между устройствами (требует активный ONVIF/CGI профиль).',
-  },
-  {
-    id: 'enable_threat_intel',
-    title: 'Threat Intelligence',
-    desc: 'Прикрепление к отчету ссылок на известные эксплойты и официальные бюллетени безопасности для данного вендора.',
-  },
-];
+export { SPIDER_MODULES_CONFIG } from './slices/spiderSlice';
 
-export const useAppStore = create((set) => ({
-  ftpBrowserOpen: false,
-  activeServerAlias: 'video1',
-  ftpPath: '/',
-  ftpItems: [],
-  setFtpBrowserOpen: (ftpBrowserOpen) => set({ ftpBrowserOpen }),
-  setActiveServerAlias: (activeServerAlias) => set({ activeServerAlias }),
-  setFtpPath: (ftpPath) => set({ ftpPath }),
-  setFtpItems: (ftpItems) => set({ ftpItems }),
-
-  fuzzLogin: import.meta.env.VITE_DEFAULT_FUZZ_LOGIN || 'admin',
-  fuzzPassword: '',
-  fuzzPath: import.meta.env.VITE_DEFAULT_FUZZ_PATH || '',
-  targetInput: '',
-  attackType: 'RTSP_BRUTE',
-  fuzzResults: [],
-  sourceAnalysis: null,
-  setFuzzLogin: (fuzzLogin) => set({ fuzzLogin }),
-  setFuzzPassword: (fuzzPassword) => set({ fuzzPassword }),
-  setFuzzPath: (fuzzPath) => set({ fuzzPath }),
-  setTargetInput: (targetInput) => set({ targetInput }),
-  setAttackType: (attackType) => set({ attackType }),
-  setFuzzResults: (fuzzResults) => set({ fuzzResults }),
-  setSourceAnalysis: (sourceAnalysis) => set({ sourceAnalysis }),
-
-  spiderTarget: import.meta.env.VITE_DEFAULT_SPIDER_TARGET || '',
-  spiderMaxDepth: 3,
-  spiderMaxPages: 50,
-  spiderDirBrute: true,
-  spiderEnableVulnVerification: false,
-  spiderEnableOsintImport: false,
-  spiderEnableTopologyDiscovery: false,
-  spiderEnableSnapshotRefresh: false,
-  spiderEnableVideoStreamAnalyzer: false,
-  spiderEnableCredentialDepthAudit: false,
-  spiderEnablePassiveArpDiscovery: false,
-  spiderEnableUptimeMonitoring: false,
-  spiderEnableNeighborDiscovery: false,
-  spiderEnableThreatIntel: false,
-  spiderEnableScheduledAudits: false,
-  spiderRunning: false,
-  spiderReport: null,
-  spiderTab: 'pages',
-  setSpiderTarget: (spiderTarget) => set({ spiderTarget }),
-  setSpiderMaxDepth: (spiderMaxDepth) => set({ spiderMaxDepth }),
-  setSpiderMaxPages: (spiderMaxPages) => set({ spiderMaxPages }),
-  setSpiderDirBrute: (spiderDirBrute) => set({ spiderDirBrute }),
-  setSpiderEnableVulnVerification: (spiderEnableVulnVerification) => set({ spiderEnableVulnVerification }),
-  setSpiderEnableOsintImport: (spiderEnableOsintImport) => set({ spiderEnableOsintImport }),
-  setSpiderEnableTopologyDiscovery: (spiderEnableTopologyDiscovery) => set({ spiderEnableTopologyDiscovery }),
-  setSpiderEnableSnapshotRefresh: (spiderEnableSnapshotRefresh) => set({ spiderEnableSnapshotRefresh }),
-  setSpiderEnableVideoStreamAnalyzer: (spiderEnableVideoStreamAnalyzer) => set({ spiderEnableVideoStreamAnalyzer }),
-  setSpiderEnableCredentialDepthAudit: (spiderEnableCredentialDepthAudit) => set({ spiderEnableCredentialDepthAudit }),
-  setSpiderEnablePassiveArpDiscovery: (spiderEnablePassiveArpDiscovery) => set({ spiderEnablePassiveArpDiscovery }),
-  setSpiderEnableUptimeMonitoring: (spiderEnableUptimeMonitoring) => set({ spiderEnableUptimeMonitoring }),
-  setSpiderEnableNeighborDiscovery: (spiderEnableNeighborDiscovery) => set({ spiderEnableNeighborDiscovery }),
-  setSpiderEnableThreatIntel: (spiderEnableThreatIntel) => set({ spiderEnableThreatIntel }),
-  setSpiderEnableScheduledAudits: (spiderEnableScheduledAudits) => set({ spiderEnableScheduledAudits }),
-  setSpiderRunning: (spiderRunning) => set({ spiderRunning }),
-  setSpiderReport: (spiderReport) => set({ spiderReport }),
-  setSpiderTab: (spiderTab) => set({ spiderTab }),
-
-  massAuditIps: '',
-  massAuditLogin: 'admin',
-  massAuditPass: '',
-  massAuditResults: [],
-  massAuditing: false,
-  setMassAuditIps: (massAuditIps) => set({ massAuditIps }),
-  setMassAuditLogin: (massAuditLogin) => set({ massAuditLogin }),
-  setMassAuditPass: (massAuditPass) => set({ massAuditPass }),
-  setMassAuditResults: (massAuditResults) => set({ massAuditResults }),
-  setMassAuditing: (massAuditing) => set({ massAuditing }),
+export const useAppStore = create((...a) => ({
+  ...createSpiderSlice(...a),
+  ...createFtpSlice(...a),
+  ...createFuzzSlice(...a),
+  ...createMassAuditSlice(...a),
 
   hubCookie: '',
-  setHubCookie: (hubCookie) => set({ hubCookie }),
+  setHubCookie: (v) => a[0]({ hubCookie: v }),
 }));
