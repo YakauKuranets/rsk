@@ -1,70 +1,13 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { invoke } from '@tauri-apps/api/core';
-import { MapContainer, TileLayer, Marker, Popup, useMap } from 'react-leaflet';
 import 'leaflet/dist/leaflet.css';
 import './App.css';
-import L from 'leaflet';
 import NemesisArchiveTerminal from './NemesisArchiveTerminal';
-import StreamPlayer from './StreamPlayer';
-
-import icon from 'leaflet/dist/images/marker-icon.png';
-import iconShadow from 'leaflet/dist/images/marker-shadow.png';
-let DefaultIcon = L.icon({ iconUrl: icon, shadowUrl: iconShadow, iconSize: [25, 41], iconAnchor: [12, 41] });
-L.Marker.prototype.options.icon = DefaultIcon;
-
-function MapController({ center }) {
-  const map = useMap();
-  useEffect(() => { if (center) map.setView(center, 14); }, [center, map]);
-  return null;
-}
-
-const SPIDER_MODULES_CONFIG = [
-  {
-    id: "dir_bruteforce",
-    title: "Брутфорс директорий",
-    desc: "Поиск скрытых папок и файлов (например: /admin, /backup, /config). Помогает найти скрытые панели управления."
-  },
-  {
-    id: "enable_vuln_verification",
-    title: "Сверка с базами CVE",
-    desc: "Анализ версии прошивки и поиск известных уязвимостей (например, обход авторизации в старых Hikvision)."
-  },
-  {
-    id: "enable_video_stream_analyzer",
-    title: "Анализ видеопотока",
-    desc: "Извлечение метаданных камеры через ffprobe (кодек, битрейт, FPS, разрешение) без фактической записи видео."
-  },
-  {
-    id: "enable_passive_arp_discovery",
-    title: "Пассивный ARP-скан",
-    desc: "Поиск скрытых устройств в локальной сети на основе ARP-таблицы (MAC-адреса)."
-  },
-  {
-    id: "enable_credential_depth_audit",
-    title: "Аудит учетных записей",
-    desc: "Безопасная проверка использования стандартных заводских или слабых паролей (admin:admin, admin:12345)."
-  },
-  {
-    id: "enable_open_share_scanner",
-    title: "Сканер открытых шар (FTP)",
-    desc: "Проверка наличия анонимного доступа к файловой системе камеры или регистратора."
-  },
-  {
-    id: "enable_osint_import",
-    title: "OSINT обогащение",
-    desc: "Сбор информации об IP-адресе из внешних баз данных и открытых поисковиков."
-  },
-  {
-    id: "enable_topology_discovery",
-    title: "Топология сети",
-    desc: "Построение карты связей между устройствами (требует активный ONVIF/CGI профиль)."
-  },
-  {
-    id: "enable_threat_intel",
-    title: "Threat Intelligence",
-    desc: "Прикрепление к отчету ссылок на известные эксплойты и официальные бюллетени безопасности для данного вендора."
-  }
-];
+import ArchiveViewer from './features/archive/ArchiveViewer';
+import StreamGrid from './features/streams/StreamGrid';
+import SpiderControl from './features/spider/SpiderControl';
+import MassAudit from './features/mass-audit/MassAudit';
+import { useAppStore } from './store/appStore';
 
 function normalizeTargetRecords(rawTargets) {
   const normalized = [];
@@ -116,19 +59,43 @@ export default function App() {
   const [hubSearch, setHubSearch] = useState('');
   const [hubResults, setHubResults] = useState([]);
 
-  // --- FTP STATES ---
-  const [ftpBrowserOpen, setFtpBrowserOpen] = useState(false);
-  const [activeServerAlias, setActiveServerAlias] = useState("video1");
-  const [ftpPath, setFtpPath] = useState("/");
-  const [ftpItems, setFtpItems] = useState([]);
-
-  // --- NEMESIS FUZZER STATES ---
-  const [fuzzLogin, setFuzzLogin] = useState("mvd");
-  const [fuzzPassword, setFuzzPassword] = useState("gpfZrw%9RVqp");
-  const [fuzzPath, setFuzzPath] = useState("video0/[Minsk_ul._FILIMONOVA_39_]/2026-02-19/cam02_00-03-10.mkv");
-  const [targetInput, setTargetInput] = useState('');
-  const [attackType, setAttackType] = useState('RTSP_BRUTE');
-  const [fuzzResults, setFuzzResults] = useState([]);
+  // --- GLOBAL STORE (Zustand) ---
+  const ftpBrowserOpen = useAppStore((s) => s.ftpBrowserOpen);
+  const setFtpBrowserOpen = useAppStore((s) => s.setFtpBrowserOpen);
+  const activeServerAlias = useAppStore((s) => s.activeServerAlias);
+  const setActiveServerAlias = useAppStore((s) => s.setActiveServerAlias);
+  const ftpPath = useAppStore((s) => s.ftpPath);
+  const setFtpPath = useAppStore((s) => s.setFtpPath);
+  const ftpItems = useAppStore((s) => s.ftpItems);
+  const setFtpItems = useAppStore((s) => s.setFtpItems);
+  const fuzzLogin = useAppStore((s) => s.fuzzLogin);
+  const setFuzzLogin = useAppStore((s) => s.setFuzzLogin);
+  const fuzzPassword = useAppStore((s) => s.fuzzPassword);
+  const setFuzzPassword = useAppStore((s) => s.setFuzzPassword);
+  const fuzzPath = useAppStore((s) => s.fuzzPath);
+  const setFuzzPath = useAppStore((s) => s.setFuzzPath);
+  const targetInput = useAppStore((s) => s.targetInput);
+  const setTargetInput = useAppStore((s) => s.setTargetInput);
+  const attackType = useAppStore((s) => s.attackType);
+  const setAttackType = useAppStore((s) => s.setAttackType);
+  const fuzzResults = useAppStore((s) => s.fuzzResults);
+  const setFuzzResults = useAppStore((s) => s.setFuzzResults);
+  const spiderMaxDepth = useAppStore((s) => s.spiderMaxDepth);
+  const spiderMaxPages = useAppStore((s) => s.spiderMaxPages);
+  const spiderDirBrute = useAppStore((s) => s.spiderDirBrute);
+  const spiderEnableVulnVerification = useAppStore((s) => s.spiderEnableVulnVerification);
+  const spiderEnableOsintImport = useAppStore((s) => s.spiderEnableOsintImport);
+  const spiderEnableTopologyDiscovery = useAppStore((s) => s.spiderEnableTopologyDiscovery);
+  const spiderEnableSnapshotRefresh = useAppStore((s) => s.spiderEnableSnapshotRefresh);
+  const spiderEnableVideoStreamAnalyzer = useAppStore((s) => s.spiderEnableVideoStreamAnalyzer);
+  const spiderEnableCredentialDepthAudit = useAppStore((s) => s.spiderEnableCredentialDepthAudit);
+  const spiderEnablePassiveArpDiscovery = useAppStore((s) => s.spiderEnablePassiveArpDiscovery);
+  const spiderEnableUptimeMonitoring = useAppStore((s) => s.spiderEnableUptimeMonitoring);
+  const spiderEnableNeighborDiscovery = useAppStore((s) => s.spiderEnableNeighborDiscovery);
+  const spiderEnableThreatIntel = useAppStore((s) => s.spiderEnableThreatIntel);
+  const spiderEnableScheduledAudits = useAppStore((s) => s.spiderEnableScheduledAudits);
+  const setSourceAnalysis = useAppStore((s) => s.setSourceAnalysis);
+  const setHubCookie = useAppStore((s) => s.setHubCookie);
 
   const [shodanResults, setShodanResults] = useState([]);
   const [portScanHost, setPortScanHost] = useState('');
@@ -166,7 +133,7 @@ export default function App() {
   const [archiveProbeResults, setArchiveProbeResults] = useState([]);
   const [implementationStatus, setImplementationStatus] = useState(null);
   const [auditResults, setAuditResults] = useState([]);
-  const [sourceAnalysis, setSourceAnalysis] = useState(null);
+
 
   // --- CAPTURE ARCHIVE STATE ---
   const [captureUrl, setCaptureUrl] = useState('');
@@ -189,47 +156,17 @@ export default function App() {
   });
   const [relayStatus, setRelayStatus] = useState(null);
 
-  // --- SPIDER ---
-  const [spiderTarget, setSpiderTarget] = useState('https://videodvor.by/stream/');
-  const [spiderMaxDepth, setSpiderMaxDepth] = useState(3);
-  const [spiderMaxPages, setSpiderMaxPages] = useState(50);
-  const [spiderDirBrute, setSpiderDirBrute] = useState(true);
-  const [spiderEnableVulnVerification, setSpiderEnableVulnVerification] = useState(false);
-  const [spiderEnableOsintImport, setSpiderEnableOsintImport] = useState(false);
-  const [spiderEnableTopologyDiscovery, setSpiderEnableTopologyDiscovery] = useState(false);
-  const [spiderEnableSnapshotRefresh, setSpiderEnableSnapshotRefresh] = useState(false);
-  const [spiderEnableVideoStreamAnalyzer, setSpiderEnableVideoStreamAnalyzer] = useState(false);
-  const [spiderEnableCredentialDepthAudit, setSpiderEnableCredentialDepthAudit] = useState(false);
-  const [spiderEnablePassiveArpDiscovery, setSpiderEnablePassiveArpDiscovery] = useState(false);
-  const [spiderEnableUptimeMonitoring, setSpiderEnableUptimeMonitoring] = useState(false);
-  const [spiderEnableNeighborDiscovery, setSpiderEnableNeighborDiscovery] = useState(false);
-  const [spiderEnableThreatIntel, setSpiderEnableThreatIntel] = useState(false);
-  const [spiderEnableScheduledAudits, setSpiderEnableScheduledAudits] = useState(false);
-
-  const spiderModuleStateMap = {
-    dir_bruteforce: [spiderDirBrute, setSpiderDirBrute],
-    enable_vuln_verification: [spiderEnableVulnVerification, setSpiderEnableVulnVerification],
-    enable_video_stream_analyzer: [spiderEnableVideoStreamAnalyzer, setSpiderEnableVideoStreamAnalyzer],
-    enable_passive_arp_discovery: [spiderEnablePassiveArpDiscovery, setSpiderEnablePassiveArpDiscovery],
-    enable_credential_depth_audit: [spiderEnableCredentialDepthAudit, setSpiderEnableCredentialDepthAudit],
-    enable_open_share_scanner: [spiderDirBrute, setSpiderDirBrute],
-    enable_osint_import: [spiderEnableOsintImport, setSpiderEnableOsintImport],
-    enable_topology_discovery: [spiderEnableTopologyDiscovery, setSpiderEnableTopologyDiscovery],
-    enable_threat_intel: [spiderEnableThreatIntel, setSpiderEnableThreatIntel],
-  };
-  const [spiderRunning, setSpiderRunning] = useState(false);
-  const [spiderReport, setSpiderReport] = useState(null);
-  const [spiderTab, setSpiderTab] = useState('pages'); // pages|js|dirs|tech|sitemap // null | 'ok' | 'error'
-
-  const hubConfig = {
-    cookie: "login=mvd; admin=d32e003ac0909010c412e0930b621f8f; PHPSESSID=d8qtnapeqlgrism37hkarq9mk5",
-  };
+  const hubConfig = { cookie: '' };
 
   const pollIntervalRef = useRef(null);
   const healthCheckRef = useRef(null);
   const activeTargetIdRef = useRef(null);
 
   useEffect(() => { loadTargets(); }, []);
+
+  useEffect(() => {
+    setHubCookie(hubConfig.cookie || '');
+  }, [setHubCookie]);
 
   useEffect(() => {
     invoke('get_implementation_status')
@@ -1326,6 +1263,15 @@ const handleSecurityAudit = async () => {
     }
   };
 
+
+
+  const handleTestBrokerConnection = () => {
+    console.log("Попытка отправки данных в Redpanda...");
+    invoke('test_broker_connection', { message: "TEST_LEAK: IP 192.168.1.5 -> root:toor" })
+      .then(res => console.log("🟢 ОТВЕТ ОТ БРОКЕРА:", res))
+      .catch(err => console.error("🔴 ОШИБКА БРОКЕРА:", err));
+  };
+
   return (
     <div style={{ display: 'flex', height: '100vh', width: '100vw', backgroundColor: '#0a0a0c', color: '#fff', fontFamily: 'monospace' }}>
 
@@ -1336,121 +1282,48 @@ const handleSecurityAudit = async () => {
         </div>
       )}
 
-      {/* --- ИСПРАВЛЕННЫЙ FTP-ПРОВОДНИК --- */}
-      {ftpBrowserOpen && (
-        <div style={{ position: 'fixed', top: '5%', left: '5%', width: '90%', height: '90%', backgroundColor: '#05050a', border: '2px solid #00f0ff', zIndex: 10000, padding: '20px', display: 'flex', flexDirection: 'column', boxShadow: '0 0 30px #00f0ff44', boxSizing: 'border-box' }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '15px' }}>
-            <h2 style={{ color: '#00f0ff', margin: 0 }}>📁 СЕРВЕР АРХИВОВ NVR ({activeServerAlias.toUpperCase()})</h2>
-            <button onClick={() => setFtpBrowserOpen(false)} style={{ background: 'none', border: '1px solid #ff003c', color: '#ff003c', cursor: 'pointer', fontWeight: 'bold', padding: '5px 15px' }}>ЗАКРЫТЬ [X]</button>
-          </div>
+      <ArchiveViewer fetchFtpRoot={fetchFtpRoot} goBackFtp={goBackFtp} handleDownloadFtp={handleDownloadFtp} />
 
-          <div style={{ display: 'flex', gap: '10px', marginBottom: '20px' }}>
-            <button onClick={() => fetchFtpRoot('video1')} style={{ background: activeServerAlias === 'video1' ? '#1a4a4a' : '#111', color: '#00f0ff', border: '1px solid #00f0ff', padding: '5px 15px', cursor: 'pointer' }}>SERVER 1 (video1)</button>
-            <button onClick={() => fetchFtpRoot('video2')} style={{ background: activeServerAlias === 'video2' ? '#4a1a4a' : '#111', color: '#ff00ff', border: '1px solid #ff00ff', padding: '5px 15px', cursor: 'pointer' }}>SERVER 2 (video2)</button>
 
-            <div style={{ flex: 1, background: '#000', color: '#fff', border: '1px solid #555', padding: '8px', fontSize: '14px', display: 'flex', alignItems: 'center' }}>
-                <span style={{color: '#888', marginRight: '5px'}}>ПУТЬ:</span> {ftpPath}
-            </div>
-          </div>
+      <StreamGrid
+        mapCenter={mapCenter}
+        groupedMapTargets={groupedMapTargets}
+        handleStartStream={handleStartStream}
+        fetchFtpRoot={fetchFtpRoot}
+        setNemesisTarget={setNemesisTarget}
+        handleLocalArchive={handleLocalArchive}
+        handleFetchNvrDeviceInfo={handleFetchNvrDeviceInfo}
+        handleFetchOnvifDeviceInfo={handleFetchOnvifDeviceInfo}
+        activeStream={activeStream}
+        activeCameraName={activeCameraName}
+        streamTerminal={streamTerminal}
+        streamChannel={streamChannel}
+        hubCookie={hubConfig.cookie}
+        handleRefreshStream={handleRefreshStream}
+        handleStopStream={handleStopStream}
+        handlePlayArchive={handlePlayArchive}
+      />
 
-          <div style={{ flex: 1, overflowY: 'auto', border: '1px solid #333', background: '#000', padding: '10px' }}>
-            {ftpPath !== "/" && (
-                <div onClick={goBackFtp} style={{ padding: '10px', borderBottom: '1px dashed #444', cursor: 'pointer', color: '#ffcc00', fontWeight: 'bold' }}>
-                    ⬅ НАЗАД
-                </div>
-            )}
-            {ftpItems.map((item, index) => (
-                <div key={index}
-                     onClick={() => { if (!item.isFile) fetchFtpRoot(activeServerAlias, item.path); }}
-                     style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px', borderBottom: '1px solid #111', cursor: item.isFile ? 'default' : 'pointer', background: item.isFile ? 'transparent' : '#0a1515' }}>
-
-                    <span style={{ color: item.isFile ? '#00f0ff' : '#7dff9c', fontSize: '14px', fontWeight: item.isFile ? 'normal' : 'bold' }}>
-                        {item.isFile ? '📄' : '📁'} {item.name}
-                    </span>
-
-                    {item.isFile && (
-                        <button onClick={(e) => { e.stopPropagation(); handleDownloadFtp(activeServerAlias, ftpPath, item.name); }}
-                                style={{ background: '#1a4a4a', color: '#00f0ff', border: '1px solid #00f0ff', cursor: 'pointer', padding: '5px 15px', fontWeight: 'bold' }}>
-                            СКАЧАТЬ ФАЙЛ
-                        </button>
-                    )}
-                </div>
-            ))}
-            {ftpItems.length === 0 && <div style={{ color: '#555', textAlign: 'center', marginTop: '20px' }}>Пусто</div>}
-          </div>
-        </div>
-      )}
-
-      <div style={{ flex: 1, position: 'relative' }}>
-        <MapContainer center={mapCenter} zoom={13} style={{ height: '100%', width: '100%' }} zoomControl={false}>
-          <MapController center={mapCenter} />
-          <TileLayer url="https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png" />
-
-          {Array.from(groupedMapTargets.values()).map(site => (
-            <Marker key={site.id} position={[site.lat, site.lng]}>
-              <Popup>
-                <div style={{ color: '#000', minWidth: '150px' }}>
-                  <strong>{site.siteName}</strong><br/>
-                  <div style={{ marginTop: '6px', marginBottom: '6px', color: '#444', fontSize: '11px' }}>
-                    Терминалов: {site.terminals.length}
-                  </div>
-                  <div style={{ marginTop: '8px', maxHeight: '300px', overflowY: 'auto' }}>
-                    {site.terminals.map((t) => (
-                      <div key={t.id} style={{ borderTop: '1px solid #ddd', paddingTop: '8px', marginTop: '8px' }}>
-                        <div style={{ fontWeight: 700, fontSize: '12px' }}>{t.name}</div>
-                        <div style={{ color: '#666', fontSize: '10px', marginBottom: '6px' }}>{t.host}</div>
-
-                        {t.channels?.map(ch => (
-                          <button key={ch.id} onClick={() => handleStartStream(t, ch)} style={{ display: 'block', width: '100%', marginBottom: '4px', padding: '6px', cursor: 'pointer', backgroundColor: '#111', color: '#00f0ff', border: '1px solid #00f0ff', fontSize: '11px' }}>
-                            ▶ ПЕРЕХВАТ: {ch.name}
-                          </button>
-                        ))}
-
-                        {t.type === 'hub' ? (
-                            <button onClick={() => fetchFtpRoot('video1')} style={{ display: 'block', width: '100%', marginTop: '8px', padding: '6px', cursor: 'pointer', backgroundColor: '#1a4a4a', color: '#00f0ff', border: '1px solid #00f0ff', fontSize: '11px', fontWeight: 'bold' }}>
-                              📁 АРХИВ ХАБА (FTP)
-                            </button>
-                        ) : (
-                            <>
-                              <button onClick={() => setNemesisTarget({ host: t.host, login: t.login || 'admin', password: t.password || '', name: t.name, channels: t.channels })} style={{ display: 'block', width: '100%', marginTop: '8px', padding: '6px', cursor: 'pointer', background: 'linear-gradient(90deg, #2a0808, #0a0808)', color: '#ff003c', border: '1px solid #ff003c', fontSize: '11px', fontWeight: 'bold', letterSpacing: '1px' }}>
-                                ☢ NEMESIS ARCHIVE
-                              </button>
-                              <button onClick={() => handleLocalArchive(t)} style={{ display: 'block', width: '100%', marginTop: '6px', padding: '6px', cursor: 'pointer', backgroundColor: '#4a1a1a', color: '#ff9900', border: '1px solid #ff9900', fontSize: '11px', fontWeight: 'bold' }}>
-                                ⏳ ЗАПРОС ПАМЯТИ
-                              </button>
-                              <button onClick={() => handleFetchNvrDeviceInfo(t)} style={{ display: 'block', width: '100%', marginTop: '6px', padding: '6px', cursor: 'pointer', backgroundColor: '#1a1a4a', color: '#9fc2ff', border: '1px solid #6a88ff', fontSize: '11px', fontWeight: 'bold' }}>
-                                ℹ ISAPI DEVICE INFO
-                              </button>
-                              <button onClick={() => handleFetchOnvifDeviceInfo(t)} style={{ display: 'block', width: '100%', marginTop: '6px', padding: '6px', cursor: 'pointer', backgroundColor: '#1a3a1a', color: '#a8ffb0', border: '1px solid #47c45a', fontSize: '11px', fontWeight: 'bold' }}>
-                                ℹ ONVIF DEVICE INFO
-                              </button>
-                            </>
-                        )}
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              </Popup>
-            </Marker>
-          ))}
-        </MapContainer>
-
-        {activeStream && (
-          <StreamPlayer
-            streamUrl={activeStream}
-            cameraName={activeCameraName}
-            terminal={streamTerminal}
-            channel={streamChannel}
-            hubCookie={hubConfig.cookie}
-            onRefresh={handleRefreshStream}
-            onClose={handleStopStream}
-            onPlayArchive={handlePlayArchive}
-          />
-        )}
-      </div>
 
       <div style={{ width: '400px', backgroundColor: '#111115', borderLeft: '2px solid #ff003c', padding: '20px', overflowY: 'auto' }}>
         <h2 style={{ color: '#ff003c', fontSize: '1.2rem', marginBottom: '20px' }}>HYPERION NODE</h2>
+
+        <button
+          onClick={handleTestBrokerConnection}
+          style={{
+            padding: '12px 24px',
+            background: '#ff0044',
+            color: 'white',
+            fontWeight: 'bold',
+            margin: '15px 0',
+            border: 'none',
+            borderRadius: '6px',
+            cursor: 'pointer',
+            boxShadow: '0 4px 6px rgba(0,0,0,0.3)'
+          }}
+        >
+          🔥 ТЕСТ REDPANDA 🔥
+        </button>
 
         <div style={{ border: '1px solid #2f9a4f', padding: '10px', backgroundColor: '#07130b', marginBottom: '20px' }}>
           <h3 style={{ color: '#7dff9c', marginTop: '0', fontSize: '0.9rem' }}>📌 СТАТУС РЕАЛИЗАЦИИ</h3>
@@ -1472,321 +1345,11 @@ const handleSecurityAudit = async () => {
           )}
         </div>
 
-        {/* =============== 🕷️ SPIDER — УЛЬТИМАТИВНЫЙ ПАУК =============== */}
-        <div style={{ border: '1px solid #b366ff', padding: '10px', backgroundColor: '#150030', marginBottom: '20px', boxShadow: '0 0 15px rgba(179,102,255,0.2)' }}>
-          <h3 style={{ color: '#b366ff', marginTop: '0', fontSize: '0.9rem' }}>🕷️ HYPERION SPIDER</h3>
-          <div style={{ fontSize: '10px', color: '#8855cc', marginBottom: '8px' }}>
-            Глубокий обход сайта: crawler + JS parser + dir bruteforce + tech fingerprint
-          </div>
+        <MassAudit />
 
-          <input
-            style={{ width: '100%', backgroundColor: '#000', border: '1px solid #b366ff', color: '#b366ff', padding: '6px', marginBottom: '6px', boxSizing: 'border-box', fontSize: '11px' }}
-            placeholder="https://target/ или 10.0.0.0/24"
-            value={spiderTarget}
-            onChange={e => setSpiderTarget(e.target.value)}
-          />
-          <div style={{ display: 'flex', gap: '6px', marginBottom: '6px' }}>
-            <input type="number" style={{ flex: 1, backgroundColor: '#000', border: '1px solid #b366ff', color: '#b366ff', padding: '6px', fontSize: '11px' }}
-              placeholder="Глубина" value={spiderMaxDepth} onChange={e => setSpiderMaxDepth(parseInt(e.target.value) || 3)} />
-            <input type="number" style={{ flex: 1, backgroundColor: '#000', border: '1px solid #b366ff', color: '#b366ff', padding: '6px', fontSize: '11px' }}
-              placeholder="Макс страниц" value={spiderMaxPages} onChange={e => setSpiderMaxPages(parseInt(e.target.value) || 50)} />
-          </div>
 
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: '4px', marginBottom: '6px', fontSize: '9px', color: '#b694df' }}>
-            {SPIDER_MODULES_CONFIG.map((module) => {
-              const [enabled, setEnabled] = spiderModuleStateMap[module.id] || [false, () => {}];
-              return (
-                <label key={module.id} style={{ border: '1px solid #3a1d58', backgroundColor: '#120024', padding: '5px' }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '5px', color: '#d2b7ff', fontSize: '10px', fontWeight: 'bold' }}>
-                    <input type="checkbox" checked={enabled} onChange={e => setEnabled(e.target.checked)} />
-                    {module.title}
-                  </div>
-                  <div style={{ color: '#9b7bc6', marginTop: '3px', lineHeight: 1.3 }}>{module.desc}</div>
-                </label>
-              );
-            })}
-          </div>
+        <SpiderControl handleStartNemesis={handleStartNemesis} handleAnalyzeSources={handleAnalyzeSources} handlePlayFuzzedLink={handlePlayFuzzedLink} />
 
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '4px', marginBottom: '6px', fontSize: '9px', color: '#b694df' }}>
-            <label><input type="checkbox" checked={spiderEnableSnapshotRefresh} onChange={e => setSpiderEnableSnapshotRefresh(e.target.checked)} /> Snapshot Refresh</label>
-            <label><input type="checkbox" checked={spiderEnableUptimeMonitoring} onChange={e => setSpiderEnableUptimeMonitoring(e.target.checked)} /> Uptime</label>
-            <label><input type="checkbox" checked={spiderEnableNeighborDiscovery} onChange={e => setSpiderEnableNeighborDiscovery(e.target.checked)} /> Neighbors</label>
-            <label><input type="checkbox" checked={spiderEnableScheduledAudits} onChange={e => setSpiderEnableScheduledAudits(e.target.checked)} /> Scheduled Audits</label>
-          </div>
-
-          <button
-            disabled={spiderRunning}
-            onClick={async () => {
-              if (!spiderTarget.trim()) return alert('Введите URL цели');
-              setSpiderRunning(true);
-              setSpiderReport(null);
-              try {
-                const report = await invoke('spider_full_scan', {
-                  targetUrl: spiderTarget.trim(),
-                  cookie: hubConfig.cookie || null,
-                  maxDepth: spiderMaxDepth,
-                  maxPages: spiderMaxPages,
-                  dirBruteforce: spiderDirBrute,
-                  enableVulnVerification: spiderEnableVulnVerification,
-                  enableOsintImport: spiderEnableOsintImport,
-                  enableTopologyDiscovery: spiderEnableTopologyDiscovery,
-                  enableSnapshotRefresh: spiderEnableSnapshotRefresh,
-                  enableVideoStreamAnalyzer: spiderEnableVideoStreamAnalyzer,
-                  enableCredentialDepthAudit: spiderEnableCredentialDepthAudit,
-                  enablePassiveArpDiscovery: spiderEnablePassiveArpDiscovery,
-                  enableUptimeMonitoring: spiderEnableUptimeMonitoring,
-                  enableNeighborDiscovery: spiderEnableNeighborDiscovery,
-                  enableThreatIntel: spiderEnableThreatIntel,
-                  enableScheduledAudits: spiderEnableScheduledAudits,
-                });
-                setSpiderReport(report);
-              } catch (err) {
-                alert(`Spider error: ${err}`);
-              } finally {
-                setSpiderRunning(false);
-              }
-            }}
-            style={{ width: '100%', backgroundColor: spiderRunning ? '#333' : '#b366ff', color: '#000', border: 'none', padding: '8px', cursor: spiderRunning ? 'wait' : 'pointer', fontWeight: 'bold', fontSize: '11px', letterSpacing: '1px' }}
-          >
-            {spiderRunning ? '⏳ ПАУК РАБОТАЕТ...' : '🕷️ ЗАПУСТИТЬ ПОЛНОЕ СКАНИРОВАНИЕ'}
-          </button>
-
-          {spiderReport && (
-            <div style={{ marginTop: '10px' }}>
-              <div style={{ color: '#b366ff', fontSize: '10px', marginBottom: '6px' }}>
-                ✅ {spiderReport.pagesCrawled} страниц | {spiderReport.jsEndpoints?.length || 0} JS endpoints | {spiderReport.dirResults?.filter(d => d.statusCode !== 404).length || 0} dirs | {spiderReport.techStack?.length || 0} tech | {spiderReport.durationSec}s
-              </div>
-              <div style={{ fontSize: '9px', color: '#666', marginBottom: '6px' }}>HTML сохранён: {spiderReport.savedHtmlDir}</div>
-
-              {spiderReport.targetCard && (
-                <div style={{ border: '1px solid #663399', background: '#10001f', padding: '6px', marginBottom: '6px', fontSize: '10px' }}>
-                  <div style={{ color: '#d8b7ff', fontWeight: 'bold', marginBottom: '4px' }}>🎯 TARGET CARD</div>
-                  <div style={{ color: '#b8a0d8' }}>[ IP/HOST: {spiderReport.targetCard.host} ]</div>
-                  <div style={{ color: '#b8a0d8' }}>[ ВЕНДОР: {spiderReport.targetCard.vendorGuess} ]</div>
-                  <div style={{ color: '#b8a0d8' }}>[ API: {spiderReport.targetCard.apiGuess} ]</div>
-                  <div style={{ color: '#b8a0d8' }}>[ RTSP: {spiderReport.targetCard.rtspStatus} ]</div>
-                  <div style={{ color: '#9f82c5', marginTop: '4px' }}>
-                    [ ПОРТЫ: {(spiderReport.targetCard.openPorts || []).map(p => `${p.port} (${p.service})`).join(', ') || 'не обнаружены'} ]
-                  </div>
-                </div>
-              )}
-
-              {spiderReport.discoveredTargets?.length > 0 && (
-                <div style={{ border: '1px solid #4a2f6c', background: '#0d0217', padding: '6px', marginBottom: '6px', fontSize: '9px', maxHeight: '120px', overflowY: 'auto' }}>
-                  <div style={{ color: '#b694df', fontWeight: 'bold', marginBottom: '4px' }}>📡 SWEEP RESULTS ({spiderReport.discoveredTargets.length})</div>
-                  {spiderReport.discoveredTargets.map((t, i) => (
-                    <div key={`${t.host}_${i}`} style={{ color: '#a989d1', marginBottom: '3px' }}>
-                      {t.host} → {(t.openPorts || []).map(p => p.port).join(', ')}
-                    </div>
-                  ))}
-                </div>
-              )}
-
-              {spiderReport.moduleStatuses?.length > 0 && (
-                <div style={{ border: '1px solid #3a2755', background: '#0b0314', padding: '6px', marginBottom: '6px', fontSize: '9px', maxHeight: '120px', overflowY: 'auto' }}>
-                  <div style={{ color: '#c19cff', fontWeight: 'bold', marginBottom: '4px' }}>🧪 AUDIT MODULES</div>
-                  {spiderReport.moduleStatuses.map((m, i) => (
-                    <div key={`${m.module}_${i}`} style={{ color: '#ac90d5', marginBottom: '3px' }}>
-                      {m.module}: {m.status} — {m.details}
-                    </div>
-                  ))}
-                </div>
-              )}
-
-              {spiderReport.videoStreamInfo?.length > 0 && (
-                <div style={{ border: '1px solid #294a52', background: '#041014', padding: '6px', marginBottom: '6px', fontSize: '9px' }}>
-                  <div style={{ color: '#7fd7e8', fontWeight: 'bold', marginBottom: '4px' }}>🎥 VIDEO STREAM INFO</div>
-                  {spiderReport.videoStreamInfo.map((v, i) => (
-                    <div key={`${v.host}_${i}`} style={{ color: '#8ecad6', marginBottom: '3px' }}>
-                      {v.host}: {v.status} | {v.codec} | {v.resolution} | fps={v.fps} | br={v.bitrate}
-                    </div>
-                  ))}
-                </div>
-              )}
-
-              {spiderReport.passiveDevices?.length > 0 && (
-                <div style={{ border: '1px solid #355126', background: '#0b1406', padding: '6px', marginBottom: '6px', fontSize: '9px', maxHeight: '100px', overflowY: 'auto' }}>
-                  <div style={{ color: '#a3d58a', fontWeight: 'bold', marginBottom: '4px' }}>📡 PASSIVE DEVICES</div>
-                  {spiderReport.passiveDevices.map((d, i) => (
-                    <div key={`${d.ip}_${i}`} style={{ color: '#95c27e', marginBottom: '2px' }}>{d.ip} — {d.mac}</div>
-                  ))}
-                </div>
-              )}
-
-              {spiderReport.threatLinks?.length > 0 && (
-                <div style={{ border: '1px solid #5c3b1e', background: '#1a0f05', padding: '6px', marginBottom: '6px', fontSize: '9px' }}>
-                  <div style={{ color: '#ffc27a', fontWeight: 'bold', marginBottom: '4px' }}>⚠️ THREAT INTEL</div>
-                  {spiderReport.threatLinks.map((t, i) => (
-                    <div key={`${t.cve}_${i}`} style={{ color: '#e6b17a', marginBottom: '2px' }}>{t.cve}: {t.title} ({t.url})</div>
-                  ))}
-                </div>
-              )}
-
-              {/* Вкладки */}
-              <div style={{ display: 'flex', gap: '2px', marginBottom: '6px' }}>
-                {[['pages', '📄'], ['js', '📜 JS'], ['dirs', '📁 DIRS'], ['tech', '🔧 TECH'], ['sitemap', '🗺️']].map(([key, label]) => (
-                  <button key={key} onClick={() => setSpiderTab(key)}
-                    style={{ flex: 1, padding: '4px', fontSize: '9px', fontWeight: 'bold', cursor: 'pointer',
-                      backgroundColor: spiderTab === key ? '#b366ff' : '#1a0030',
-                      color: spiderTab === key ? '#000' : '#b366ff',
-                      border: '1px solid #b366ff' }}>
-                    {label}
-                  </button>
-                ))}
-              </div>
-
-              <div style={{ border: '1px solid #b366ff', background: '#0a0015', maxHeight: '300px', overflowY: 'auto', padding: '6px' }}>
-                {/* PAGES */}
-                {spiderTab === 'pages' && spiderReport.pages?.map((p, i) => (
-                  <div key={i} style={{ borderBottom: '1px solid #1a0030', padding: '4px 0', fontSize: '9px' }}>
-                    <div style={{ color: p.statusCode === 200 ? '#b366ff' : '#ff5555' }}>
-                      [{p.statusCode}] {p.title || '(no title)'}
-                    </div>
-                    <div style={{ color: '#555', wordBreak: 'break-all' }}>{p.url}</div>
-                    <div style={{ color: '#444' }}>{p.contentType} | {formatBytes(p.contentLength)} | {p.linksFound} links | depth {p.depth}</div>
-                  </div>
-                ))}
-
-                {/* JS ENDPOINTS */}
-                {spiderTab === 'js' && spiderReport.jsEndpoints?.map((e, i) => (
-                  <div key={i} style={{ borderBottom: '1px solid #1a0030', padding: '4px 0', fontSize: '9px' }}>
-                    <div style={{ color: '#ff9900', fontWeight: 'bold' }}>[{e.method}] {e.endpoint}</div>
-                    <div style={{ color: '#555' }}>📜 {e.sourceScript?.split('/').pop()}</div>
-                    <div style={{ color: '#333', fontSize: '8px' }}>{e.context}</div>
-                  </div>
-                ))}
-
-                {/* DIR RESULTS */}
-                {spiderTab === 'dirs' && spiderReport.dirResults?.filter(d => d.statusCode !== 404).map((d, i) => (
-                  <div key={i} style={{ borderBottom: '1px solid #1a0030', padding: '4px 0', fontSize: '9px' }}>
-                    <div style={{ color: d.statusCode === 200 ? '#00ff9c' : d.statusCode === 403 ? '#ff9900' : '#888' }}>
-                      {d.verdict}
-                    </div>
-                    <div style={{ color: '#b366ff' }}>{d.path}</div>
-                    <div style={{ color: '#444' }}>{d.contentType} | {formatBytes(d.contentLength)}</div>
-                  </div>
-                ))}
-
-                {/* TECH STACK */}
-                {spiderTab === 'tech' && spiderReport.techStack?.map((t, i) => (
-                  <div key={i} style={{ borderBottom: '1px solid #1a0030', padding: '4px 0', fontSize: '10px' }}>
-                    <span style={{ color: '#b366ff', fontWeight: 'bold' }}>{t.key}: </span>
-                    <span style={{ color: '#ddd' }}>{t.value}</span>
-                    <span style={{ color: '#555', fontSize: '9px' }}> ({t.source})</span>
-                  </div>
-                ))}
-
-                {/* SITEMAP */}
-                {spiderTab === 'sitemap' && spiderReport.sitemap?.map((url, i) => (
-                  <div key={i} style={{ fontSize: '9px', color: '#b366ff', padding: '2px 0', wordBreak: 'break-all' }}>
-                    {url}
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-        </div>
-
-        {/* 🔥 НОВЫЙ БЛОК: NEMESIS FUZZER 🔥 */}
-        <div style={{ border: '1px solid #ffaa00', padding: '10px', backgroundColor: '#1a1100', marginBottom: '20px', boxShadow: '0 0 10px rgba(255, 170, 0, 0.2)' }}>
-          <h3 style={{ color: '#ffaa00', marginTop: '0', fontSize: '0.9rem' }}>🔥 NEMESIS: ВЗЛОМ АРХИВА (FUZZER)</h3>
-
-          <div style={{ display: 'flex', gap: '6px', marginBottom: '6px' }}>
-            <input
-              id="nemesis-target-input"
-              style={{ flex: 1, backgroundColor: '#000', border: '1px solid #aa3333', color: '#ff6666', padding: '6px', boxSizing: 'border-box' }}
-              placeholder="TARGET URL (e.g. 93.125.2.167:2019/Streaming/Channels/101)"
-              value={targetInput}
-              onChange={e => setTargetInput(e.target.value)}
-            />
-            <select
-              style={{ width: '240px', backgroundColor: '#000', border: '1px solid #aa3333', color: '#ff6666', padding: '6px', boxSizing: 'border-box' }}
-              value={attackType}
-              onChange={e => setAttackType(e.target.value)}
-            >
-              <option value="RTSP_BRUTE">RTSP_BRUTE</option>
-              <option value="CGI_EXPLOIT">CGI_EXPLOIT</option>
-              <option value="CUSTOM_INJECT">CUSTOM_INJECT</option>
-            </select>
-            <button
-              onClick={handleStartNemesis}
-              style={{ backgroundColor: '#2a0000', border: '1px solid #ff5555', color: '#ff6666', padding: '6px 10px', cursor: 'pointer', fontSize: '11px', letterSpacing: '1px', fontWeight: 'bold' }}
-            >
-              EXECUTE
-            </button>
-          </div>
-
-          <div style={{ display: 'flex', gap: '6px', marginBottom: '6px' }}>
-            <input
-              style={{ flex: 1, backgroundColor: '#000', border: '1px solid #ffaa00', color: '#ffaa00', padding: '6px', boxSizing: 'border-box' }}
-              placeholder="Логин (mvd)"
-              value={fuzzLogin}
-              onChange={e => setFuzzLogin(e.target.value)}
-            />
-            <input
-              style={{ flex: 1, backgroundColor: '#000', border: '1px solid #ffaa00', color: '#ffaa00', padding: '6px', boxSizing: 'border-box' }}
-              type="password"
-              placeholder="Пароль"
-              value={fuzzPassword}
-              onChange={e => setFuzzPassword(e.target.value)}
-            />
-          </div>
-
-          <textarea
-            style={{ width: '100%', backgroundColor: '#000', border: '1px solid #ffaa00', color: '#ffaa00', padding: '6px', marginBottom: '8px', boxSizing: 'border-box', height: '50px', fontSize: '10px', resize: 'none' }}
-            placeholder="Целевой путь: video0/[Minsk_ul._...]"
-            value={fuzzPath}
-            onChange={e => setFuzzPath(e.target.value)}
-          />
-
-          <button
-            onClick={handleStartNemesis}
-            style={{ width: '100%', backgroundColor: '#ffaa00', color: '#000', border: 'none', padding: '8px', cursor: 'pointer', fontWeight: 'bold', letterSpacing: '1px' }}>
-            ☢ RUN LEGACY FLOW
-          </button>
-
-          {fuzzResults.length > 0 && (
-            <div style={{ marginTop: '10px', border: '1px solid #ffaa00', background: '#050505', maxHeight: '150px', overflowY: 'auto', padding: '6px' }}>
-              {fuzzResults.map((res, idx) => {
-                const isPlayable = res.includes('[200]') || res.includes('[401]') || res.includes('УСПЕХ') || res.includes('НАЙДЕНО');
-                const hasUrl = /(http|rtsp):\/\/[^\s]+/.test(res);
-                return (
-                  <div key={idx} style={{ fontSize: '10px', color: isPlayable ? '#00ff9c' : '#ffcc00', marginBottom: '4px', wordBreak: 'break-all', display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-                    <span style={{ flex: 1 }}>{res}</span>
-                    {isPlayable && hasUrl && (
-                      <button
-                        onClick={() => handlePlayFuzzedLink(res)}
-                        style={{ marginLeft: '10px', background: '#1a4a4a', color: '#00f0ff', border: '1px solid #00f0ff', padding: '2px 8px', cursor: 'pointer', fontSize: '9px', fontWeight: 'bold', flexShrink: 0 }}
-                      >
-                        ▶ ПЛЕЙ
-                      </button>
-                    )}
-                  </div>
-                );
-              })}
-            </div>
-          )}
-        </div>
-        {/* ============================== */}
-
-        <button
-            onClick={handleAnalyzeSources}
-            style={{ width: '100%', marginTop: '8px', backgroundColor: '#1a4a4a', color: '#00f0ff', border: '1px solid #00f0ff', padding: '8px', cursor: 'pointer', fontWeight: 'bold' }}>
-            🕷️ ПРОЧИТАТЬ ИСХОДНЫЙ КОД (НАЙТИ API)
-          </button>
-
-          {sourceAnalysis && (
-            <div style={{ marginTop: '10px', border: '1px solid #00f0ff', background: '#001111', maxHeight: '200px', overflowY: 'auto', padding: '6px' }}>
-              <div style={{ color: '#ffcc00', fontSize: '10px', fontWeight: 'bold' }}>НАЙДЕННЫЕ ФОРМЫ (ACTION):</div>
-              {sourceAnalysis.forms.map((f, i) => <div key={'f'+i} style={{ color: '#00f0ff', fontSize: '10px' }}>➡ {f}</div>)}
-
-              <div style={{ color: '#ffcc00', fontSize: '10px', fontWeight: 'bold', marginTop: '6px' }}>СКРЫТЫЕ AJAX / API:</div>
-              {sourceAnalysis.apiEndpoints.map((a, i) => <div key={'a'+i} style={{ color: '#ff003c', fontSize: '10px' }}>⚡ {a}</div>)}
-
-              <div style={{ color: '#ffcc00', fontSize: '10px', fontWeight: 'bold', marginTop: '6px' }}>ПАРАМЕТРЫ ФОРМ (INPUTS):</div>
-              <div style={{ color: '#aaa', fontSize: '10px' }}>{sourceAnalysis.inputs.join(', ') || 'нет'}</div>
-            </div>
-          )}
 
         {/* =============== РАЗВЕДКА АРХИВНЫХ МАРШРУТОВ =============== */}
         <div style={{ border: '1px solid #00ff9c', padding: '10px', backgroundColor: '#001a0a', marginBottom: '20px', boxShadow: '0 0 10px rgba(0,255,156,0.15)' }}>

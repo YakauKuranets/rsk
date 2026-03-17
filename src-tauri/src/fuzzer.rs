@@ -1,4 +1,3 @@
-use std::process::Command;
 use std::time::Duration;
 use tauri::command;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
@@ -63,10 +62,178 @@ async fn fingerprint_vendor_deep(ip: &str) -> &'static str {
     "unknown"
 }
 
+/// Мгновенная проверка существования пути через сырой RTSP-запрос (занимает ~50мс)
+async fn fast_rtsp_check(host: &str, full_url: &str) -> bool {
+    let addr = format!("{}:554", host);
+
+    // Пытаемся быстро подключиться
+    if let Ok(Ok(mut stream)) =
+        tokio::time::timeout(Duration::from_millis(800), TcpStream::connect(&addr)).await
+    {
+        // Формируем стандартный RTSP запрос
+        let request = format!("OPTIONS {} RTSP/1.0\r\nCSeq: 1\r\n\r\n", full_url);
+
+        if stream.write_all(request.as_bytes()).await.is_ok() {
+            let mut buf = [0; 512];
+            // Ждем ответа
+            if let Ok(Ok(n)) =
+                tokio::time::timeout(Duration::from_millis(800), stream.read(&mut buf)).await
+            {
+                let response = String::from_utf8_lossy(&buf[..n]);
+
+                // Если камера вернула 404, пути точно нет.
+                // Если 200 OK или 401 Unauthorized - путь существует.
+                if !response.contains("404 Not Found") && response.contains("RTSP/1.0") {
+                    return true;
+                }
+            }
+        }
+    }
+    false
+}
+
+fn build_path_candidates(vendor: &str, host: &str, login: &str, pass: &str) -> Vec<String> {
+    let mut urls = Vec::new();
+
+    match vendor {
+        "hikvision" => {
+            urls.push(format!(
+                "rtsp://{}:{}@{}:554/Streaming/Channels/102",
+                login, pass, host
+            ));
+            urls.push(format!(
+                "rtsp://{}:{}@{}:554/Streaming/Channels/101",
+                login, pass, host
+            ));
+        }
+        "xmeye" => {
+            urls.push(format!(
+                "rtsp://{}:{}@{}:554/cam/realmonitor?channel=1&subtype=1",
+                login, pass, host
+            ));
+            urls.push(format!(
+                "rtsp://{}:{}@{}:554/ch1/sub/av_stream",
+                login, pass, host
+            ));
+            urls.push(format!(
+                "rtsp://{}:{}@{}:554/live/ch01_1",
+                login, pass, host
+            ));
+        }
+        _ => {
+            urls.push(format!(
+                "rtsp://{}:{}@{}:554/Streaming/Channels/102",
+                login, pass, host
+            ));
+            urls.push(format!(
+                "rtsp://{}:{}@{}:554/cam/realmonitor?channel=1&subtype=1",
+                login, pass, host
+            ));
+            urls.push(format!(
+                "rtsp://{}:{}@{}:554/ch1/sub/av_stream",
+                login, pass, host
+            ));
+            urls.push(format!(
+                "rtsp://{}:{}@{}:554/Streaming/Channels/101",
+                login, pass, host
+            ));
+        }
+    }
+
+    urls
+}
+
+async fn fast_rtsp_probe(rtsp_host: &str, url: &str, ffmpeg: &std::path::Path) -> bool {
+    if !fast_rtsp_check(rtsp_host, url).await {
+        println!("[SPIDER] ⚡ Быстрый сброс несуществующего пути: {}", url);
+        return false;
+    }
+
+    println!(
+        "[SPIDER] 🎯 Путь существует, запускаем глубокую FFmpeg проверку: {}",
+        url
+    );
+
+    std::process::Command::new(ffmpeg)
+        .args(crate::ffmpeg::FfmpegProfiles::probe(url))
+        .status()
+        .is_ok_and(|status| status.success())
+}
+
+fn schedule_ptes_audit(audit_ip: String, audit_vendor: String) {
+    tokio::spawn(async move {
+        tokio::time::sleep(std::time::Duration::from_secs(10)).await;
+
+        println!(
+            "\n[PTES] 🕵️‍♂️ Видеопоток стабилен. Начинаем глубокий фоновый аудит для {}...",
+            audit_ip
+        );
+
+        let _ = tokio::join!(
+            async {
+                if let Ok(report) =
+                    crate::session_checker::check_session_security(audit_ip.clone()).await
+                {
+                    println!("{}", report);
+                }
+            },
+            async {
+                if let Ok(report) = crate::api_fuzzer::run_api_fuzzer(audit_ip.clone()).await {
+                    println!("{}", report);
+                }
+            },
+            async {
+                if let Ok(report) = crate::vuln_scanner::verify_vulnerabilities(
+                    audit_ip.clone(),
+                    audit_vendor.clone(),
+                )
+                .await
+                {
+                    println!("{}", report);
+                }
+            },
+            async {
+                if let Ok(report) =
+                    crate::persistence_checker::assess_persistence_risk(audit_ip.clone()).await
+                {
+                    println!("{}", report);
+                }
+            },
+            async {
+                if let Ok(report) = crate::subnet_scanner::scan_neighborhood(audit_ip.clone()).await
+                {
+                    println!("{}", report);
+                }
+            },
+            async {
+                if let Ok(report) =
+                    crate::exploit_searcher::search_public_exploits(audit_vendor.clone()).await
+                {
+                    println!("{}", report);
+                }
+            }
+        );
+
+        println!("[PTES] 🏁 Фоновый аудит для {} завершен.\n", audit_ip);
+    });
+}
+
+fn persist_knowledge(
+    km: &crate::knowledge::KnowledgeManager,
+    host: &str,
+    vendor: &str,
+    url: &str,
+    login: &str,
+    pass: &str,
+) {
+    km.save_success(host, vendor, url, login, pass);
+}
+
 /// Перебор (фаззинг) RTSP путей для поиска рабочего видеопотока
 #[command]
 pub async fn probe_rtsp_path(host: String, login: String, pass: String) -> Result<String, String> {
     let rtsp_host = crate::normalize_host_for_scan(&host);
+
     let km = crate::knowledge::KnowledgeManager::new();
     let history = km.load_all();
     let ffmpeg = crate::get_ffmpeg_path();
@@ -86,6 +253,7 @@ pub async fn probe_rtsp_path(host: String, login: String, pass: String) -> Resul
                     "[KNOWLEDGE] Сохраненный путь актуален: {}",
                     exp.successful_path
                 );
+                schedule_ptes_audit(rtsp_host.clone(), exp.vendor.clone());
                 return Ok(exp.successful_path.clone());
             }
         }
@@ -101,65 +269,15 @@ pub async fn probe_rtsp_path(host: String, login: String, pass: String) -> Resul
     );
 
     // 🎯 ЭТАП 2: Снайперский словарь (Ищем ЛЕГКИЕ Sub-Streams)
-    let mut urls = Vec::new();
+    let urls = build_path_candidates(vendor, &rtsp_host, &login, &pass);
 
-    match vendor {
-        "hikvision" => {
-            urls.push(format!(
-                "rtsp://{}:{}@{}:554/Streaming/Channels/102",
-                login, pass, rtsp_host
-            ));
-            urls.push(format!(
-                "rtsp://{}:{}@{}:554/Streaming/Channels/101",
-                login, pass, rtsp_host
-            ));
-        }
-        "xmeye" => {
-            urls.push(format!(
-                "rtsp://{}:{}@{}:554/cam/realmonitor?channel=1&subtype=1",
-                login, pass, rtsp_host
-            ));
-            urls.push(format!(
-                "rtsp://{}:{}@{}:554/ch1/sub/av_stream",
-                login, pass, rtsp_host
-            ));
-            urls.push(format!(
-                "rtsp://{}:{}@{}:554/live/ch01_1",
-                login, pass, rtsp_host
-            ));
-        }
-        _ => {
-            urls.push(format!(
-                "rtsp://{}:{}@{}:554/Streaming/Channels/102",
-                login, pass, rtsp_host
-            ));
-            urls.push(format!(
-                "rtsp://{}:{}@{}:554/cam/realmonitor?channel=1&subtype=1",
-                login, pass, rtsp_host
-            ));
-            urls.push(format!(
-                "rtsp://{}:{}@{}:554/ch1/sub/av_stream",
-                login, pass, rtsp_host
-            ));
-            urls.push(format!(
-                "rtsp://{}:{}@{}:554/Streaming/Channels/101",
-                login, pass, rtsp_host
-            ));
-        }
-    }
-
-    // 🚀 ЭТАП 3: Молниеносная проверка пути через FFmpeg
+    // 🚀 ЭТАП 3: Проверка путей
     for url in urls {
-        let s = std::process::Command::new(&ffmpeg)
-            .args(crate::ffmpeg::FfmpegProfiles::probe(&url))
-            .status();
-
-        if let Ok(status) = s {
-            if status.success() {
-                println!("[SPIDER] Успешный перехват потока: {}", url);
-                km.save_success(&rtsp_host, vendor, &url, &login, &pass);
-                return Ok(url);
-            }
+        if fast_rtsp_probe(&rtsp_host, &url, ffmpeg.as_path()).await {
+            println!("[SPIDER] Успешный перехват потока: {}", url);
+            persist_knowledge(&km, &rtsp_host, vendor, &url, &login, &pass);
+            schedule_ptes_audit(rtsp_host.clone(), vendor.to_string());
+            return Ok(url);
         }
     }
 
@@ -167,7 +285,8 @@ pub async fn probe_rtsp_path(host: String, login: String, pass: String) -> Resul
         "rtsp://{}:{}@{}:554/Streaming/Channels/101",
         login, pass, rtsp_host
     );
-    km.save_success(&rtsp_host, vendor, &fallback_url, &login, &pass);
+    persist_knowledge(&km, &rtsp_host, vendor, &fallback_url, &login, &pass);
+    schedule_ptes_audit(rtsp_host.clone(), vendor.to_string());
 
     Ok(fallback_url)
 }

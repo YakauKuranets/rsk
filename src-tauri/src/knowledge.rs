@@ -20,6 +20,9 @@ pub struct KnowledgeManager {
 impl KnowledgeManager {
     pub fn new() -> Self {
         let mut path = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
+        // Прячем базу знаний в папку target, чтобы Vite не триггерил Hot Reload страницы
+        path.push("src-tauri");
+        path.push("target");
         path.push("hyperion_knowledge.json");
         Self { db_path: path }
     }
