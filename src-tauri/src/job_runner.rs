@@ -1,7 +1,7 @@
 use crate::api_fuzzer;
 use crate::auditor;
-use crate::broker::send_intel;
 use crate::breach_analyzer;
+use crate::broker::send_intel;
 use crate::feedback_store::FeedbackStore;
 use crate::lateral_scanner;
 use crate::rce_verifier;
@@ -80,20 +80,19 @@ pub async fn run_worker_loop(
 
         match job.module {
             JobModule::FtpScanner => {
-                let vendor = job.payload.clone().unwrap_or_else(|| "hikvision".to_string());
+                let vendor = job
+                    .payload
+                    .clone()
+                    .unwrap_or_else(|| "hikvision".to_string());
                 match auditor::adaptive_credential_audit(job.target.clone(), vendor, None).await {
                     Ok(Some((login, password))) => {
                         let credentials = format!("{}:{}", login, password);
-                        let msg = format!(
-                            "🟢 НАЙДЕНА УЯЗВИМОСТЬ на {}: {}",
-                            job.target, credentials
-                        );
+                        let msg =
+                            format!("🟢 НАЙДЕНА УЯЗВИМОСТЬ на {}: {}", job.target, credentials);
                         println!("[JobRunner] {}", msg);
                         let _ = app_handle.emit("hyperion-audit-event", msg);
-                        feedback_store.record_finding(
-                            &job.target,
-                            &format!("FTP Creds: {}", credentials),
-                        );
+                        feedback_store
+                            .record_finding(&job.target, &format!("FTP Creds: {}", credentials));
 
                         let payload = format!("LEAK: {} -> {}", job.target, credentials);
                         if let Err(err) = send_intel(payload).await {
@@ -104,73 +103,61 @@ pub async fn run_worker_loop(
                     Err(e) => println!("[JobRunner] 🔴 Ошибка сканирования {}: {}", job.target, e),
                 }
             }
-            JobModule::ApiFuzzer => {
-                match api_fuzzer::run_fuzzer(&job.target).await {
-                    Ok(Some(findings)) => {
-                        let msg = format!(
-                            "🟢 НАЙДЕНЫ СКРЫТЫЕ API на {}: {}",
-                            job.target, findings
-                        );
-                        println!("[JobRunner] {}", msg);
-                        let _ = app_handle.emit("hyperion-audit-event", msg);
-                        feedback_store.record_finding(
-                            &job.target,
-                            &format!("API Discovery: {}", findings),
-                        );
-                        let payload = format!("API_DISCOVERY: {} -> {}", job.target, findings);
-                        if let Err(err) = send_intel(payload).await {
-                            println!("[JobRunner] ⚠️ Ошибка отправки в Redpanda: {}", err);
-                        }
+            JobModule::ApiFuzzer => match api_fuzzer::run_fuzzer(&job.target).await {
+                Ok(Some(findings)) => {
+                    let msg = format!("🟢 НАЙДЕНЫ СКРЫТЫЕ API на {}: {}", job.target, findings);
+                    println!("[JobRunner] {}", msg);
+                    let _ = app_handle.emit("hyperion-audit-event", msg);
+                    feedback_store
+                        .record_finding(&job.target, &format!("API Discovery: {}", findings));
+                    let payload = format!("API_DISCOVERY: {} -> {}", job.target, findings);
+                    if let Err(err) = send_intel(payload).await {
+                        println!("[JobRunner] ⚠️ Ошибка отправки в Redpanda: {}", err);
                     }
-                    Ok(None) => println!("[JobRunner] ⚪ API не обнаружены: {}", job.target),
-                    Err(e) => println!("[JobRunner] 🔴 Ошибка фаззера на {}: {}", job.target, e),
                 }
-            }
-            JobModule::RceVerifier => {
-                match rce_verifier::verify_rce(&job.target).await {
-                    Ok(Some(findings)) => {
-                        let msg = format!(
-                            "🔴 КРИТИЧЕСКАЯ УЯЗВИМОСТЬ RCE на {}: {}",
-                            job.target, findings
-                        );
-                        println!("[JobRunner] {}", msg);
-                        let _ = app_handle.emit("hyperion-audit-event", msg);
-                        feedback_store
-                            .record_finding(&job.target, &format!("RCE: {}", findings));
-                        let payload = format!("RCE_VULN: {} -> {}", job.target, findings);
-                        if let Err(err) = send_intel(payload).await {
-                            println!("[JobRunner] ⚠️ Ошибка отправки в Redpanda: {}", err);
-                        }
+                Ok(None) => println!("[JobRunner] ⚪ API не обнаружены: {}", job.target),
+                Err(e) => println!("[JobRunner] 🔴 Ошибка фаззера на {}: {}", job.target, e),
+            },
+            JobModule::RceVerifier => match rce_verifier::verify_rce(&job.target).await {
+                Ok(Some(findings)) => {
+                    let msg = format!(
+                        "🔴 КРИТИЧЕСКАЯ УЯЗВИМОСТЬ RCE на {}: {}",
+                        job.target, findings
+                    );
+                    println!("[JobRunner] {}", msg);
+                    let _ = app_handle.emit("hyperion-audit-event", msg);
+                    feedback_store.record_finding(&job.target, &format!("RCE: {}", findings));
+                    let payload = format!("RCE_VULN: {} -> {}", job.target, findings);
+                    if let Err(err) = send_intel(payload).await {
+                        println!("[JobRunner] ⚠️ Ошибка отправки в Redpanda: {}", err);
                     }
-                    Ok(None) => println!("[JobRunner] ⚪ RCE не обнаружено: {}", job.target),
-                    Err(e) => println!("[JobRunner] ⚠️ Ошибка проверки RCE на {}: {}", job.target, e),
                 }
-            }
-            JobModule::BreachAnalyzer => {
-                match breach_analyzer::check_breaches(&job.target).await {
-                    Ok(Some(findings)) => {
-                        let msg = format!(
-                            "⚠️ НАЙДЕНЫ СЛЕДЫ УТЕЧЕК для {}: {}",
-                            job.target, findings
-                        );
-                        println!("[JobRunner] {}", msg);
-                        let _ = app_handle.emit("hyperion-audit-event", msg);
-                        feedback_store.record_finding(
-                            &job.target,
-                            &format!("Breach Data: {}", findings),
-                        );
-                        let payload = format!("BREACH_DATA: {} -> {}", job.target, findings);
-                        if let Err(err) = send_intel(payload).await {
-                            println!("[JobRunner] ⚠️ Ошибка отправки в Redpanda: {}", err);
-                        }
+                Ok(None) => println!("[JobRunner] ⚪ RCE не обнаружено: {}", job.target),
+                Err(e) => println!(
+                    "[JobRunner] ⚠️ Ошибка проверки RCE на {}: {}",
+                    job.target, e
+                ),
+            },
+            JobModule::BreachAnalyzer => match breach_analyzer::check_breaches_summary(&job.target)
+                .await
+            {
+                Ok(Some(findings)) => {
+                    let msg = format!("⚠️ НАЙДЕНЫ СЛЕДЫ УТЕЧЕК для {}: {}", job.target, findings);
+                    println!("[JobRunner] {}", msg);
+                    let _ = app_handle.emit("hyperion-audit-event", msg);
+                    feedback_store
+                        .record_finding(&job.target, &format!("Breach Data: {}", findings));
+                    let payload = format!("BREACH_DATA: {} -> {}", job.target, findings);
+                    if let Err(err) = send_intel(payload).await {
+                        println!("[JobRunner] ⚠️ Ошибка отправки в Redpanda: {}", err);
                     }
-                    Ok(None) => println!("[JobRunner] ⚪ В базах утечек не числится: {}", job.target),
-                    Err(e) => println!(
-                        "[JobRunner] 🔴 Ошибка анализа утечек для {}: {}",
-                        job.target, e
-                    ),
                 }
-            }
+                Ok(None) => println!("[JobRunner] ⚪ В базах утечек не числится: {}", job.target),
+                Err(e) => println!(
+                    "[JobRunner] 🔴 Ошибка анализа утечек для {}: {}",
+                    job.target, e
+                ),
+            },
             JobModule::LateralScanner => {
                 // 1. Получаем известные креды из памяти для этого таргета!
                 let known_vulns = feedback_store.get_findings(&job.target).unwrap_or_default();
@@ -199,7 +186,10 @@ pub async fn run_worker_loop(
                         }
                     }
                     Ok(None) => println!("[JobRunner] ⚪ Соседи {} безопасны.", job.target),
-                    Err(e) => println!("[JobRunner] 🔴 Ошибка Lateral Scanner на {}: {}", job.target, e),
+                    Err(e) => println!(
+                        "[JobRunner] 🔴 Ошибка Lateral Scanner на {}: {}",
+                        job.target, e
+                    ),
                 }
             }
             JobModule::TrafficAnalyzer => {
@@ -210,7 +200,8 @@ pub async fn run_worker_loop(
                         println!("[JobRunner] {}", msg);
 
                         // Записываем в память, чтобы другие сканеры могли это использовать!
-                        feedback_store.record_finding(&job.target, &format!("Sniffed: {}", findings));
+                        feedback_store
+                            .record_finding(&job.target, &format!("Sniffed: {}", findings));
 
                         // Отправляем в React интерфейс
                         let _ = app_handle.emit("hyperion-audit-event", msg.clone());
@@ -229,28 +220,20 @@ pub async fn run_worker_loop(
                     Err(e) => println!("[JobRunner] 🔴 Ошибка сниффера: {}", e),
                 }
             }
-            JobModule::SessionChecker => {
-                match session_checker::check_session(&job.target).await {
-                    Ok(Some(vulns)) => {
-                        let msg = format!(
-                            "🟢 НАЙДЕНА УЯЗВИМОСТЬ СЕССИИ на {}: {}",
-                            job.target, vulns
-                        );
-                        println!("[JobRunner] {}", msg);
-                        let _ = app_handle.emit("hyperion-audit-event", msg);
-                        feedback_store.record_finding(
-                            &job.target,
-                            &format!("Session Vuln: {}", vulns),
-                        );
-                        let payload = format!("SESSION_VULN: {} -> {}", job.target, vulns);
-                        if let Err(err) = send_intel(payload).await {
-                            println!("[JobRunner] ⚠️ Ошибка отправки в Redpanda: {}", err);
-                        }
+            JobModule::SessionChecker => match session_checker::check_session(&job.target).await {
+                Ok(Some(vulns)) => {
+                    let msg = format!("🟢 НАЙДЕНА УЯЗВИМОСТЬ СЕССИИ на {}: {}", job.target, vulns);
+                    println!("[JobRunner] {}", msg);
+                    let _ = app_handle.emit("hyperion-audit-event", msg);
+                    feedback_store.record_finding(&job.target, &format!("Session Vuln: {}", vulns));
+                    let payload = format!("SESSION_VULN: {} -> {}", job.target, vulns);
+                    if let Err(err) = send_intel(payload).await {
+                        println!("[JobRunner] ⚠️ Ошибка отправки в Redpanda: {}", err);
                     }
-                    Ok(None) => println!("[JobRunner] ⚪ Сессии безопасны: {}", job.target),
-                    Err(e) => println!("[JobRunner] 🔴 Ошибка HTTP на {}: {}", job.target, e),
                 }
-            }
+                Ok(None) => println!("[JobRunner] ⚪ Сессии безопасны: {}", job.target),
+                Err(e) => println!("[JobRunner] 🔴 Ошибка HTTP на {}: {}", job.target, e),
+            },
             // Заглушки для будущих модулей
             _ => {
                 println!("[JobRunner] Module not implemented yet.");
@@ -280,7 +263,6 @@ pub async fn start_audit_job(
     ))
 }
 
-
 #[tauri::command]
 pub async fn start_session_job(
     target: String,
@@ -300,7 +282,6 @@ pub async fn start_session_job(
     ))
 }
 
-
 #[tauri::command]
 pub async fn start_fuzzer_job(
     target: String,
@@ -313,9 +294,11 @@ pub async fn start_fuzzer_job(
         payload: None,
     };
     job_manager.submit_job(job).await?;
-    Ok(format!("Задача API Fuzzer для {} добавлена в очередь", target))
+    Ok(format!(
+        "Задача API Fuzzer для {} добавлена в очередь",
+        target
+    ))
 }
-
 
 #[tauri::command]
 pub async fn start_rce_job(
@@ -329,9 +312,11 @@ pub async fn start_rce_job(
         payload: None,
     };
     job_manager.submit_job(job).await?;
-    Ok(format!("Задача RCE Verifier для {} добавлена в очередь", target))
+    Ok(format!(
+        "Задача RCE Verifier для {} добавлена в очередь",
+        target
+    ))
 }
-
 
 #[tauri::command]
 pub async fn start_breach_job(
@@ -351,7 +336,6 @@ pub async fn start_breach_job(
     ))
 }
 
-
 #[tauri::command]
 pub async fn start_lateral_job(
     target: String,
@@ -369,7 +353,6 @@ pub async fn start_lateral_job(
         target
     ))
 }
-
 
 #[tauri::command]
 pub async fn start_sniffer_job(

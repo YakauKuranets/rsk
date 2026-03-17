@@ -6601,6 +6601,7 @@ fn main() {
             lateral_scanner::scan_lateral_movement,
             job_runner::start_sniffer_job,
             breach_analyzer::check_password_breach,
+            breach_analyzer::check_breaches,
             session_checker::check_session_security,
             api_fuzzer::run_api_fuzzer,
             vuln_scanner::verify_vulnerabilities,
