@@ -8,6 +8,7 @@ import ArchiveViewer from './features/archive/ArchiveViewer';
 import StreamGrid from './features/streams/StreamGrid';
 import SpiderControl from './features/spider/SpiderControl';
 import MassAudit from './features/mass-audit/MassAudit';
+import AssetDiscovery from './features/discovery/AssetDiscovery';
 import { useAppStore } from './store/appStore';
 
 function normalizeTargetRecords(rawTargets) {
@@ -98,7 +99,6 @@ export default function App() {
   const setSourceAnalysis = useAppStore((s) => s.setSourceAnalysis);
   const setHubCookie = useAppStore((s) => s.setHubCookie);
 
-  const [shodanResults, setShodanResults] = useState([]);
   const [portScanHost, setPortScanHost] = useState('');
   const [portScanResult, setPortScanResult] = useState([]);
   const [runtimeLogs, setRuntimeLogs] = useState([]);
@@ -1494,30 +1494,7 @@ const handleSecurityAudit = async () => {
           )}
         </div>
 
-        <div style={{ border: '1px solid #00f0ff', padding: '10px', backgroundColor: '#001a1a', marginBottom: '20px' }}>
-          <h3 style={{ color: '#00f0ff', marginTop: '0', fontSize: '0.9rem' }}>🌐 SHODAN API SCANNER</h3>
-          <div style={{ display: 'flex', gap: '10px', marginBottom: '10px' }}>
-            <button
-              onClick={async () => {
-                setLoading(true); setRadarStatus('ЗАПРОС К СЕРВЕРАМ SHODAN...');
-                try { setShodanResults(await invoke('shodan_search', { country: 'BY', city: 'Minsk' })); }
-                catch (err) { alert(err); }
-                setLoading(false);
-              }}
-              style={{ flex: 1, backgroundColor: '#00f0ff', color: '#000', border: 'none', padding: '10px', cursor: 'pointer', fontWeight: 'bold' }}
-            >
-              🕷️ ЗАПУСТИТЬ СБОР ДАННЫХ
-            </button>
-          </div>
-          <div style={{ maxHeight: '200px', overflowY: 'auto' }}>
-            {shodanResults.map(dev => (
-              <div key={dev.id} style={{ border: '1px solid #00f0ff', padding: '8px', marginBottom: '5px', background: '#001111' }}>
-                <div style={{ color: '#00f0ff', fontSize: '11px', fontWeight: 'bold' }}>IP: {dev.ip}</div>
-                <div style={{ color: '#888', fontSize: '10px' }}>{dev.status}</div>
-              </div>
-            ))}
-          </div>
-        </div>
+        <AssetDiscovery />
 
         <div style={{ border: '1px solid #ff003c', padding: '10px', backgroundColor: '#1a0505', marginBottom: '20px' }}>
           <h3 style={{ color: '#ff003c', marginTop: '0', fontSize: '0.9rem' }}>GLOBAL HUB: MVD LINK</h3>
