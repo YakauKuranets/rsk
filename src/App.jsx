@@ -714,7 +714,7 @@ export default function App() {
 
       // Бьем прямо в главную страницу или панель поиска
       const results = await invoke('nemesis_analyze_web_sources', {
-        targetUrl: 'https://videodvor.by/stream/check.php',
+        targetUrl: 'https://stream.example.local/check.php',
         adminHash
       });
       setSourceAnalysis(results);
@@ -899,7 +899,7 @@ export default function App() {
     const autoId = `hub_${cam.id}_${Date.now()}`;
     const channels = cam.channels.map(ch => ({ id: `ch${ch}`, index: ch, name: `Камера ${parseInt(ch) + 1}` }));
     const payload = JSON.stringify({
-      id: autoId, name: `ХАБ: ${cam.ip}`, host: `videodvor.by_user${cam.id}`, hub_id: cam.id, type: 'hub', lat: lat, lng: lng, channels: channels
+      id: autoId, name: `ХАБ: ${cam.ip}`, host: `streamhub_user${cam.id}`, hub_id: cam.id, type: 'hub', lat: lat, lng: lng, channels: channels
     });
     await invoke('save_target', { targetId: autoId, payload });
     loadTargets();
@@ -1391,7 +1391,7 @@ const handleSecurityAudit = async () => {
         <div style={{ border: '1px solid #00ff9c', padding: '10px', backgroundColor: '#001a0a', marginBottom: '20px', boxShadow: '0 0 10px rgba(0,255,156,0.15)' }}>
           <h3 style={{ color: '#00ff9c', marginTop: '0', fontSize: '0.9rem' }}>🔍 РАЗВЕДКА АРХИВА (HUB)</h3>
           <div style={{ fontSize: '10px', color: '#6b9', marginBottom: '8px' }}>
-            Прощупывает все PHP-эндпоинты videodvor.by на наличие архивного доступа для конкретной камеры.
+            Прощупывает все PHP-эндпоинты stream.example.local на наличие архивного доступа для конкретной камеры.
           </div>
 
           <div style={{ display: 'flex', gap: '6px', marginBottom: '6px' }}>
@@ -1471,7 +1471,7 @@ const handleSecurityAudit = async () => {
                     <button
                       onClick={() => {
                         setCaptureUrl(r.url);
-                        handleCaptureArchive(r.url, `recon_${reconUserId}_ch${reconChannelId}_${reconDate}.mp4`, captureDuration, `Cookie: ${hubConfig.cookie}\r\nReferer: https://videodvor.by/stream/admin.php\r\n`);
+                        handleCaptureArchive(r.url, `recon_${reconUserId}_ch${reconChannelId}_${reconDate}.mp4`, captureDuration, `Cookie: ${hubConfig.cookie}\r\nReferer: https://stream.example.local/stream/admin.php\r\n`);
                       }}
                       style={{ marginTop: '4px', background: '#1a4a1a', color: '#00ff9c', border: '1px solid #00ff9c', padding: '3px 8px', cursor: 'pointer', fontSize: '9px', fontWeight: 'bold' }}
                     >
@@ -1481,7 +1481,7 @@ const handleSecurityAudit = async () => {
                   {r.isRedirect && r.redirectTo && (
                     <button
                       onClick={() => {
-                        const fullUrl = r.redirectTo.startsWith('http') ? r.redirectTo : `https://videodvor.by${r.redirectTo}`;
+                        const fullUrl = r.redirectTo.startsWith('http') ? r.redirectTo : `https://stream.example.local${r.redirectTo}`;
                         setCaptureUrl(fullUrl);
                       }}
                       style={{ marginTop: '4px', background: '#4a4a1a', color: '#ffcc00', border: '1px solid #ffcc00', padding: '3px 8px', cursor: 'pointer', fontSize: '9px' }}

@@ -3,3 +3,6 @@
 yolov8s.pt
 *.dll
 *.ocx
+sa
+.env
+.env.local

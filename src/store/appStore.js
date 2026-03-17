@@ -58,9 +58,9 @@ export const useAppStore = create((set) => ({
   setFtpPath: (ftpPath) => set({ ftpPath }),
   setFtpItems: (ftpItems) => set({ ftpItems }),
 
-  fuzzLogin: 'mvd',
+  fuzzLogin: import.meta.env.VITE_DEFAULT_FUZZ_LOGIN || 'admin',
   fuzzPassword: '',
-  fuzzPath: 'video0/[Minsk_ul._FILIMONOVA_39_]/2026-02-19/cam02_00-03-10.mkv',
+  fuzzPath: import.meta.env.VITE_DEFAULT_FUZZ_PATH || '',
   targetInput: '',
   attackType: 'RTSP_BRUTE',
   fuzzResults: [],
@@ -73,7 +73,7 @@ export const useAppStore = create((set) => ({
   setFuzzResults: (fuzzResults) => set({ fuzzResults }),
   setSourceAnalysis: (sourceAnalysis) => set({ sourceAnalysis }),
 
-  spiderTarget: 'https://videodvor.by/stream/',
+  spiderTarget: import.meta.env.VITE_DEFAULT_SPIDER_TARGET || '',
   spiderMaxDepth: 3,
   spiderMaxPages: 50,
   spiderDirBrute: true,
