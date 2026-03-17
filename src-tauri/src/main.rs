@@ -1060,7 +1060,6 @@ fn stop_stream(
     }
 }
 
-#[tauri::command]
 fn list_active_streams(state: State<'_, StreamState>) -> Result<Vec<ActiveStreamInfo>, String> {
     let mut streams = state.active_streams.lock().unwrap();
     let mut result = Vec::new();
@@ -1093,7 +1092,6 @@ fn list_active_streams(state: State<'_, StreamState>) -> Result<Vec<ActiveStream
     Ok(result)
 }
 
-#[tauri::command]
 fn stop_all_streams(
     state: State<'_, StreamState>,
     log_state: State<'_, LogState>,
