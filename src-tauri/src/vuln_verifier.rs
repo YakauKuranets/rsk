@@ -29,6 +29,23 @@ pub struct ExploitSource {
     pub severity: String,
 }
 
+fn build_public_api_client() -> Result<Client, String> {
+    Client::builder()
+        .timeout(Duration::from_secs(10))
+        .user_agent("Hyperion-PTES/1.0")
+        .build()
+        .map_err(|e| e.to_string())
+}
+
+fn build_device_probe_client() -> Result<Client, String> {
+    Client::builder()
+        .timeout(Duration::from_secs(10))
+        .user_agent("Hyperion-PTES/1.0")
+        .danger_accept_invalid_certs(true)
+        .build()
+        .map_err(|e| e.to_string())
+}
+
 #[tauri::command]
 pub async fn verify_vulnerability(
     ip: String,
@@ -36,12 +53,8 @@ pub async fn verify_vulnerability(
     firmware_version: Option<String>,
     log_state: State<'_, crate::LogState>,
 ) -> Result<Vec<VulnVerificationResult>, String> {
-    let client = Client::builder()
-        .timeout(Duration::from_secs(10))
-        .user_agent("Hyperion-PTES/1.0")
-        .danger_accept_invalid_certs(true)
-        .build()
-        .map_err(|e| e.to_string())?;
+    let public_client = build_public_api_client()?;
+    let device_client = build_device_probe_client()?;
 
     let mut results = Vec::new();
 
@@ -65,7 +78,7 @@ pub async fn verify_vulnerability(
     );
 
     let nvd_json = timeout(Duration::from_secs(12), async {
-        let resp = client
+        let resp = public_client
             .get(&nvd_url)
             .send()
             .await
@@ -96,13 +109,15 @@ pub async fn verify_vulnerability(
                 .and_then(|m| m["cvssData"]["baseScore"].as_f64())
                 .map(|s| s as f32);
 
-            let in_cisa_kev = check_cisa_kev(&client, &cve_id).await.unwrap_or(false);
+            let in_cisa_kev = check_cisa_kev(&public_client, &cve_id)
+                .await
+                .unwrap_or(false);
 
             sleep(Duration::from_millis(500)).await;
-            let exploit_sources = search_exploits_for_cve(&client, &cve_id).await;
+            let exploit_sources = search_exploits_for_cve(&public_client, &cve_id).await;
 
             sleep(Duration::from_millis(250)).await;
-            let verification = passive_verify(&client, &ip, &cve_id, &vendor).await;
+            let verification = passive_verify(&device_client, &ip, &cve_id, &vendor).await;
 
             results.push(VulnVerificationResult {
                 cve_id: cve_id.clone(),
