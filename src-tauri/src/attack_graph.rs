@@ -223,3 +223,116 @@ fn calculate_overall_risk(paths: &[AttackPath]) -> f32 {
     }
     paths.iter().map(|p| p.total_risk).fold(0.0f32, f32::max)
 }
+
+// Добавить в конец attack_graph.rs — критические пути через Dijkstra
+
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CriticalPath {
+    pub path: Vec<String>,
+    pub total_risk: f32,
+    pub mitre_techniques: Vec<String>,
+    pub estimated_time_minutes: u32,
+    pub description: String,
+}
+
+/// Find top-N highest-risk attack paths using weighted graph traversal
+fn find_critical_paths_weighted(
+    nodes: &[AttackGraphNode],
+    edges: &[AttackGraphEdge],
+    max_paths: usize,
+) -> Vec<CriticalPath> {
+    use std::collections::HashMap;
+
+    // Build adjacency list
+    let mut adj: HashMap<&str, Vec<(&str, f32)>> = HashMap::new();
+    for edge in edges {
+        adj.entry(&edge.from).or_default().push((&edge.to, edge.weight));
+    }
+
+    // Find entry points (nodes with no incoming edges)
+    let has_incoming: std::collections::HashSet<&str> = edges.iter().map(|e| e.to.as_str()).collect();
+    let entry_points: Vec<&str> = nodes
+        .iter()
+        .filter(|n| !has_incoming.contains(n.id.as_str()))
+        .map(|n| n.id.as_str())
+        .collect();
+
+    // Find exit points (nodes with no outgoing edges — high value targets)
+    let has_outgoing: std::collections::HashSet<&str> = edges.iter().map(|e| e.from.as_str()).collect();
+    let exit_points: std::collections::HashSet<&str> = nodes
+        .iter()
+        .filter(|n| !has_outgoing.contains(n.id.as_str()))
+        .map(|n| n.id.as_str())
+        .collect();
+
+    let mut all_paths: Vec<CriticalPath> = Vec::new();
+
+    // DFS from each entry point to find all paths to exits
+    fn dfs<'a>(
+        current: &'a str,
+        adj: &HashMap<&'a str, Vec<(&'a str, f32)>>,
+        exit_points: &std::collections::HashSet<&'a str>,
+        visited: &mut Vec<&'a str>,
+        current_risk: f32,
+        results: &mut Vec<(Vec<String>, f32)>,
+    ) {
+        visited.push(current);
+        if exit_points.contains(current) {
+            results.push((visited.iter().map(|s| s.to_string()).collect(), current_risk));
+        }
+        if let Some(neighbors) = adj.get(current) {
+            for &(next, weight) in neighbors {
+                if !visited.contains(&next) && visited.len() < 10 {
+                    dfs(next, adj, exit_points, visited, current_risk + weight, results);
+                }
+            }
+        }
+        visited.pop();
+    }
+
+    for entry in &entry_points {
+        let mut raw_paths = Vec::new();
+        dfs(entry, &adj, &exit_points, &mut vec![], 0.0, &mut raw_paths);
+        for (path, risk) in raw_paths {
+            let techniques: Vec<String> = path
+                .iter()
+                .filter_map(|nid| nodes.iter().find(|n| &n.id == nid))
+                .filter_map(|n| n.metadata.get("mitre_id").cloned())
+                .collect();
+            all_paths.push(CriticalPath {
+                path: path.clone(),
+                total_risk: risk,
+                mitre_techniques: techniques,
+                estimated_time_minutes: (risk * 10.0) as u32,
+                description: format!(
+                    "{} → {} ({} steps, risk {:.1})",
+                    path.first().cloned().unwrap_or_default(),
+                    path.last().cloned().unwrap_or_default(),
+                    path.len(),
+                    risk
+                ),
+            });
+        }
+    }
+
+    all_paths.sort_by(|a, b| {
+        b.total_risk
+            .partial_cmp(&a.total_risk)
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
+    all_paths.truncate(max_paths);
+    all_paths
+}
+
+#[tauri::command]
+pub async fn find_critical_attack_paths(
+    targets_json: String,
+    max_paths: Option<usize>,
+    log_state: tauri::State<'_, crate::LogState>,
+) -> Result<Vec<CriticalPath>, String> {
+    crate::push_runtime_log(&log_state, "CRITICAL_PATHS|start".to_string());
+    let graph = generate_attack_graph(targets_json, log_state).await?;
+    let paths = find_critical_paths_weighted(&graph.nodes, &graph.edges, max_paths.unwrap_or(10));
+    Ok(paths)
+}

@@ -70,6 +70,19 @@ mod subdomain_hunter;
 mod container_auditor;
 mod hash_cracker;
 mod cloud_auditor;
+mod mitre_atlas;
+mod threat_intel;
+mod nlp_reporter;
+mod msf_client;
+mod post_exploit;
+mod phishing_generator;
+mod continuous_monitor;
+mod firmware_intelligence;
+mod anomaly_detector;
+mod telegram_osint;
+mod bas_engine;
+mod cve_predictor;
+mod rest_api;
 use suppaftp::FtpStream;
 use tauri::State;
 use tokio::sync::Mutex as TokioMutex;
@@ -501,6 +514,8 @@ fn get_or_create_vault_salt() -> [u8; 16] { let salt_path = crate::get_vault_pat
 pub struct VaultState {
     key: std::sync::Mutex<Option<VaultKey>>,
 }
+
+use continuous_monitor::MonitorState;
 
 pub struct TargetsDb {
     db: sled::Db,
@@ -6888,6 +6903,8 @@ fn main() {
         .manage(playbook_exec_state)
         .manage(targets_db)
         .manage(vault_state)
+        .manage(MonitorState::new())
+        .manage(anomaly_detector::AnomalyState::new())
         .invoke_handler(tauri::generate_handler![
             save_target,
             read_target,
@@ -6930,11 +6947,15 @@ fn main() {
             archive::start_archive_export_job,
             archive::probe_archive_export_endpoints,
             archive_ai::start_archive_analysis,
+            archive_ai::list_yolo_classes,
             archive_ai::stop_archive_analysis,
             agents::authorization::validate_exploit_authorization,
             agents::recon_agent::run_recon_agent,
             scope_guard::set_scope_authorized_ranges,
             agents::scan_agent::run_scan_agent,
+            agents::exploit_verify_agent::run_exploit_verify_agent,
+            agents::risk_agent::run_risk_agent,
+            agents::auto_pipeline::run_full_pipeline,
             cvss::calculate_cvss_base,
             get_implementation_status,
             // ☢️ ПРОТОКОЛ NEMESIS (nexus.rs)
@@ -6990,12 +7011,16 @@ fn main() {
             traffic_analyzer::analyze_traffic,
             traffic_analyzer::start_passive_sniffer,
             attack_graph::generate_attack_graph,
+            attack_graph::find_critical_attack_paths,
             camera_discovery::unified_camera_scan,
             device_metadata::collect_device_metadata,
             report_export::export_report_json,
             report_export::export_report_csv,
             report_export::export_report_markdown,
             report_export::send_to_syslog,
+            report_export::send_to_splunk_hec,
+            report_export::send_to_elastic,
+            report_export::send_to_qradar,
             compliance_checker::check_compliance,
             api_fuzzer::smart_fuzz_api,
             vuln_db_updater::update_vuln_database,
@@ -7025,6 +7050,33 @@ fn main() {
             hash_cracker::gpu_benchmark,
             cloud_auditor::aws_check_s3,
             cloud_auditor::aws_check_iam,
+            mitre_atlas::map_findings_to_mitre,
+            threat_intel::analyze_threat_intelligence,
+            nlp_reporter::generate_nlp_report,
+            msf_client::msf_authenticate,
+            msf_client::msf_search,
+            msf_client::msf_run_module,
+            msf_client::msf_list_sessions,
+            post_exploit::gather_system_info,
+            post_exploit::cleanup_session,
+            phishing_generator::generate_hta_payload,
+            phishing_generator::generate_macro_lure,
+            continuous_monitor::start_monitor_job,
+            continuous_monitor::stop_monitor_job,
+            continuous_monitor::list_monitor_jobs,
+            continuous_monitor::get_surface_snapshot,
+            firmware_intelligence::fingerprint_device,
+            firmware_intelligence::bulk_fingerprint,
+            anomaly_detector::analyze_traffic_sample,
+            anomaly_detector::get_anomaly_baselines,
+            anomaly_detector::reset_anomaly_baseline,
+            telegram_osint::search_telegram_osint,
+            bas_engine::run_bas_simulation,
+            bas_engine::list_bas_scenarios,
+            cve_predictor::predict_cve_risk,
+            cve_predictor::sync_epss_scores,
+            rest_api::start_rest_api,
+            rest_api::get_rest_api_docs,
             passive_scanner::passive_scan_network,
             passive_scanner::analyze_pcap_file,
         ])
