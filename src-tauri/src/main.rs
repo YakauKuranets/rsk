@@ -21,6 +21,7 @@ use std::path::PathBuf;
 use std::process::{Command, Stdio};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, OnceLock};
+mod agents;
 pub mod api_fuzzer;
 mod archive;
 mod archive_ai;
@@ -6696,6 +6697,8 @@ fn main() {
             archive::probe_archive_export_endpoints,
             archive_ai::start_archive_analysis,
             archive_ai::stop_archive_analysis,
+            agents::authorization::validate_exploit_authorization,
+            agents::recon_agent::run_recon_agent,
             get_implementation_status,
             // ☢️ ПРОТОКОЛ NEMESIS (nexus.rs)
             run_nexus_protocol,
