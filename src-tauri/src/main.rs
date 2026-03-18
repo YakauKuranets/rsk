@@ -40,11 +40,13 @@ pub mod exploit_searcher;
 pub mod exploit_verifier;
 mod feedback_store;
 mod ffmpeg;
+mod ftp_scanner;
 mod firmware_analyzer;
 mod fuzzer;
 mod job_runner;
 mod knowledge;
 mod lateral_scanner;
+mod llm_orchestrator;
 pub mod mass_auditor;
 pub mod metadata_extractor;
 mod nexus;
@@ -61,6 +63,7 @@ mod streaming;
 pub mod subnet_scanner;
 mod system_cmds;
 mod traffic_analyzer;
+mod tool_executor;
 mod unified_archive;
 mod vuln_db_updater;
 pub mod vuln_scanner;
@@ -7098,6 +7101,12 @@ fn main() {
             passive_scanner::passive_scan_network,
             passive_scanner::analyze_pcap_file,
             payload_gen::generate_polymorphic_payload,
+            payload_gen::list_generated_payloads,
+            llm_orchestrator::llm_analyze_findings,
+            llm_orchestrator::llm_generate_attack_plan,
+            llm_orchestrator::llm_health_check,
+            tool_executor::execute_tool,
+            tool_executor::check_tools_available,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
