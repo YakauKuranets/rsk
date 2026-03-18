@@ -70,6 +70,9 @@ mod subdomain_hunter;
 mod container_auditor;
 mod hash_cracker;
 mod cloud_auditor;
+mod mitre_atlas;
+mod threat_intel;
+mod nlp_reporter;
 use suppaftp::FtpStream;
 use tauri::State;
 use tokio::sync::Mutex as TokioMutex;
@@ -6935,6 +6938,9 @@ fn main() {
             agents::recon_agent::run_recon_agent,
             scope_guard::set_scope_authorized_ranges,
             agents::scan_agent::run_scan_agent,
+            agents::exploit_verify_agent::run_exploit_verify_agent,
+            agents::risk_agent::run_risk_agent,
+            agents::auto_pipeline::run_full_pipeline,
             cvss::calculate_cvss_base,
             get_implementation_status,
             // ☢️ ПРОТОКОЛ NEMESIS (nexus.rs)
@@ -7025,6 +7031,9 @@ fn main() {
             hash_cracker::gpu_benchmark,
             cloud_auditor::aws_check_s3,
             cloud_auditor::aws_check_iam,
+            mitre_atlas::map_findings_to_mitre,
+            threat_intel::analyze_threat_intelligence,
+            nlp_reporter::generate_nlp_report,
             passive_scanner::passive_scan_network,
             passive_scanner::analyze_pcap_file,
         ])
