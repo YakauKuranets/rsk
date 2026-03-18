@@ -49,7 +49,7 @@ pub async fn run_full_pipeline(
     stages.push("ReconAgent".to_string());
 
     // Stage 2 — Scan + scope guard
-    let p2 = crate::scope_guard::run_scan_agent(p1, scope_guard, &log_state).await?;
+    let p2 = crate::scope_guard::run_scan_agent(p1, scope_guard, log_state.clone()).await?;
     stages.push("ScanAgent".to_string());
 
     // Stage 3 — ExploitVerify (optional)
