@@ -82,6 +82,7 @@ mod anomaly_detector;
 mod telegram_osint;
 mod bas_engine;
 mod cve_predictor;
+mod rest_api;
 use suppaftp::FtpStream;
 use tauri::State;
 use tokio::sync::Mutex as TokioMutex;
@@ -6946,6 +6947,7 @@ fn main() {
             archive::start_archive_export_job,
             archive::probe_archive_export_endpoints,
             archive_ai::start_archive_analysis,
+            archive_ai::list_yolo_classes,
             archive_ai::stop_archive_analysis,
             agents::authorization::validate_exploit_authorization,
             agents::recon_agent::run_recon_agent,
@@ -7073,6 +7075,8 @@ fn main() {
             bas_engine::list_bas_scenarios,
             cve_predictor::predict_cve_risk,
             cve_predictor::sync_epss_scores,
+            rest_api::start_rest_api,
+            rest_api::get_rest_api_docs,
             passive_scanner::passive_scan_network,
             passive_scanner::analyze_pcap_file,
         ])
