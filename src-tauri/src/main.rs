@@ -80,6 +80,7 @@ mod continuous_monitor;
 mod firmware_intelligence;
 mod anomaly_detector;
 mod telegram_osint;
+mod bas_engine;
 use suppaftp::FtpStream;
 use tauri::State;
 use tokio::sync::Mutex as TokioMutex;
@@ -7066,6 +7067,8 @@ fn main() {
             anomaly_detector::get_anomaly_baselines,
             anomaly_detector::reset_anomaly_baseline,
             telegram_osint::search_telegram_osint,
+            bas_engine::run_bas_simulation,
+            bas_engine::list_bas_scenarios,
             passive_scanner::passive_scan_network,
             passive_scanner::analyze_pcap_file,
         ])
