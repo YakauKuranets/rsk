@@ -67,6 +67,7 @@ mod vuln_verifier;
 mod ics_scanner;
 mod wifi_auditor;
 mod subdomain_hunter;
+mod container_auditor;
 use suppaftp::FtpStream;
 use tauri::State;
 use tokio::sync::Mutex as TokioMutex;
@@ -6990,6 +6991,7 @@ fn main() {
             wifi_auditor::capture_wifi_handshake,
             subdomain_hunter::hunt_subdomains,
             subdomain_hunter::cert_transparency,
+            container_auditor::audit_containers,
             passive_scanner::passive_scan_network,
             passive_scanner::analyze_pcap_file,
         ])
