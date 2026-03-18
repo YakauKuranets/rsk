@@ -81,6 +81,7 @@ mod firmware_intelligence;
 mod anomaly_detector;
 mod telegram_osint;
 mod bas_engine;
+mod meta_agent;
 mod cve_predictor;
 mod rest_api;
 mod html_report;
@@ -7075,6 +7076,10 @@ fn main() {
             telegram_osint::search_telegram_osint,
             bas_engine::run_bas_simulation,
             bas_engine::list_bas_scenarios,
+            feedback_store::get_technique_stats,
+            feedback_store::reset_campaign_memory,
+            meta_agent::run_meta_campaign,
+            meta_agent::get_meta_recommendations,
             cve_predictor::predict_cve_risk,
             cve_predictor::sync_epss_scores,
             rest_api::start_rest_api,
