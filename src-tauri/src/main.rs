@@ -69,6 +69,7 @@ mod wifi_auditor;
 mod subdomain_hunter;
 mod container_auditor;
 mod hash_cracker;
+mod cloud_auditor;
 use suppaftp::FtpStream;
 use tauri::State;
 use tokio::sync::Mutex as TokioMutex;
@@ -6996,6 +6997,8 @@ fn main() {
             hash_cracker::identify_hash,
             hash_cracker::crack_hashes,
             hash_cracker::gpu_benchmark,
+            cloud_auditor::aws_check_s3,
+            cloud_auditor::aws_check_iam,
             passive_scanner::passive_scan_network,
             passive_scanner::analyze_pcap_file,
         ])
