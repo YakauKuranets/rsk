@@ -836,14 +836,50 @@ fn derive_legacy_key_with_id(hw_id: &str) -> [u8; 32] {
     key
 }
 
+/// Try to derive key using old Argon2id scheme (project5/6 intermediate).
+/// That scheme used: Argon2id(passphrase, salt=SHA256(hw_id)[:16])
+fn try_intermediate_key(passphrase: &str, hw_id: &str) -> Option<[u8; 32]> {
+    let mut h = Sha256::new();
+    h.update(hw_id.as_bytes());
+    let hash = h.finalize();
+    let salt = SaltString::encode_b64(&hash[..16]).ok()?;
+    let mut key = [0u8; 32];
+    Argon2::default()
+        .hash_password_into(passphrase.as_bytes(), salt.as_str().as_bytes(), &mut key)
+        .ok()?;
+    Some(key)
+}
+
 fn try_legacy_decrypt(data: &[u8]) -> Option<Vec<u8>> {
-    let nonce = Nonce::from_slice(b"nemesis_salt");
+    // Scheme A (Sprint 1): SHA256(machine_uid) key + nonce=b"nemesis_salt" + raw ciphertext
+    let legacy_nonce = Nonce::from_slice(b"nemesis_salt");
     let hw_id = machine_uid::get().unwrap_or_else(|_| "NEMESIS_ID".to_string());
-    let key1 = derive_legacy_key_with_id(&hw_id); let key2 = derive_legacy_key_with_id("NEMESIS_ID");
-    if let Ok(p) = Aes256Gcm::new(&key1.into()).decrypt(nonce, data) {
+    let key_a1 = derive_legacy_key_with_id(&hw_id);
+    if let Ok(p) = Aes256Gcm::new(&key_a1.into()).decrypt(legacy_nonce, data) {
         return Some(p);
     }
-    Aes256Gcm::new(&key2.into()).decrypt(nonce, data).ok()
+    let key_a2 = derive_legacy_key_with_id("NEMESIS_ID");
+    if let Ok(p) = Aes256Gcm::new(&key_a2.into()).decrypt(legacy_nonce, data) {
+        return Some(p);
+    }
+
+    // Scheme B (Sprint 2 / project5/6): Argon2id key + nonce(12)||ciphertext format
+    // Passphrases tried: project defaults for the intermediate vault scheme.
+    if data.len() < 13 {
+        return None;
+    }
+    let (nonce_bytes, ciphertext) = data.split_at(12);
+    let nonce_b = Nonce::from_slice(nonce_bytes);
+    for hw in &[hw_id.as_str(), "NEMESIS_ID"] {
+        for pass in &["change-me-vault-passphrase", "hyperion-default-vault-key-v2"] {
+            if let Some(key) = try_intermediate_key(pass, hw) {
+                if let Ok(p) = Aes256Gcm::new(&key.into()).decrypt(nonce_b, ciphertext) {
+                    return Some(p);
+                }
+            }
+        }
+    }
+    None
 }
 
 /// Migrate all sled entries encrypted with the legacy SHA256 key

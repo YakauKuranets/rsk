@@ -378,12 +378,20 @@ export default function App() {
     try {
       const keys = await invoke('get_all_targets');
       const loaded = [];
-      for (let key of keys) {
-        const jsonStr = await invoke('read_target', { targetId: key });
-        loaded.push(JSON.parse(jsonStr));
+      for (const key of keys) {
+        try {
+          const jsonStr = await invoke('read_target', { targetId: key });
+          const obj = typeof jsonStr === 'string' ? JSON.parse(jsonStr) : jsonStr;
+          if (obj && typeof obj === 'object') loaded.push(obj);
+        } catch (e) {
+          // One bad record does NOT kill the rest
+          console.warn('[vault] skipped unreadable target', key, e.message || e);
+        }
       }
       setTargets(normalizeTargetRecords(loaded));
-    } catch (err) { console.error(err); }
+    } catch (err) {
+      console.error('[vault] loadTargets failed', err);
+    }
   };
 
   const handleSmartSave = async () => {
