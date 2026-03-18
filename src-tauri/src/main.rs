@@ -49,6 +49,7 @@ pub mod mass_auditor;
 pub mod metadata_extractor;
 mod nexus;
 mod passive_scanner;
+mod payload_gen;
 pub mod persistence_checker;
 mod playbook;
 pub mod rce_verifier;
@@ -7096,6 +7097,7 @@ fn main() {
             ioc_sharing::lookup_ioc,
             passive_scanner::passive_scan_network,
             passive_scanner::analyze_pcap_file,
+            payload_gen::generate_polymorphic_payload,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
