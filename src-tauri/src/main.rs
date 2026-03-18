@@ -91,6 +91,13 @@ mod cve_predictor;
 mod rest_api;
 mod html_report;
 mod ioc_sharing;
+mod nvr_probe;
+mod isapi_engine;
+mod isapi_download;
+mod ftp_engine;
+mod relay;
+mod archive_capture;
+mod hub_search;
 use scout_agent::ScoutState;
 use suppaftp::FtpStream;
 use tauri::State;
@@ -153,12 +160,12 @@ struct NexusLogBridge {
     lines: Arc<std::sync::Mutex<Vec<String>>>,
 }
 
-fn isapi_http_download_semaphore() -> Arc<Semaphore> {
+pub fn isapi_http_download_semaphore() -> Arc<Semaphore> {
     static SEM: OnceLock<Arc<Semaphore>> = OnceLock::new();
     SEM.get_or_init(|| Arc::new(Semaphore::new(1))).clone()
 }
 
-fn make_unique_task_key(base: Option<String>, prefix: &str) -> String {
+pub fn make_unique_task_key(base: Option<String>, prefix: &str) -> String {
     static SEQ: AtomicU64 = AtomicU64::new(1);
     let n = SEQ.fetch_add(1, Ordering::Relaxed);
     let raw = base.unwrap_or_else(|| format!("{}_{}", prefix, Utc::now().timestamp_millis()));
@@ -179,27 +186,27 @@ pub fn push_runtime_log(state: &State<'_, LogState>, message: impl Into<String>)
 
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
-struct NvrDeviceInfoResult {
+pub struct NvrDeviceInfoResult {
     endpoint: String,
     status: String,
     body_preview: String,
 }
 
 #[derive(Debug, Serialize)]
-struct ProtocolProbeResult {
+pub struct ProtocolProbeResult {
     protocol: String,
     endpoint: String,
     status: String,
 }
 
 #[derive(Debug, Serialize)]
-struct RoadmapItem {
+pub struct RoadmapItem {
     name: String,
     status: String,
 }
 
 #[derive(Debug, Serialize)]
-struct ImplementationStatus {
+pub struct ImplementationStatus {
     total: usize,
     completed: usize,
     in_progress: usize,
@@ -210,7 +217,7 @@ struct ImplementationStatus {
 
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
-struct IsapiRecordingItem {
+pub struct IsapiRecordingItem {
     endpoint: String,
     track_id: Option<String>,
     start_time: Option<String>,
@@ -224,7 +231,7 @@ struct IsapiRecordingItem {
 
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
-struct IsapiHarTemplateResult {
+pub struct IsapiHarTemplateResult {
     endpoint: String,
     method: String,
     content_type: Option<String>,
@@ -237,14 +244,14 @@ struct IsapiHarTemplateResult {
 
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
-struct XmRecordingItem {
+pub struct XmRecordingItem {
     start_time: String,
     end_time: String,
     playback_uri: String,
     label: String,
 }
 
-fn classify_isapi_record(
+pub fn classify_isapi_record(
     playback_uri: Option<&str>,
     start_time: Option<&str>,
     end_time: Option<&str>,
@@ -298,14 +305,14 @@ fn classify_isapi_record(
 
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
-struct OnvifRecordingItem {
+pub struct OnvifRecordingItem {
     endpoint: String,
     token: String,
 }
 
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
-struct ArchiveEndpointResult {
+pub struct ArchiveEndpointResult {
     protocol: String,
     endpoint: String,
     method: String,
@@ -315,7 +322,7 @@ struct ArchiveEndpointResult {
 
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
-struct ArchiveExportStage {
+pub struct ArchiveExportStage {
     stage: String,
     success: bool,
     reason: Option<String>,
@@ -325,7 +332,7 @@ struct ArchiveExportStage {
 
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
-struct ArchiveExportJobResult {
+pub struct ArchiveExportJobResult {
     task_id: String,
     final_status: String,
     selected_stage: String,
@@ -337,7 +344,7 @@ struct ArchiveExportJobResult {
     stages: Vec<ArchiveExportStage>,
 }
 
-fn parse_archive_duration_from_uri(uri: &str) -> Option<u64> {
+pub fn parse_archive_duration_from_uri(uri: &str) -> Option<u64> {
     fn parse_ts(input: &str) -> Option<chrono::DateTime<chrono::Utc>> {
         let cleaned = input.trim().replace("%3A", ":").replace("%2F", "/");
         let normalized = cleaned
@@ -372,7 +379,7 @@ fn parse_archive_duration_from_uri(uri: &str) -> Option<u64> {
     Some((sec as u64).saturating_add(15).clamp(30, 1800))
 }
 
-fn clamp_isapi_item_window(
+pub fn clamp_isapi_item_window(
     start_time: Option<String>,
     end_time: Option<String>,
     from: &str,
@@ -412,7 +419,7 @@ fn clamp_isapi_item_window(
     }
 }
 
-fn clamp_isapi_playback_uri_window(uri: &str, from: &str, to: &str) -> String {
+pub fn clamp_isapi_playback_uri_window(uri: &str, from: &str, to: &str) -> String {
     if !(uri.to_ascii_lowercase().starts_with("rtsp://")
         || uri.to_ascii_lowercase().starts_with("rtsps://"))
     {
@@ -596,7 +603,7 @@ async fn save_device_to_db(
 // --- ИНТЕГРАЦИЯ SHODAN ---
 // --- ИНТЕГРАЦИЯ SHODAN ---
 #[tauri::command]
-async fn external_search(
+pub async fn external_search(
     country: String,
     city: String,
     log_state: State<'_, LogState>,
@@ -792,7 +799,7 @@ pub async fn start_hub_stream(
 
 // --- ИСПРАВЛЕННЫЙ СКАНЕР: НАХОДИТ ВСЕ КАНАЛЫ (КАМЕРЫ) ---
 #[tauri::command]
-async fn search_global_hub(query: String, cookie: String) -> Result<Vec<Value>, String> {
+pub async fn search_global_hub(query: String, cookie: String) -> Result<Vec<Value>, String> {
     let client = reqwest::Client::new();
     let encoded_query = urlencoding::encode(&query);
     let url = format!(
@@ -1055,7 +1062,7 @@ fn delete_target(target_id: String, db_state: State<'_, TargetsDb>) -> Result<St
 }
 
 #[tauri::command]
-async fn geocode_address(address: String) -> Result<(f64, f64), String> {
+pub async fn geocode_address(address: String) -> Result<(f64, f64), String> {
     let encoded = urlencoding::encode(&address);
     let url = format!(
         "https://nominatim.openstreetmap.org/search?q={}&format=json&limit=1",
@@ -1094,7 +1101,7 @@ async fn geocode_address(address: String) -> Result<(f64, f64), String> {
 }
 
 #[tauri::command]
-fn generate_nvr_channels(_vendor: String, channel_count: u32) -> Result<Vec<Value>, String> {
+pub fn generate_nvr_channels(_vendor: String, channel_count: u32) -> Result<Vec<Value>, String> {
     let mut channels = Vec::new();
     for i in 1..=channel_count {
         channels.push(serde_json::json!({ "id": format!("ch{}", i), "index": i, "name": format!("Cam {}", i) }));
@@ -1104,7 +1111,7 @@ fn generate_nvr_channels(_vendor: String, channel_count: u32) -> Result<Vec<Valu
 
 /// Очистка старых HLS-файлов перед запуском нового стрима
 
-fn read_last_log_lines(path: &std::path::Path, lines: usize) -> String {
+pub fn read_last_log_lines(path: &std::path::Path, lines: usize) -> String {
     let Ok(content) = std::fs::read_to_string(path) else {
         return String::new();
     };
@@ -1119,7 +1126,7 @@ fn read_last_log_lines(path: &std::path::Path, lines: usize) -> String {
         .join(" | ")
 }
 
-fn cleanup_hls_cache(cache_dir: &std::path::Path) {
+pub fn cleanup_hls_cache(cache_dir: &std::path::Path) {
     if cache_dir.exists() {
         if let Ok(entries) = std::fs::read_dir(cache_dir) {
             for entry in entries.flatten() {
@@ -1402,7 +1409,7 @@ pub struct FtpFolder {
     pub is_file: bool,
 }
 
-struct FtpConfig {
+pub struct FtpConfig {
     host: &'static str,
     user: &'static str,
     pass: &'static str,
@@ -1410,7 +1417,7 @@ struct FtpConfig {
 
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
-struct DownloadReport {
+pub struct DownloadReport {
     server_alias: String,
     filename: String,
     save_path: String,
@@ -1441,7 +1448,7 @@ pub fn sanitize_filename_component(input: &str) -> String {
 /// Инжектит login:pass в RTSP URI если кредентиалы ещё не встроены.
 /// rtsp://host:554/path → rtsp://login:pass@host:554/path
 /// rtsp://admin:old@host/path → rtsp://login:pass@host/path (заменяет)
-fn inject_rtsp_credentials(uri: &str, login: &str, pass: &str) -> String {
+pub fn inject_rtsp_credentials(uri: &str, login: &str, pass: &str) -> String {
     if login.is_empty() {
         return uri.to_string();
     }
@@ -1474,7 +1481,7 @@ fn inject_rtsp_credentials(uri: &str, login: &str, pass: &str) -> String {
 
 /// Строит HTTP(S) endpoint выгрузки архива из RTSP playbackURI:
 ///   rtsp://host:2019/... -> http://host:2019/ISAPI/ContentMgmt/download?playbackURI=...
-fn parse_host_port_hint(input: &str) -> Option<(String, Option<u16>)> {
+pub fn parse_host_port_hint(input: &str) -> Option<(String, Option<u16>)> {
     let trimmed = input.trim();
     if trimmed.is_empty() {
         return None;
@@ -1491,7 +1498,7 @@ fn parse_host_port_hint(input: &str) -> Option<(String, Option<u16>)> {
     Some((host, parsed.port()))
 }
 
-fn extract_host_hint_from_filename_hint(filename_hint: Option<&str>) -> Option<String> {
+pub fn extract_host_hint_from_filename_hint(filename_hint: Option<&str>) -> Option<String> {
     let hint = filename_hint?.trim();
     if hint.is_empty() {
         return None;
@@ -1510,7 +1517,7 @@ fn extract_host_hint_from_filename_hint(filename_hint: Option<&str>) -> Option<S
     Some(parts.join("."))
 }
 
-fn build_isapi_download_endpoints_from_rtsp(
+pub fn build_isapi_download_endpoints_from_rtsp(
     playback_uri: &str,
     source_host_hint: Option<&str>,
 ) -> Vec<String> {
@@ -1579,7 +1586,7 @@ fn build_isapi_download_endpoints_from_rtsp(
     out
 }
 
-fn resolve_ftp_config(server_alias: &str) -> Result<FtpConfig, String> {
+pub fn resolve_ftp_config(server_alias: &str) -> Result<FtpConfig, String> {
     match server_alias {
         "video1" => Ok(FtpConfig {
             host: "93.125.48.66:21",
@@ -1601,7 +1608,7 @@ fn resolve_ftp_config(server_alias: &str) -> Result<FtpConfig, String> {
 
 /// Получить список файлов через relay
 #[tauri::command]
-async fn relay_list_files(
+pub async fn relay_list_files(
     relay_url: String,
     relay_token: Option<String>,
     server_alias: String,
@@ -1649,7 +1656,7 @@ async fn relay_list_files(
 
 /// Скачать файл через relay и сохранить локально
 #[tauri::command]
-async fn relay_download_file(
+pub async fn relay_download_file(
     relay_url: String,
     relay_token: Option<String>,
     server_alias: String,
@@ -1785,7 +1792,7 @@ async fn relay_download_file(
 
 /// Проверить что relay доступен
 #[tauri::command]
-async fn relay_ping(relay_url: String, relay_token: Option<String>) -> Result<Value, String> {
+pub async fn relay_ping(relay_url: String, relay_token: Option<String>) -> Result<Value, String> {
     let client = reqwest::Client::builder()
         .timeout(Duration::from_secs(5))
         .build()
@@ -1805,7 +1812,7 @@ async fn relay_ping(relay_url: String, relay_token: Option<String>) -> Result<Va
     Ok(data)
 }
 
-fn resolve_socket_addrs(host: &str) -> Result<Vec<std::net::SocketAddr>, String> {
+pub fn resolve_socket_addrs(host: &str) -> Result<Vec<std::net::SocketAddr>, String> {
     host.to_socket_addrs()
         .map(|iter| iter.collect::<Vec<_>>())
         .map_err(|e| format!("Не удалось резолвить FTP хост {}: {}", host, e))
@@ -1818,7 +1825,7 @@ fn resolve_socket_addrs(host: &str) -> Result<Vec<std::net::SocketAddr>, String>
         })
 }
 
-fn ftp_banner_probe(host: &str, attempts: usize) -> Result<String, String> {
+pub fn ftp_banner_probe(host: &str, attempts: usize) -> Result<String, String> {
     let mut last_err = String::from("FTP preflight не выполнился");
 
     let addrs = resolve_socket_addrs(host).ok();
@@ -1910,7 +1917,7 @@ fn ftp_banner_probe(host: &str, attempts: usize) -> Result<String, String> {
     })
 }
 
-fn ftp_connect_with_retry(
+pub fn ftp_connect_with_retry(
     host: &str,
     user: &str,
     pass: &str,
@@ -1954,7 +1961,7 @@ fn ftp_connect_with_retry(
     ))
 }
 
-fn ftp_nlst_root_with_fallback(ftp: &mut FtpStream) -> Result<Vec<String>, String> {
+pub fn ftp_nlst_root_with_fallback(ftp: &mut FtpStream) -> Result<Vec<String>, String> {
     let mut errors: Vec<String> = Vec::new();
 
     for candidate in [Some("/"), Some("."), None] {
@@ -2007,7 +2014,7 @@ fn ftp_nlst_root_with_fallback(ftp: &mut FtpStream) -> Result<Vec<String>, Strin
 }
 
 #[tauri::command]
-fn get_ftp_folders(
+pub fn get_ftp_folders(
     server_alias: &str,
     folder_path: Option<String>,
     log_state: State<'_, LogState>,
@@ -2103,7 +2110,7 @@ fn get_ftp_folders(
 }
 
 #[tauri::command]
-fn download_ftp_file(
+pub fn download_ftp_file(
     server_alias: &str,
     folder_path: String,
     filename: String,
@@ -2384,7 +2391,7 @@ fn download_ftp_file(
     })
 }
 
-fn cancel_download_task(
+pub fn cancel_download_task(
     task_id: String,
     cancel_state: State<'_, DownloadCancelState>,
     log_state: State<'_, LogState>,
@@ -2510,7 +2517,7 @@ pub fn download_ftp_scanner(
 }
 
 #[tauri::command]
-async fn probe_nvr_protocols(
+pub async fn probe_nvr_protocols(
     host: String,
     login: String,
     pass: String,
@@ -2593,7 +2600,7 @@ async fn probe_nvr_protocols(
 }
 
 #[tauri::command]
-async fn fetch_nvr_device_info(
+pub async fn fetch_nvr_device_info(
     host: String,
     login: String,
     pass: String,
@@ -2743,7 +2750,7 @@ async fn fetch_nvr_device_info(
 }
 
 #[tauri::command]
-async fn fetch_onvif_device_info(
+pub async fn fetch_onvif_device_info(
     host: String,
     login: String,
     pass: String,
@@ -2822,7 +2829,7 @@ async fn fetch_onvif_device_info(
     Err("ONVIF device_service недоступен или не поддерживает GetDeviceInformation".into())
 }
 
-fn isapi_reference_search_request_xml(from: &str, to: &str, track_id: &str) -> String {
+pub fn isapi_reference_search_request_xml(from: &str, to: &str, track_id: &str) -> String {
     format!(
         r#"<?xml version="1.0" encoding="UTF-8"?>
 <CMSearchDescription version="1.0" xmlns="http://www.hikvision.com/ver20/XMLSchema">
@@ -2845,7 +2852,7 @@ fn isapi_reference_search_request_xml(from: &str, to: &str, track_id: &str) -> S
     )
 }
 
-fn isapi_diagnostics_request_template(
+pub fn isapi_diagnostics_request_template(
     host: &str,
     endpoint: &str,
     reason: &str,
@@ -2867,7 +2874,7 @@ fn isapi_diagnostics_request_template(
 }
 
 #[tauri::command]
-async fn extract_isapi_search_template_from_har(
+pub async fn extract_isapi_search_template_from_har(
     har_json: String,
     host: Option<String>,
     log_state: State<'_, LogState>,
@@ -2986,7 +2993,7 @@ async fn extract_isapi_search_template_from_har(
 }
 
 #[tauri::command]
-async fn search_isapi_recordings(
+pub async fn search_isapi_recordings(
     host: String,
     login: String,
     pass: String,
@@ -3668,7 +3675,7 @@ async fn search_isapi_recordings(
 }
 
 #[tauri::command]
-async fn search_xm_recordings(
+pub async fn search_xm_recordings(
     host: String,
     login: String,
     pass: String,
@@ -3716,7 +3723,7 @@ async fn search_xm_recordings(
 }
 
 #[tauri::command]
-async fn download_xm_archive(
+pub async fn download_xm_archive(
     playback_uri: String,
     filename_hint: Option<String>,
     task_id: Option<String>,
@@ -3873,7 +3880,7 @@ async fn download_xm_archive(
 }
 
 #[tauri::command]
-async fn search_onvif_recordings(
+pub async fn search_onvif_recordings(
     host: String,
     login: String,
     pass: String,
@@ -3962,7 +3969,7 @@ async fn search_onvif_recordings(
     Err("ONVIF recording_service недоступен или не вернул recording tokens".into())
 }
 
-async fn probe_archive_export_endpoints(
+pub async fn probe_archive_export_endpoints(
     host: String,
     login: String,
     pass: String,
@@ -4095,7 +4102,7 @@ async fn probe_archive_export_endpoints(
 }
 
 #[tauri::command]
-async fn download_onvif_recording_token(
+pub async fn download_onvif_recording_token(
     endpoint: String,
     recording_token: String,
     login: String,
@@ -4444,7 +4451,7 @@ async fn download_onvif_recording_token(
     })
 }
 
-async fn download_isapi_playback_uri(
+pub async fn download_isapi_playback_uri(
     playback_uri: String,
     login: String,
     pass: String,
@@ -4914,7 +4921,7 @@ async fn download_isapi_playback_uri(
     })
 }
 
-async fn start_archive_export_job(
+pub async fn start_archive_export_job(
     playback_uri: String,
     login: String,
     pass: String,
@@ -5076,7 +5083,7 @@ async fn start_archive_export_job(
 
 /// RTSP ветка: скачивание через FFmpeg capture
 /// Инжектит login:pass в RTSP URI и запускает FFmpeg
-async fn download_isapi_via_rtsp(
+pub async fn download_isapi_via_rtsp(
     uri: &str,
     login: &str,
     pass: &str,
@@ -5209,7 +5216,7 @@ async fn download_isapi_via_rtsp(
     })
 }
 
-async fn try_isapi_download_post_xml(
+pub async fn try_isapi_download_post_xml(
     client: &reqwest::Client,
     endpoint: &str,
     playback_uri: &str,
@@ -5324,7 +5331,7 @@ async fn try_isapi_download_post_xml(
     Err(last_err)
 }
 
-async fn send_isapi_http_get_with_retry(
+pub async fn send_isapi_http_get_with_retry(
     client: &reqwest::Client,
     uri: &str,
     login: &str,
@@ -5381,7 +5388,7 @@ async fn send_isapi_http_get_with_retry(
 }
 
 /// HTTP ветка: скачивание через reqwest (оригинальная логика)
-async fn download_isapi_via_http(
+pub async fn download_isapi_via_http(
     uri: &str,
     login: &str,
     pass: &str,
@@ -5591,7 +5598,7 @@ async fn download_isapi_via_http(
 }
 
 #[tauri::command]
-async fn capture_archive_segment(
+pub async fn capture_archive_segment(
     source_url: String,
     filename_hint: Option<String>,
     duration_seconds: Option<u64>,
@@ -5900,7 +5907,7 @@ async fn capture_archive_segment(
 }
 
 #[tauri::command]
-fn get_implementation_status() -> Result<ImplementationStatus, String> {
+pub fn get_implementation_status() -> Result<ImplementationStatus, String> {
     let items = vec![
         RoadmapItem {
             name: "Vault encryption + sled storage".into(),
@@ -5958,7 +5965,7 @@ fn get_implementation_status() -> Result<ImplementationStatus, String> {
 /// HTTP-скачивание файла по прямой ссылке с прогрессом
 /// Универсальный метод для ISAPI playback URI, HUB download links и любых HTTP-источников
 #[tauri::command]
-async fn download_http_archive(
+pub async fn download_http_archive(
     url: String,
     login: Option<String>,
     pass: Option<String>,
@@ -6117,7 +6124,7 @@ async fn download_http_archive(
 
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
-struct ArchiveRouteProbe {
+pub struct ArchiveRouteProbe {
     url: String,
     method: String,
     status_code: u16,
@@ -6137,7 +6144,7 @@ struct ArchiveRouteProbe {
 /// проксирует видеопотоки. Нужно найти параметры, которые переключают
 /// его на архивный режим (дата, время, cam id, файловый путь).
 #[tauri::command]
-async fn recon_hub_archive_routes(
+pub async fn recon_hub_archive_routes(
     user_id: String,
     channel_id: String,
     admin_hash: String,
@@ -6375,7 +6382,7 @@ async fn recon_hub_archive_routes(
 }
 
 /// Вспомогательная: отправляет один запрос и анализирует ответ
-async fn probe_url(
+pub async fn probe_url(
     client: &reqwest::Client,
     url: &str,
     method: &str,
@@ -6486,7 +6493,7 @@ async fn probe_url(
 }
 
 #[tauri::command]
-async fn nemesis_auto_login(username: String, password: String) -> Result<String, String> {
+pub async fn nemesis_auto_login(username: String, password: String) -> Result<String, String> {
     let client = reqwest::Client::builder()
         .user_agent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/120.0.0.0 Safari/537.36")
         // device client: self-signed certs expected on local network hardware
@@ -6530,7 +6537,7 @@ async fn nemesis_auto_login(username: String, password: String) -> Result<String
 
 #[derive(Debug, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
-struct WebAnalysisResult {
+pub struct WebAnalysisResult {
     forms: Vec<String>,
     inputs: Vec<String>,
     scripts: Vec<String>,
@@ -6538,7 +6545,7 @@ struct WebAnalysisResult {
 }
 
 #[tauri::command]
-async fn nemesis_analyze_web_sources(
+pub async fn nemesis_analyze_web_sources(
     target_url: String,
     admin_hash: String,
     log_state: State<'_, LogState>,
@@ -6647,7 +6654,7 @@ async fn nemesis_analyze_web_sources(
 }
 
 #[tauri::command]
-async fn analyze_security_headers(
+pub async fn analyze_security_headers(
     target_url: String,
     log_state: State<'_, LogState>,
 ) -> Result<Vec<String>, String> {
@@ -6928,34 +6935,34 @@ fn main() {
             streaming::restart_stream,
             streaming::list_active_streams,
             streaming::stop_all_streams,
-            geocode_address,
-            generate_nvr_channels,
+            hub_search::geocode_address,
+            hub_search::generate_nvr_channels,
             fuzzer::probe_rtsp_path,
-            search_global_hub,
-            get_ftp_folders,
-            download_ftp_file,
+            hub_search::search_global_hub,
+            ftp_engine::get_ftp_folders,
+            ftp_engine::download_ftp_file,
             videodvor_login,
             videodvor_scrape,
             videodvor_list_archive,
             videodvor_download_file,
-            external_search, // <-- ВАЖНО: Пришел на замену shodan_search
+            hub_search::external_search, // <-- ВАЖНО: Пришел на замену shodan_search
             asset_discovery::discover_external_assets,
             streaming::start_hub_stream,
             system_cmds::scan_host_ports,
             get_runtime_logs,
-            archive::cancel_download_task,
-            probe_nvr_protocols,
-            fetch_nvr_device_info,
-            fetch_onvif_device_info,
-            extract_isapi_search_template_from_har,
-            search_isapi_recordings,
-            search_xm_recordings,
-            download_xm_archive,
-            search_onvif_recordings,
-            download_onvif_recording_token,
-            archive::download_isapi_playback_uri,
-            archive::start_archive_export_job,
-            archive::probe_archive_export_endpoints,
+            isapi_download::cancel_download_task,
+            nvr_probe::probe_nvr_protocols,
+            nvr_probe::fetch_nvr_device_info,
+            nvr_probe::fetch_onvif_device_info,
+            isapi_engine::extract_isapi_search_template_from_har,
+            isapi_engine::search_isapi_recordings,
+            isapi_engine::search_xm_recordings,
+            isapi_engine::download_xm_archive,
+            isapi_engine::search_onvif_recordings,
+            isapi_download::download_onvif_recording_token,
+            isapi_download::download_isapi_playback_uri,
+            isapi_download::start_archive_export_job,
+            isapi_download::probe_archive_export_endpoints,
             archive_ai::start_archive_analysis,
             archive_ai::list_yolo_classes,
             archive_ai::stop_archive_analysis,
@@ -6967,12 +6974,12 @@ fn main() {
             agents::risk_agent::run_risk_agent,
             agents::auto_pipeline::run_full_pipeline,
             cvss::calculate_cvss_base,
-            get_implementation_status,
+            hub_search::get_implementation_status,
             // ☢️ ПРОТОКОЛ NEMESIS (nexus.rs)
             run_nexus_protocol,
             // 🔥 ПРОТОКОЛЫ NEMESIS ДЛЯ ВЗЛОМА АРХИВА
             // ---------------------------------------------
-            nemesis_auto_login,
+            hub_search::nemesis_auto_login,
             fuzzer::nemesis_fuzz_archive_endpoint,
             fuzzer::nemesis_fuzz_post_endpoints,
             auditor::adaptive_credential_audit,
@@ -7003,20 +7010,20 @@ fn main() {
             // ---------------------------------------------
             // 🛡️ НОВЫЙ МОДУЛЬ ГЛУБОКОГО АУДИТА (ЦМУС)
             // ---------------------------------------------
-            analyze_security_headers, // <-- ВАЖНО: Новый сканер защиты
+            hub_search::analyze_security_headers, // <-- ВАЖНО: Новый сканер защиты
             // ---------------------------------------------
             // 📦 УНИВЕРСАЛЬНАЯ ВЫГРУЗКА АРХИВА
             // ---------------------------------------------
-            capture_archive_segment,
-            download_http_archive,
+            archive_capture::capture_archive_segment,
+            archive_capture::download_http_archive,
             unified_archive::search_archive_unified,
             unified_archive::download_archive_unified,
-            recon_hub_archive_routes,
+            archive_capture::recon_hub_archive_routes,
             spider::spider_full_scan,
             spider::fuzz_cctv_api,
-            relay_ping,
-            relay_list_files,
-            relay_download_file,
+            relay::relay_ping,
+            relay::relay_list_files,
+            relay::relay_download_file,
             broker::test_broker_connection,
             traffic_analyzer::analyze_traffic,
             traffic_analyzer::start_passive_sniffer,
