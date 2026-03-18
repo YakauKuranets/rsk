@@ -43,6 +43,7 @@ suppaftp = "5.3"
 
 reqwest = { version = "0.11", features = ["json", "cookies", "stream", "rustls-tls", "blocking", "socks"] }
 digest_auth = "0.3"
+argon2 = "0.5"
 rand = "0.8.5"
 ort = { version = "2.0.0-rc.2", features = ["ndarray"] }
 ndarray = "0.15.6"
