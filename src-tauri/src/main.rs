@@ -87,6 +87,9 @@ mod cve_predictor;
 mod rest_api;
 mod html_report;
 mod ioc_sharing;
+mod llm_orchestrator;
+mod payload_gen;
+mod tool_executor;
 use scout_agent::ScoutState;
 use suppaftp::FtpStream;
 use tauri::State;
@@ -7095,6 +7098,13 @@ fn main() {
             ioc_sharing::receive_iocs,
             ioc_sharing::lookup_ioc,
             passive_scanner::passive_scan_network,
+            llm_orchestrator::llm_analyze_findings,
+            llm_orchestrator::llm_generate_attack_plan,
+            llm_orchestrator::llm_health_check,
+            payload_gen::generate_polymorphic_payload,
+            payload_gen::list_generated_payloads,
+            tool_executor::execute_tool,
+            tool_executor::check_tools_available,
             passive_scanner::analyze_pcap_file,
         ])
         .run(tauri::generate_context!())
