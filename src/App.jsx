@@ -7,10 +7,17 @@ import './App.css';
 import NemesisArchiveTerminal from './NemesisArchiveTerminal';
 import ArchiveViewer from './features/archive/ArchiveViewer';
 import StreamGrid from './features/streams/StreamGrid';
+import MultiStreamGrid from './features/streams/MultiStreamGrid';
+import StreamPlayer from './StreamPlayer';
 import SpiderControl from './features/spider/SpiderControl';
 import MassAudit from './features/mass-audit/MassAudit';
 import AssetDiscovery from './features/discovery/AssetDiscovery';
 import AttackGraph from './features/attack-graph/AttackGraph';
+import PlaybookRunner from './features/playbook/PlaybookRunner';
+import CampaignList from './features/campaign/CampaignList';
+import CampaignDashboard from './features/campaign/CampaignDashboard';
+import PassiveScanner from './features/passive-scan/PassiveScanner';
+import CameraScanPanel from './features/scan/CameraScanPanel';
 import { useAppStore } from './store/appStore';
 import ToastHost from './components/ToastHost';
 import { toast } from './utils/toast';
@@ -57,6 +64,17 @@ export default function App() {
   const [streamRtspUrl, setStreamRtspUrl] = useState('');
   const [streamTerminal, setStreamTerminal] = useState(null);
   const [streamChannel, setStreamChannel] = useState(null);
+
+  const [streamViewMode, setStreamViewMode] = useState('none'); // 'none' | 'single' | 'multi'
+  const [pendingCameraStream, setPendingCameraStream] = useState(null);
+  const [singleStreamCamera, setSingleStreamCamera] = useState(null);
+  const [singleStreamSession, setSingleStreamSession] = useState(null);
+  const [selectedTerminal, setSelectedTerminal] = useState(null);
+  const [showPlaybooks, setShowPlaybooks] = useState(false);
+  const [showCampaigns, setShowCampaigns] = useState(false);
+  const [showIotAudit, setShowIotAudit] = useState(false);
+  const [showCameraRadar, setShowCameraRadar] = useState(false);
+  const [activeCampaignId, setActiveCampaignId] = useState(null);
 
   const [addressQuery, setAddressQuery] = useState('');
   const [mapCenter, setMapCenter] = useState([53.9, 27.56]);
@@ -138,6 +156,8 @@ export default function App() {
   const [archiveProbeResults, setArchiveProbeResults] = useState([]);
   const [implementationStatus, setImplementationStatus] = useState(null);
   const [auditResults, setAuditResults] = useState([]);
+  const [interceptLogs, setInterceptLogs] = useState([]);
+  const [isSniffing, setIsSniffing] = useState(false);
 
 
   // --- CAPTURE ARCHIVE STATE ---
@@ -209,6 +229,37 @@ export default function App() {
       if (unlistenFn) unlistenFn();
     };
   }, []);
+
+
+  useEffect(() => {
+    let disposed = false;
+    let unlistenFn = null;
+
+    listen('intercepted_credential', (event) => {
+      if (disposed) return;
+      const payload = event?.payload || {};
+      toast(`ПЕРЕХВАТ: ${payload.protocol || 'UNKNOWN'}`, 'error');
+      setInterceptLogs((prev) => [...prev, payload].slice(-100));
+    }).then((fn) => {
+      unlistenFn = fn;
+    }).catch(() => {});
+
+    return () => {
+      disposed = true;
+      if (unlistenFn) unlistenFn();
+    };
+  }, []);
+
+  const handleStartSniffer = async () => {
+    try {
+      setIsSniffing(true);
+      const msg = await invoke('start_passive_sniffer');
+      toast(msg, 'success');
+    } catch (err) {
+      toast('Ошибка сниффера (нужны админ права?): ' + err, 'error');
+      setIsSniffing(false);
+    }
+  };
 
   useEffect(() => {
     let disposed = false;
@@ -1230,6 +1281,72 @@ confidence(avg/max): ${avgConfidence}/${maxConfidence}`);
     }
   };
 
+
+  const buildRtspUrlFromPath = (activePath, terminalData, channelIndex, cleanHost) => {
+    if (!activePath.toLowerCase().startsWith('rtsp://')) {
+      const safePath = activePath.replace(/channel=1|ch1|Channels\/1/g, (match) => match.replace('1', channelIndex));
+      return `rtsp://${terminalData.login}:${terminalData.password}@${cleanHost}/${safePath.replace(/^\//, '')}`;
+    }
+
+    const encodedLogin = encodeURIComponent(terminalData.login || 'admin');
+    const encodedPass = encodeURIComponent(terminalData.password || '');
+    return activePath
+      .replace(/channel=1\b/g, `channel=${channelIndex}`)
+      .replace(/ch1\b/g, `ch${channelIndex}`)
+      .replace(/Channels\/101\b/g, `Channels/${channelIndex}01`)
+      .replace(/\/11(\b|$)/g, `/${channelIndex}1$1`)
+      .replace('{login}', encodedLogin)
+      .replace('{password}', encodedPass);
+  };
+
+  const startSingleStream = async (camera) => {
+    if (!camera?.terminal || !camera?.channel) return;
+    try {
+      if (singleStreamSession?.targetId) {
+        await invoke('stop_stream', { targetId: singleStreamSession.targetId });
+      }
+
+      const terminalData = camera.terminal;
+      const channelData = camera.channel;
+      const targetId = `single_${terminalData.id}_${channelData.id}`;
+      let wsUrl = '';
+      let resolvedRtsp = '';
+
+      if (terminalData.type === 'hub') {
+        wsUrl = await invoke('start_hub_stream', {
+          targetId,
+          userId: terminalData.hub_id.toString(),
+          channelId: channelData.index.toString(),
+          cookie: hubConfig.cookie,
+        });
+        resolvedRtsp = 'hub';
+      } else {
+        const cleanHost = terminalData.host.replace(/^(http:\/\/|https:\/\/|rtsp:\/\/)/i, '').split('/')[0];
+        const activePath = await invoke('probe_rtsp_path', {
+          host: cleanHost,
+          login: terminalData.login,
+          pass: terminalData.password,
+        });
+
+        resolvedRtsp = buildRtspUrlFromPath(activePath, terminalData, channelData.index, cleanHost);
+        wsUrl = await invoke('start_stream', { targetId, rtspUrl: resolvedRtsp });
+      }
+
+      setSingleStreamSession({
+        targetId,
+        wsUrl,
+        terminal: terminalData,
+        channel: channelData,
+        cameraName: `${terminalData.name} :: ${channelData.name}`,
+      });
+      setSingleStreamCamera(camera);
+      setStreamViewMode('single');
+    } catch (err) {
+      toast(`Ошибка запуска одиночного потока: ${err}`);
+      setStreamViewMode('none');
+    }
+  };
+
   const filteredTargets = targets.filter((t) => {
     const q = targetSearch.trim().toLowerCase();
     const byQuery = !q || `${t.name || ''} ${t.host || ''}`.toLowerCase().includes(q);
@@ -1301,28 +1418,98 @@ const handleSecurityAudit = async () => {
       <ArchiveViewer fetchFtpRoot={fetchFtpRoot} goBackFtp={goBackFtp} handleDownloadFtp={handleDownloadFtp} />
 
 
-      <StreamGrid
-        mapCenter={mapCenter}
-        groupedMapTargets={groupedMapTargets}
-        handleStartStream={handleStartStream}
-        fetchFtpRoot={fetchFtpRoot}
-        setNemesisTarget={setNemesisTarget}
-        handleLocalArchive={handleLocalArchive}
-        handleFetchNvrDeviceInfo={handleFetchNvrDeviceInfo}
-        handleFetchOnvifDeviceInfo={handleFetchOnvifDeviceInfo}
-        activeStream={activeStream}
-        activeCameraName={activeCameraName}
-        streamTerminal={streamTerminal}
-        streamChannel={streamChannel}
-        hubCookie={hubConfig.cookie}
-        handleRefreshStream={handleRefreshStream}
-        handleStopStream={handleStopStream}
-        handlePlayArchive={handlePlayArchive}
-      />
+      <main style={{ flex: 1, position: 'relative', overflow: 'hidden' }}>
+        <div style={{ position: 'absolute', inset: 0, zIndex: 0 }}>
+          <StreamGrid
+            mapCenter={mapCenter}
+            groupedMapTargets={groupedMapTargets}
+            fetchFtpRoot={fetchFtpRoot}
+            setNemesisTarget={setNemesisTarget}
+            handleLocalArchive={handleLocalArchive}
+            handleFetchNvrDeviceInfo={handleFetchNvrDeviceInfo}
+            handleFetchOnvifDeviceInfo={handleFetchOnvifDeviceInfo}
+            onCameraPlayClick={(cam) => setPendingCameraStream(cam)}
+          />
+        </div>
 
+        <div style={{ position: 'absolute', inset: 0, zIndex: 10, pointerEvents: 'none' }}>
+          {streamViewMode === 'single' && singleStreamSession && (
+            <div style={{ position: 'absolute', bottom: '20px', left: '20px', width: '420px', height: '280px', pointerEvents: 'auto', boxShadow: '0 4px 20px rgba(0,0,0,0.8)', border: '1px solid #333', background: '#000' }}>
+              <StreamPlayer
+                streamUrl={singleStreamSession.wsUrl}
+                cameraName={singleStreamSession.cameraName}
+                terminal={singleStreamSession.terminal}
+                channel={singleStreamSession.channel}
+                hubCookie={hubConfig.cookie}
+                onClose={async () => {
+                  if (singleStreamSession?.targetId) {
+                    try {
+                      await invoke('stop_stream', { targetId: singleStreamSession.targetId });
+                    } catch {
+                      // noop
+                    }
+                  }
+                  setSingleStreamSession(null);
+                  setSingleStreamCamera(null);
+                  setStreamViewMode('none');
+                }}
+              />
+            </div>
+          )}
 
-      <div style={{ width: '400px', backgroundColor: '#111115', borderLeft: '2px solid #ff003c', padding: '20px', overflowY: 'auto' }}>
+          {streamViewMode === 'multi' && (
+            <div style={{ position: 'absolute', top: 0, left: 0, bottom: 0, width: '450px', backgroundColor: '#0a0a0c', pointerEvents: 'auto', borderRight: '1px solid #222', display: 'flex', flexDirection: 'column', minHeight: 0 }}>
+              <MultiStreamGrid
+                terminalId={selectedTerminal}
+                targets={filteredTargets}
+                hubCookie={hubConfig.cookie}
+                onClose={() => {
+                  setStreamViewMode('none');
+                  setSelectedTerminal(null);
+                }}
+              />
+            </div>
+          )}
+
+          <div style={{ position: 'absolute', top: 16, right: 16, width: '400px', backgroundColor: '#111115', borderLeft: '2px solid #ff003c', padding: '20px', maxHeight: 'calc(100% - 32px)', overflowY: 'auto', pointerEvents: 'auto' }}>
+
         <h2 style={{ color: '#ff003c', fontSize: '1.2rem', marginBottom: '20px' }}>HYPERION NODE</h2>
+
+        <div style={{ border: '1px solid #222', padding: '8px', marginBottom: '12px' }}>
+          <button style={{ width: '100%', marginBottom: '6px' }} onClick={() => setShowPlaybooks(v => !v)}>PLAYBOOKS</button>
+          {showPlaybooks && <PlaybookRunner />}
+          <button style={{ width: '100%', marginBottom: '6px' }} onClick={() => setShowCampaigns(v => !v)}>КАМПАНИИ</button>
+          {showCampaigns && (
+            <>
+              <CampaignList onOpen={setActiveCampaignId} />
+              <CampaignDashboard campaignId={activeCampaignId} />
+            </>
+          )}
+          <button style={{ width: '100%' }} onClick={() => setShowIotAudit(v => !v)}>IoT АУДИТ</button>
+          {showIotAudit && <PassiveScanner />}
+
+          <button style={{ width: '100%', marginTop: '6px', marginBottom: '6px', backgroundColor: showCameraRadar ? '#00f0ff' : '#111', color: showCameraRadar ? '#000' : '#fff' }} onClick={() => setShowCameraRadar(v => !v)}>
+            УЛЬТИМАТИВНЫЙ РАДАР КАМЕР
+          </button>
+          {showCameraRadar && <CameraScanPanel onPlayCamera={(cam) => setPendingCameraStream(cam)} />}
+
+          <button
+            onClick={handleStartSniffer}
+            disabled={isSniffing}
+            style={{ width: '100%', padding: '8px', background: isSniffing ? '#003300' : '#00ffcc', color: '#000', fontWeight: 'bold', marginTop: '6px', marginBottom: '6px', cursor: isSniffing ? 'default' : 'pointer' }}
+          >
+            {isSniffing ? '🎧 СЛУШАЮ ЭФИР (СНИФФЕР)...' : '🎧 ЗАПУСТИТЬ ПАССИВНЫЙ ПЕРЕХВАТ'}
+          </button>
+
+          {interceptLogs.length > 0 && (
+            <div style={{ background: '#111', padding: '10px', border: '1px solid #00ffcc', marginBottom: '10px', fontSize: '11px', color: '#00ffcc' }}>
+              <div>УЯЗВИМЫЙ ТРАФИК В СЕТИ:</div>
+              {interceptLogs.map((log, i) => (
+                <div key={`intercept_${i}`}>[{log.protocol}] {log.details}</div>
+              ))}
+            </div>
+          )}
+        </div>
 
         <div style={{ border: '1px solid #2f9a4f', padding: '10px', backgroundColor: '#07130b', marginBottom: '20px' }}>
           <h3 style={{ color: '#7dff9c', marginTop: '0', fontSize: '0.9rem' }}>📌 СТАТУС РЕАЛИЗАЦИИ</h3>
@@ -1931,7 +2118,33 @@ const handleSecurityAudit = async () => {
             </div>
           ))}
         </div>
-      </div>
+          </div>
+        </div>
+      </main>
+
+      {pendingCameraStream && (
+        <div style={{
+          position: 'fixed', top: 0, left: 0, right: 0, bottom: 0,
+          backgroundColor: 'rgba(0,0,0,0.7)', zIndex: 9999, display: 'flex',
+          alignItems: 'center', justifyContent: 'center', pointerEvents: 'auto'
+        }}>
+          <div style={{ background: '#111', padding: '20px', border: '1px solid #333', borderRadius: '8px' }}>
+            <h3 style={{ marginTop: 0 }}>Как открыть камеру {pendingCameraStream.ip}?</h3>
+            <div style={{ display: 'flex', gap: '10px', marginTop: '20px' }}>
+              <button onClick={async () => {
+                await startSingleStream(pendingCameraStream);
+                setPendingCameraStream(null);
+              }}>Одиночный вид (Слева снизу)</button>
+              <button onClick={() => {
+                setStreamViewMode('multi');
+                setSelectedTerminal(pendingCameraStream.terminalId || pendingCameraStream.ip);
+                setPendingCameraStream(null);
+              }}>Мульти-стрим (Боковая панель)</button>
+              <button onClick={() => setPendingCameraStream(null)}>Отмена</button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* ☢ NEMESIS ARCHIVE TERMINAL OVERLAY */}
       {nemesisTarget && (

@@ -1,3 +1,5 @@
+use rand::seq::SliceRandom;
+use reqwest::{Client, Proxy};
 use serde::Serialize;
 use std::collections::HashSet;
 use std::sync::Arc;
@@ -42,6 +44,26 @@ impl Default for CredentialAuditConfig {
     }
 }
 
+
+fn build_rotated_client(proxies: &Option<Vec<String>>) -> Result<Client, String> {
+    let mut builder = Client::builder()
+        .timeout(Duration::from_secs(8))
+        .danger_accept_invalid_certs(true);
+
+    if let Some(proxy_list) = proxies {
+        if !proxy_list.is_empty() {
+            let mut rng = rand::thread_rng();
+            if let Some(proxy_url) = proxy_list.choose(&mut rng) {
+                if let Ok(proxy) = Proxy::all(proxy_url) {
+                    builder = builder.proxy(proxy);
+                }
+            }
+        }
+    }
+
+    builder.build().map_err(|e| e.to_string())
+}
+
 fn credential_probe_semaphore() -> Arc<Semaphore> {
     static SEM: OnceLock<Arc<Semaphore>> = OnceLock::new();
     SEM.get_or_init(|| Arc::new(Semaphore::new(4))).clone()
@@ -53,7 +75,8 @@ pub async fn advanced_credential_audit(
     vendor: String,
     custom_wordlist: Option<Vec<String>>,
     max_attempts: Option<u32>,
-    osint_context: Option<String>,
+    osint_context: Option<Vec<String>>,
+    proxies: Option<Vec<String>>,
     log_state: State<'_, crate::LogState>,
 ) -> Result<CredentialAuditResult, String> {
     let start = Instant::now();
@@ -94,7 +117,7 @@ pub async fn advanced_credential_audit(
         }
     }
 
-    let mut wordlist = build_smart_wordlist(&vendor, osint_context.as_deref());
+    let mut wordlist = build_smart_wordlist(&vendor, osint_context.as_deref(), &log_state);
 
     if let Some(custom) = custom_wordlist {
         for entry in custom {
@@ -118,6 +141,9 @@ pub async fn advanced_credential_audit(
 
     for (login, pass) in &wordlist {
         attempts += 1;
+
+        // Credential spraying через прокси-меш: создаем клиент на каждую попытку
+        let _rotated_client = build_rotated_client(&proxies)?;
 
         let test_url = build_rtsp_url(&vendor, &ip, login, pass);
 
@@ -211,12 +237,73 @@ pub async fn advanced_credential_audit(
     })
 }
 
+
+fn generate_osint_passwords(base_words: &[String]) -> Vec<String> {
+    let mut results = HashSet::new();
+    let years = ["2023", "2024", "2025", "2026"];
+    let suffixes = ["!", "@", "123", "!", "_admin", "_123"];
+
+    for word in base_words {
+        let word = word.trim();
+        if word.is_empty() {
+            continue;
+        }
+
+        let lower = word.to_lowercase();
+        let capitalized = {
+            let mut c = lower.chars();
+            match c.next() {
+                None => String::new(),
+                Some(f) => f.to_uppercase().collect::<String>() + c.as_str(),
+            }
+        };
+
+        let leet = lower
+            .replace('a', "@")
+            .replace('o', "0")
+            .replace('e', "3")
+            .replace('i', "!");
+        let leet_cap = capitalized
+            .replace('a', "@")
+            .replace('o', "0")
+            .replace('e', "3")
+            .replace('i', "!");
+
+        let forms = vec![lower, capitalized, leet, leet_cap];
+
+        for form in forms {
+            results.insert(form.clone());
+
+            for year in &years {
+                results.insert(format!("{}{}", form, year));
+                results.insert(format!("{}_{}", form, year));
+            }
+
+            for suf in &suffixes {
+                results.insert(format!("{}{}", form, suf));
+            }
+
+            for year in &years {
+                results.insert(format!("{}{}!", form, year));
+            }
+        }
+    }
+
+    let mut final_list: Vec<String> = results.into_iter().collect();
+    final_list.sort();
+    final_list
+}
+
 fn dedupe_wordlist(wordlist: &mut Vec<(String, String)>) {
     let mut seen = HashSet::new();
     wordlist.retain(|(l, p)| !l.is_empty() && seen.insert(format!("{}:{}", l, p)));
 }
 
-fn build_smart_wordlist(vendor: &str, osint_context: Option<&str>) -> Vec<(String, String)> {
+fn build_smart_wordlist(
+    vendor: &str,
+    osint_context: Option<&[String]>,
+    log_state: &State<'_, crate::LogState>,
+) -> Vec<(String, String)> {
     let mut dict = Vec::new();
 
     match vendor {
@@ -246,13 +333,15 @@ fn build_smart_wordlist(vendor: &str, osint_context: Option<&str>) -> Vec<(Strin
         }
     }
 
-    if let Some(ctx) = osint_context {
-        let ctx_lower = ctx.to_lowercase();
-        dict.push(("admin".into(), ctx_lower.clone()));
-        dict.push(("admin".into(), format!("{}123", ctx_lower)));
-        dict.push(("admin".into(), format!("{}2024", ctx_lower)));
-        dict.push(("admin".into(), format!("{}2025", ctx_lower)));
-        dict.push(("admin".into(), format!("{}2026", ctx_lower)));
+    if let Some(words) = osint_context {
+        let mutated = generate_osint_passwords(words);
+        crate::push_runtime_log(
+            log_state,
+            format!("[CRED_AUDIT] OSINT Mutator сгенерировал {} паролей", mutated.len()),
+        );
+        for pass in mutated {
+            dict.push(("admin".into(), pass));
+        }
     }
 
     dict

@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { useAppStore } from '../../store/appStore';
 import { toast } from '../../utils/toast';
@@ -14,6 +14,19 @@ export default function MassAudit() {
   const setMassAuditPass = useAppStore((s) => s.setMassAuditPass);
   const setMassAuditResults = useAppStore((s) => s.setMassAuditResults);
   const setMassAuditing = useAppStore((s) => s.setMassAuditing);
+  const [proxyList, setProxyList] = useState('');
+  const [osintWords, setOsintWords] = useState('');
+  const [neighbors, setNeighbors] = useState('192.168.1.10, 192.168.1.11');
+  const [foundCreds, setFoundCreds] = useState('admin:12345');
+  const [smartFuzzing, setSmartFuzzing] = useState(false);
+  const [smartFindings, setSmartFindings] = useState([]);
+  const [useEvasion, setUseEvasion] = useState(false);
+  const [cveId, setCveId] = useState('');
+  const [pocResults, setPocResults] = useState(null);
+  const [isSearchingPoc, setIsSearchingPoc] = useState(false);
+  const [firmwarePath, setFirmwarePath] = useState('');
+  const [firmwareFindings, setFirmwareFindings] = useState(null);
+  const [isAnalyzingFirmware, setIsAnalyzingFirmware] = useState(false);
 
   const handleMassAudit = async () => {
     if (!massAuditIps.trim()) return;
@@ -32,16 +45,159 @@ export default function MassAudit() {
     }
 
     try {
+      const proxies = proxyList.split('\n').map((p) => p.trim()).filter((p) => p.length > 0);
+      const osintContext = osintWords.split(',').map((w) => w.trim()).filter((w) => w.length > 0);
       const results = await invoke('run_mass_audit', {
         targetIps: uniqueIps,
         knownLogin: massAuditLogin,
         knownPass: massAuditPass,
+        proxies,
+        osintContext,
       });
       setMassAuditResults(results);
     } catch (error) {
       toast(`Ошибка массового аудита: ${error}`);
     } finally {
       setMassAuditing(false);
+    }
+  };
+
+
+  const handleCheckWebshells = async () => {
+    const ipRegex = /\b(?:[0-9]{1,3}\.){3}[0-9]{1,3}\b/g;
+    const extractedIps = massAuditIps.match(ipRegex) || [];
+    const targetIp = extractedIps[0] || '';
+
+    if (!targetIp) {
+      toast('Выберите цель! Укажите хотя бы один IP.');
+      return;
+    }
+
+    try {
+      toast('Запуск поиска веб-шеллов...');
+      const result = await invoke('check_persistence', { target: targetIp });
+      if (result.length > 0) {
+        toast(`⚠️ НАЙДЕНО ШЕЛЛОВ: ${result.length}`);
+        console.log('Шеллы:', result);
+      } else {
+        toast('Веб-шеллы не обнаружены (Чисто)');
+      }
+    } catch (err) {
+      toast('Ошибка проверки: ' + err);
+    }
+  };
+
+
+  const handleSmartFuzz = async () => {
+    const ipRegex = /\b(?:[0-9]{1,3}\.){3}[0-9]{1,3}\b/g;
+    const extractedIps = massAuditIps.match(ipRegex) || [];
+    const targetIp = extractedIps[0] || '';
+
+    if (!targetIp) {
+      toast('Выберите цель! Укажите хотя бы один IP.');
+      return;
+    }
+
+    setSmartFuzzing(true);
+    setSmartFindings([]);
+
+    try {
+      const findings = await invoke('smart_fuzz_api', {
+        targetUrl: targetIp,
+        useEvasion,
+      });
+      setSmartFindings(findings);
+      if (findings.length > 0) {
+        toast(`🧪 SMART FUZZ: найдено ${findings.length} аномалий`);
+      } else {
+        toast('🧪 SMART FUZZ: аномалии не обнаружены');
+      }
+    } catch (err) {
+      toast('Ошибка SMART FUZZER: ' + err);
+    } finally {
+      setSmartFuzzing(false);
+    }
+  };
+
+  const handlePocSearch = async () => {
+    if (!cveId.match(/^CVE-\d{4}-\d{4,}$/i)) {
+      toast('Введите корректный CVE (например, CVE-2021-44228)', 'error');
+      return;
+    }
+
+    setIsSearchingPoc(true);
+    setPocResults(null);
+
+    try {
+      const normalized = cveId.toUpperCase();
+      toast(`Поиск эксплойтов для ${normalized}...`);
+      const results = await invoke('search_github_poc', { cveId: normalized });
+      setPocResults(results);
+      if (results.length > 0) {
+        toast(`Найдено ${results.length} публичных PoC!`, 'error');
+      } else {
+        toast('Публичные эксплойты не найдены (0-day / Private).', 'success');
+      }
+    } catch (err) {
+      toast('Ошибка поиска: ' + err, 'error');
+    } finally {
+      setIsSearchingPoc(false);
+    }
+  };
+
+
+  const handleFirmwareAnalyze = async () => {
+    if (!firmwarePath.trim()) {
+      toast('Укажите абсолютный путь к .bin / .dav файлу', 'error');
+      return;
+    }
+
+    setIsAnalyzingFirmware(true);
+    setFirmwareFindings(null);
+
+    try {
+      toast('🔬 Распаковка и статический анализ бинарника...');
+      const results = await invoke('analyze_firmware', { filePath: firmwarePath.trim() });
+      setFirmwareFindings(results);
+      if (results.length > 0) {
+        toast(`🚨 Обнаружено ${results.length} критических находок в коде!`, 'error');
+      } else {
+        toast('Бинарник выглядит чистым. Секретов не найдено.', 'success');
+      }
+    } catch (err) {
+      toast('Ошибка анализатора: ' + err, 'error');
+    } finally {
+      setIsAnalyzingFirmware(false);
+    }
+  };
+
+  const handleLateralMovement = async () => {
+    if (!neighbors || !foundCreds) {
+      toast('Заполните поля!');
+      return;
+    }
+
+    const targetIps = neighbors.split(',').map((ip) => ip.trim()).filter(Boolean);
+    const creds = foundCreds.split(',').map((c) => c.trim()).filter(Boolean);
+    const knownLogins = creds.map((c) => c.split(':')[0]?.trim()).filter(Boolean);
+    const knownPasswords = creds.map((c) => c.split(':')[1]?.trim()).filter(Boolean);
+
+    try {
+      toast('🕷️ Паук начал боковое перемещение...');
+      const result = await invoke('scan_lateral_movement', {
+        targetIps,
+        knownLogins,
+        knownPasswords,
+      });
+
+      if (result.length > 0) {
+        toast(`🚨 Успешный захват! Подошли к ${result.length} узлам.`);
+        console.log('Захваченные узлы:', result);
+      } else {
+        toast('Пароли не подошли к соседям (Изоляция работает).');
+      }
+    } catch (err) {
+      toast('Ошибка Паука: ' + err);
     }
   };
 
@@ -64,9 +220,187 @@ export default function MassAudit() {
 
       <textarea style={{ width: '100%', minHeight: '70px', backgroundColor: '#000', border: '1px solid #6a88ff', color: '#9fc2ff', padding: '6px', fontSize: '11px', marginBottom: '8px' }} placeholder="IP через запятую/пробел" value={massAuditIps} onChange={(e) => setMassAuditIps(e.target.value)} />
 
+      <div style={{ marginTop: '10px', marginBottom: '10px' }}>
+        <div style={{ fontSize: '10px', color: '#ffcc00', marginBottom: '4px' }}>
+          🌐 PROXY MESH (SOCKS5/HTTP) — По одному на строку:
+        </div>
+        <textarea
+          value={proxyList}
+          onChange={e => setProxyList(e.target.value)}
+          placeholder={'socks5://127.0.0.1:9050\nhttp://user:pass@192.168.1.55:8080'}
+          style={{ width: '100%', height: '60px', background: '#000', color: '#ffcc00', border: '1px solid #ffcc00', padding: '4px', fontSize: '10px' }}
+        />
+      </div>
+
+
+      <div style={{ marginTop: '10px', marginBottom: '10px' }}>
+        <div style={{ fontSize: '10px', color: '#ff3366', marginBottom: '4px' }}>
+          🧠 OSINT СЛОВАРЬ (Слова через запятую: компания, город, год):
+        </div>
+        <input
+          type="text"
+          value={osintWords}
+          onChange={e => setOsintWords(e.target.value)}
+          placeholder="Например: gazprom, moscow, admin"
+          style={{ width: '100%', padding: '6px', background: '#000', color: '#ff3366', border: '1px solid #ff3366', fontSize: '11px' }}
+        />
+      </div>
+
+      <button
+        onClick={handleCheckWebshells}
+        style={{ padding: '8px', background: '#330000', color: '#ff3366', border: '1px solid #ff3366', cursor: 'pointer', fontSize: '11px', width: '100%', marginBottom: '8px' }}
+      >
+        🦠 ИСКАТЬ WEBSHELL (PTES)
+      </button>
+
+
+      <div style={{ marginTop: '10px', display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '6px' }}>
+        <input
+          type="checkbox"
+          id="wafEvasion"
+          checked={useEvasion}
+          onChange={e => setUseEvasion(e.target.checked)}
+          style={{ accentColor: '#ff00ff', cursor: 'pointer' }}
+        />
+        <label htmlFor="wafEvasion" style={{ color: '#ff00ff', fontSize: '11px', cursor: 'pointer' }}>
+          🛡️ Включить WAF Evasion (Полиморфные мутации пейлоадов)
+        </label>
+      </div>
+
+      <button
+        disabled={smartFuzzing}
+        onClick={handleSmartFuzz}
+        style={{ padding: '8px', background: smartFuzzing ? '#3a1a3a' : '#330033', color: '#ff00ff', border: '1px solid #ff00ff', cursor: smartFuzzing ? 'default' : 'pointer', fontSize: '11px', marginTop: '6px', width: '100%', marginBottom: '8px', fontWeight: 'bold' }}
+      >
+        {smartFuzzing ? '🧪 SMART FUZZER работает...' : '🧪 SMART FUZZER (OWASP)'}
+      </button>
+
       <button disabled={massAuditing} onClick={handleMassAudit} style={{ width: '100%', backgroundColor: massAuditing ? '#334' : '#6a88ff', color: '#fff', border: 'none', padding: '8px', cursor: massAuditing ? 'default' : 'pointer', fontWeight: 'bold' }}>
         {massAuditing ? '⏳ Идет сканирование...' : 'Запустить массовый аудит'}
       </button>
+
+
+      <div style={{ marginTop: '15px', padding: '10px', background: '#111', border: '1px solid #444' }}>
+        <div style={{ color: '#ffcc00', fontSize: '11px', marginBottom: '8px' }}>🕷️ LATERAL MOVEMENT (CREDENTIAL REUSE)</div>
+        <input
+          type="text"
+          value={neighbors}
+          onChange={e => setNeighbors(e.target.value)}
+          placeholder="Соседние IP через запятую"
+          style={{ width: '100%', marginBottom: '5px', padding: '5px', background: '#000', color: '#fff' }}
+        />
+        <input
+          type="text"
+          value={foundCreds}
+          onChange={e => setFoundCreds(e.target.value)}
+          placeholder="Успешные креды (login:pass, ...)"
+          style={{ width: '100%', marginBottom: '5px', padding: '5px', background: '#000', color: '#fff' }}
+        />
+        <button onClick={handleLateralMovement} style={{ width: '100%', padding: '6px', background: '#ffcc00', color: '#000', fontWeight: 'bold', cursor: 'pointer' }}>
+          ЗАПУСТИТЬ ПАУКА НА СОСЕДЕЙ
+        </button>
+      </div>
+
+      <div style={{ marginTop: '20px', padding: '15px', background: '#1a0d00', border: '1px solid #ff9900', borderRadius: '4px' }}>
+        <h3 style={{ color: '#ff9900', marginTop: 0, fontSize: '14px' }}>🎯 WEAPONIZATION: Авто-сбор PoC</h3>
+        <div style={{ fontSize: '11px', color: '#cc7a00', marginBottom: '10px' }}>
+          Поиск готовых скриптов эксплуатации (Proof-of-Concept) по базам исследователей безопасности.
+        </div>
+        <div style={{ display: 'flex', gap: '10px' }}>
+          <input
+            type="text"
+            value={cveId}
+            onChange={e => setCveId(e.target.value)}
+            placeholder="Введите CVE (напр. CVE-2023-23397)"
+            style={{ flex: 1, padding: '8px', background: '#000', color: '#ff9900', border: '1px solid #ff9900' }}
+          />
+          <button
+            onClick={handlePocSearch}
+            disabled={isSearchingPoc}
+            style={{ padding: '8px 15px', background: '#ff9900', color: '#000', fontWeight: 'bold', border: 'none', cursor: isSearchingPoc ? 'wait' : 'pointer' }}
+          >
+            {isSearchingPoc ? 'ПОИСК...' : 'НАЙТИ ЭКСПЛОЙТ'}
+          </button>
+        </div>
+
+        {pocResults && (
+          <div style={{ marginTop: '15px' }}>
+            {pocResults.length === 0 ? (
+              <div style={{ color: '#888' }}>Готовых скриптов эксплуатации не найдено.</div>
+            ) : (
+              <div style={{ display: 'grid', gap: '10px' }}>
+                {pocResults.map((poc, i) => (
+                  <div key={`poc_${i}`} style={{ background: '#000', padding: '10px', borderLeft: '3px solid #ff9900', fontSize: '12px' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                      <strong style={{ color: '#ff9900' }}>{poc.repoName}</strong>
+                      <span style={{ color: '#ffcc00' }}>⭐ {poc.stars}</span>
+                    </div>
+                    <div style={{ color: '#aaa', margin: '6px 0' }}>{poc.description}</div>
+                    <a href={poc.htmlUrl} target="_blank" rel="noreferrer" style={{ color: '#00f0ff', textDecoration: 'none', fontWeight: 'bold' }}>
+                      [ ПОСМОТРЕТЬ ИСХОДНЫЙ КОД ]
+                    </a>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+
+      <div style={{ marginTop: '20px', padding: '15px', background: '#0a1a1a', border: '1px solid #00ffcc', borderRadius: '4px' }}>
+        <h3 style={{ color: '#00ffcc', marginTop: 0, fontSize: '14px' }}>🔬 ZERO-DAY: Анализ Прошивок</h3>
+        <div style={{ fontSize: '11px', color: '#6bb3b3', marginBottom: '10px' }}>
+          Статический бинарный анализ (.bin, .dav) на наличие вшитых RSA ключей, бэкдоров и паролей (Supply Chain).
+        </div>
+        <div style={{ display: 'flex', gap: '10px' }}>
+          <input
+            type="text"
+            value={firmwarePath}
+            onChange={e => setFirmwarePath(e.target.value)}
+            placeholder="Путь к файлу (напр: C:\\firmware\\update.bin)"
+            style={{ flex: 1, padding: '8px', background: '#000', color: '#00ffcc', border: '1px solid #00ffcc' }}
+          />
+          <button
+            onClick={handleFirmwareAnalyze}
+            disabled={isAnalyzingFirmware}
+            style={{ padding: '8px 15px', background: '#00ffcc', color: '#000', fontWeight: 'bold', border: 'none', cursor: isAnalyzingFirmware ? 'wait' : 'pointer' }}
+          >
+            {isAnalyzingFirmware ? 'АНАЛИЗ...' : 'ИССЛЕДОВАТЬ БИНАРНИК'}
+          </button>
+        </div>
+
+        {firmwareFindings && (
+          <div style={{ marginTop: '15px' }}>
+            {firmwareFindings.length === 0 ? (
+              <div style={{ color: '#888' }}>Секретов и бэкдоров не обнаружено.</div>
+            ) : (
+              <div style={{ display: 'grid', gap: '10px' }}>
+                {firmwareFindings.map((finding, i) => (
+                  <div key={`firmware_${i}`} style={{ background: '#000', padding: '10px', borderLeft: `3px solid ${finding.severity === 'CRITICAL' ? '#ff003c' : '#ffcc00'}`, fontSize: '12px' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px' }}>
+                      <strong style={{ color: '#fff' }}>[{finding.category}]</strong>
+                      <span style={{ color: finding.severity === 'CRITICAL' ? '#ff003c' : '#ffcc00', fontWeight: 'bold' }}>{finding.severity}</span>
+                    </div>
+                    <div style={{ color: '#00ffcc' }}>{finding.finding}</div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+
+      {smartFindings.length > 0 && (
+        <div style={{ marginTop: '10px', border: '1px solid #2f5f2a', background: '#071108', maxHeight: '200px', overflowY: 'auto', padding: '6px' }}>
+          <div style={{ color: '#8fff7d', fontSize: '11px', marginBottom: '6px' }}>SMART FUZZ FINDINGS</div>
+          {smartFindings.map((item, idx) => (
+            <div key={`${item.endpoint}_${idx}`} style={{ borderBottom: '1px solid #1d3218', padding: '6px 0', fontSize: '11px', color: '#d6ffd2' }}>
+              <div><b>/{item.endpoint}</b> [{item.statusCode}]</div>
+              <div>{item.mutationType}: {item.indicator}</div>
+            </div>
+          ))}
+        </div>
+      )}
 
       {massAuditResults.length > 0 && (
         <div style={{ marginTop: '10px', border: '1px solid #30406a', background: '#050913', maxHeight: '220px', overflowY: 'auto', padding: '6px' }}>

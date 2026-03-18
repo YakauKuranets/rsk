@@ -4,9 +4,11 @@ use aes_gcm::{
     aead::{Aead, KeyInit},
     Aes256Gcm, Nonce,
 };
+use argon2::{password_hash::SaltString, Argon2};
 use chrono::Utc;
 use dotenv::dotenv;
 use futures_util::{SinkExt, StreamExt};
+use rand::RngCore;
 use regex::Regex;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -28,6 +30,7 @@ mod auditor;
 mod breach_analyzer;
 pub mod broker;
 mod camera_discovery;
+mod campaign;
 mod compliance_checker;
 mod credential_auditor;
 mod device_metadata;
@@ -35,6 +38,7 @@ pub mod exploit_searcher;
 pub mod exploit_verifier;
 mod feedback_store;
 mod ffmpeg;
+mod firmware_analyzer;
 mod fuzzer;
 mod job_runner;
 mod knowledge;
@@ -42,7 +46,9 @@ mod lateral_scanner;
 pub mod mass_auditor;
 pub mod metadata_extractor;
 mod nexus;
+mod passive_scanner;
 pub mod persistence_checker;
+mod playbook;
 pub mod rce_verifier;
 mod report_export;
 pub mod session_checker;
@@ -464,13 +470,66 @@ pub fn get_ffmpeg_path() -> PathBuf {
     }
 }
 
-fn derive_hardware_key() -> [u8; 32] {
-    let hw_id = machine_uid::get().unwrap_or_else(|_| "NEMESIS_ID".to_string());
-    let mut hasher = Sha256::new();
-    hasher.update(hw_id.as_bytes());
-    let mut key = [0u8; 32];
-    key.copy_from_slice(&hasher.finalize());
-    key
+pub struct VaultKey([u8; 32]);
+
+impl VaultKey {
+    pub fn new(passphrase: &str) -> Result<Self, String> {
+        let hw_id = machine_uid::get().unwrap_or_else(|_| "NEMESIS_ID".to_string());
+        let salt_bytes = {
+            let mut h = Sha256::new();
+            h.update(hw_id.as_bytes());
+            h.finalize()
+        };
+        let salt = SaltString::encode_b64(&salt_bytes[..16]).map_err(|e| e.to_string())?;
+
+        let argon2 = Argon2::default();
+        let mut key = [0u8; 32];
+        argon2
+            .hash_password_into(passphrase.as_bytes(), salt.as_str().as_bytes(), &mut key)
+            .map_err(|e| e.to_string())?;
+        Ok(Self(key))
+    }
+
+    pub fn as_bytes(&self) -> &[u8; 32] {
+        &self.0
+    }
+}
+
+pub struct VaultState {
+    key: std::sync::Mutex<Option<VaultKey>>,
+}
+
+pub struct TargetsDb {
+    db: sled::Db,
+}
+
+fn current_vault_key(vault_state: &State<'_, VaultState>) -> Result<[u8; 32], String> {
+    let guard = vault_state
+        .key
+        .lock()
+        .map_err(|_| "Vault state lock poisoned".to_string())?;
+    let key = guard
+        .as_ref()
+        .ok_or_else(|| "Vault locked. Set passphrase first".to_string())?;
+    Ok(*key.as_bytes())
+}
+
+#[tauri::command]
+fn set_vault_passphrase(
+    passphrase: String,
+    vault_state: State<'_, VaultState>,
+) -> Result<String, String> {
+    if passphrase.trim().len() < 8 {
+        return Err("Master passphrase must be at least 8 chars".into());
+    }
+
+    let key = VaultKey::new(passphrase.trim())?;
+    let mut guard = vault_state
+        .key
+        .lock()
+        .map_err(|_| "Vault state lock poisoned".to_string())?;
+    *guard = Some(key);
+    Ok("Vault unlocked".into())
 }
 
 // --- БАЗА ДАННЫХ ПАУКА ---
@@ -747,40 +806,63 @@ async fn search_global_hub(query: String, cookie: String) -> Result<Vec<Value>, 
 }
 
 fn start_background_scheduler() {
-    std::thread::spawn(|| {
-        let rt = tokio::runtime::Runtime::new().unwrap();
-        rt.block_on(async {
-            loop {
-                tokio::time::sleep(tokio::time::Duration::from_secs(3600)).await;
-            }
-        });
+    tauri::async_runtime::spawn(async move {
+        let mut interval = tokio::time::interval(tokio::time::Duration::from_secs(3600));
+        loop {
+            interval.tick().await;
+        }
     });
 }
 
 #[tauri::command]
-fn save_target(target_id: String, payload: String) -> Result<String, String> {
-    let db = sled::open(get_vault_path().join("targets_vault"))
-        .map_err(|e: sled::Error| e.to_string())?;
-    let cipher = Aes256Gcm::new(&derive_hardware_key().into());
-    let encrypted_data = cipher
-        .encrypt(Nonce::from_slice(b"nemesis_salt"), payload.as_bytes())
+fn save_target(
+    target_id: String,
+    payload: String,
+    db_state: State<'_, TargetsDb>,
+    vault_state: State<'_, VaultState>,
+) -> Result<String, String> {
+    let key = current_vault_key(&vault_state)?;
+    let cipher = Aes256Gcm::new(&key.into());
+
+    let mut nonce_bytes = [0u8; 12];
+    rand::thread_rng().fill_bytes(&mut nonce_bytes);
+    let nonce = Nonce::from_slice(&nonce_bytes);
+
+    let ciphertext = cipher
+        .encrypt(nonce, payload.as_bytes())
         .map_err(|_| "Encryption error".to_string())?;
-    db.insert(target_id.as_bytes(), encrypted_data)
+
+    let mut stored = nonce_bytes.to_vec();
+    stored.extend_from_slice(&ciphertext);
+
+    db_state
+        .db
+        .insert(target_id.as_bytes(), stored)
         .map_err(|e: sled::Error| e.to_string())?;
     Ok("Saved".into())
 }
 
 #[tauri::command]
-fn read_target(target_id: String) -> Result<String, String> {
-    let db = sled::open(get_vault_path().join("targets_vault"))
-        .map_err(|e: sled::Error| e.to_string())?;
-    if let Some(data) = db
+fn read_target(
+    target_id: String,
+    db_state: State<'_, TargetsDb>,
+    vault_state: State<'_, VaultState>,
+) -> Result<String, String> {
+    if let Some(data) = db_state
+        .db
         .get(target_id.as_bytes())
         .map_err(|e: sled::Error| e.to_string())?
     {
-        let cipher = Aes256Gcm::new(&derive_hardware_key().into());
+        if data.len() < 13 {
+            return Err("Corrupted encrypted payload".to_string());
+        }
+
+        let key = current_vault_key(&vault_state)?;
+        let cipher = Aes256Gcm::new(&key.into());
+        let (nonce_bytes, ciphertext) = data.split_at(12);
+
         let decrypted = cipher
-            .decrypt(Nonce::from_slice(b"nemesis_salt"), data.as_ref())
+            .decrypt(Nonce::from_slice(nonce_bytes), ciphertext)
             .map_err(|_| "Access denied".to_string())?;
         String::from_utf8(decrypted).map_err(|_| "UTF-8 error".to_string())
     } else {
@@ -789,25 +871,21 @@ fn read_target(target_id: String) -> Result<String, String> {
 }
 
 #[tauri::command]
-fn get_all_targets() -> Result<Vec<String>, String> {
-    let db = sled::open(get_vault_path().join("targets_vault"))
-        .map_err(|e: sled::Error| e.to_string())?;
+fn get_all_targets(db_state: State<'_, TargetsDb>) -> Result<Vec<String>, String> {
     let mut keys = Vec::new();
-    for k in db.iter().keys() {
-        if let Ok(key_bytes) = k {
-            if let Ok(s) = String::from_utf8(key_bytes.to_vec()) {
-                keys.push(s);
-            }
+    for key_bytes in db_state.db.iter().keys().flatten() {
+        if let Ok(s) = String::from_utf8(key_bytes.to_vec()) {
+            keys.push(s);
         }
     }
     Ok(keys)
 }
 
 #[tauri::command]
-fn delete_target(target_id: String) -> Result<String, String> {
-    let db = sled::open(get_vault_path().join("targets_vault"))
-        .map_err(|e: sled::Error| e.to_string())?;
-    db.remove(target_id.as_bytes())
+fn delete_target(target_id: String, db_state: State<'_, TargetsDb>) -> Result<String, String> {
+    db_state
+        .db
+        .remove(target_id.as_bytes())
         .map_err(|e: sled::Error| e.to_string())?;
     Ok("Deleted".into())
 }
@@ -819,17 +897,35 @@ async fn geocode_address(address: String) -> Result<(f64, f64), String> {
         "https://nominatim.openstreetmap.org/search?q={}&format=json&limit=1",
         encoded
     );
+
     let client = reqwest::Client::builder()
-        .user_agent("Nemesis")
+        .user_agent("Nemesis/1.0")
         .build()
-        .unwrap();
-    let res = client.get(&url).send().await.map_err(|e| e.to_string())?;
-    let data: Vec<Value> = res.json().await.map_err(|e| e.to_string())?;
-    if data.is_empty() {
-        return Err("Empty".into());
-    }
-    let lat = data[0]["lat"].as_str().unwrap().parse::<f64>().unwrap();
-    let lon = data[0]["lon"].as_str().unwrap().parse::<f64>().unwrap();
+        .map_err(|e| format!("HTTP client: {}", e))?;
+
+    let data: Vec<Value> = client
+        .get(&url)
+        .send()
+        .await
+        .map_err(|e| e.to_string())?
+        .json()
+        .await
+        .map_err(|e| e.to_string())?;
+
+    let first = data.first().ok_or("Адрес не найден")?;
+
+    let lat = first["lat"]
+        .as_str()
+        .ok_or("Поле lat отсутствует")?
+        .parse::<f64>()
+        .map_err(|_| "lat не является числом")?;
+
+    let lon = first["lon"]
+        .as_str()
+        .ok_or("Поле lon отсутствует")?
+        .parse::<f64>()
+        .map_err(|_| "lon не является числом")?;
+
     Ok((lat, lon))
 }
 
@@ -6405,7 +6501,6 @@ async fn run_nexus_protocol(
 
 fn main() {
     dotenv().ok();
-    start_background_scheduler();
 
     let feedback_store = Arc::new(feedback_store::FeedbackStore::new());
 
@@ -6494,6 +6589,21 @@ fn main() {
         lines: nexus_log_state,
     };
 
+    let playbook_exec_state = playbook::executor::PlaybookExecutionState {
+        active_execution: std::sync::Arc::new(std::sync::Mutex::new(None)),
+    };
+
+    let targets_db = TargetsDb {
+        db: sled::open(get_vault_path().join("targets_vault")).expect("Cannot open targets vault"),
+    };
+
+    let initial_passphrase = env::var("HYPERION_VAULT_PASSPHRASE")
+        .unwrap_or_else(|_| "change-me-vault-passphrase".to_string());
+    let initial_vault_key = VaultKey::new(&initial_passphrase).ok();
+    let vault_state = VaultState {
+        key: std::sync::Mutex::new(initial_vault_key),
+    };
+
     tauri::Builder::default()
         .setup(move |app| {
             let app_handle = app.handle().clone();
@@ -6509,6 +6619,8 @@ fn main() {
             tauri::async_runtime::spawn(async move {
                 let _ = vuln_db_updater::auto_update_if_needed().await;
             });
+
+            start_background_scheduler();
 
             Ok(())
         })
@@ -6533,11 +6645,15 @@ fn main() {
         .manage(archive_ai::AiState {
             is_running: Arc::new(AtomicBool::new(false)),
         })
+        .manage(playbook_exec_state)
+        .manage(targets_db)
+        .manage(vault_state)
         .invoke_handler(tauri::generate_handler![
             save_target,
             read_target,
             get_all_targets,
             delete_target,
+            set_vault_passphrase,
             streaming::start_stream,
             streaming::stop_stream,
             streaming::check_stream_alive,
@@ -6593,14 +6709,18 @@ fn main() {
             lateral_scanner::scan_lateral_movement,
             job_runner::start_sniffer_job,
             breach_analyzer::check_password_breach,
+            breach_analyzer::check_breaches,
             session_checker::check_session_security,
             api_fuzzer::run_api_fuzzer,
             vuln_scanner::verify_vulnerabilities,
             vuln_verifier::verify_vulnerability,
             persistence_checker::assess_persistence_risk,
+            persistence_checker::check_persistence,
             subnet_scanner::scan_neighborhood,
             exploit_searcher::search_public_exploits,
+            exploit_searcher::search_github_poc,
             exploit_verifier::verify_exploit_docker,
+            firmware_analyzer::analyze_firmware,
             mass_auditor::run_mass_audit,
             metadata_extractor::collect_metadata,
             // ---------------------------------------------
@@ -6622,6 +6742,7 @@ fn main() {
             relay_download_file,
             broker::test_broker_connection,
             traffic_analyzer::analyze_traffic,
+            traffic_analyzer::start_passive_sniffer,
             attack_graph::generate_attack_graph,
             camera_discovery::unified_camera_scan,
             device_metadata::collect_device_metadata,
@@ -6632,7 +6753,22 @@ fn main() {
             compliance_checker::check_compliance,
             api_fuzzer::smart_fuzz_api,
             vuln_db_updater::update_vuln_database,
-            vuln_db_updater::query_local_vuln_db
+            vuln_db_updater::query_local_vuln_db,
+            playbook::executor::start_playbook,
+            playbook::executor::approve_playbook_step,
+            playbook::executor::get_playbook_status,
+            campaign::create_campaign,
+            campaign::list_campaigns,
+            campaign::get_campaign,
+            campaign::update_campaign_status,
+            campaign::add_campaign_finding,
+            campaign::update_finding_status,
+            campaign::add_campaign_note,
+            campaign::add_timeline_event,
+            campaign::import_scan_results,
+            campaign::export_campaign_report,
+            passive_scanner::passive_scan_network,
+            passive_scanner::analyze_pcap_file,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
