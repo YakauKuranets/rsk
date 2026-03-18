@@ -866,8 +866,11 @@ fn migrate_legacy_vault(
     let mut already_new = 0u32;
     let mut failed = 0u32;
 
-    let all_entries: Vec<(Vec<u8>, sled::IVec)> =
-        db_state.db.iter().filter_map(|r| r.ok()).collect();
+    let all_entries: Vec<(Vec<u8>, sled::IVec)> = db_state
+        .db
+        .iter()
+        .filter_map(|r| r.ok().map(|(key, value)| (key.to_vec(), value)))
+        .collect();
 
     for (key_bytes, value) in all_entries {
         if value.len() >= 13 {
