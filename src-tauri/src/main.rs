@@ -6755,7 +6755,10 @@ fn main() {
         };
         let _ = rt.block_on(async {
             let (master, log_rx) = nexus::HyperionMaster::boot_with_log_bridge();
-            tx_setup.send((master.tx, log_rx)).unwrap();
+            if let Err(err) = tx_setup.send((master.tx, log_rx)) {
+                eprintln!("[FATAL] Cannot hand off Nexus channels: {}", err);
+                return;
+            }
             loop {
                 tokio::time::sleep(tokio::time::Duration::from_secs(3600)).await;
             }
