@@ -57,7 +57,6 @@ pub fn set_scope_authorized_ranges(
     Ok(len)
 }
 
-#[tauri::command]
 pub async fn run_scan_agent(
     mut packet: HandoffPacket,
     scope_guard: State<'_, ScopeGuard>,
