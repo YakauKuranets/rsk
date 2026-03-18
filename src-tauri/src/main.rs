@@ -68,6 +68,7 @@ mod ics_scanner;
 mod wifi_auditor;
 mod subdomain_hunter;
 mod container_auditor;
+mod hash_cracker;
 use suppaftp::FtpStream;
 use tauri::State;
 use tokio::sync::Mutex as TokioMutex;
@@ -6992,6 +6993,9 @@ fn main() {
             subdomain_hunter::hunt_subdomains,
             subdomain_hunter::cert_transparency,
             container_auditor::audit_containers,
+            hash_cracker::identify_hash,
+            hash_cracker::crack_hashes,
+            hash_cracker::gpu_benchmark,
             passive_scanner::passive_scan_network,
             passive_scanner::analyze_pcap_file,
         ])
