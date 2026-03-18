@@ -84,6 +84,7 @@ mod bas_engine;
 mod cve_predictor;
 mod rest_api;
 mod html_report;
+mod ioc_sharing;
 use suppaftp::FtpStream;
 use tauri::State;
 use tokio::sync::Mutex as TokioMutex;
@@ -7079,6 +7080,9 @@ fn main() {
             rest_api::start_rest_api,
             rest_api::get_rest_api_docs,
             html_report::generate_html_report,
+            ioc_sharing::share_iocs,
+            ioc_sharing::receive_iocs,
+            ioc_sharing::lookup_ioc,
             passive_scanner::passive_scan_network,
             passive_scanner::analyze_pcap_file,
         ])
