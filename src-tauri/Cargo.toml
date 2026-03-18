@@ -32,7 +32,7 @@ scraper = "0.19"
 sled = "0.34"
 urlencoding = "2.1"
 # МОДУЛИ "ПАУКА":
-rskafka = "0.5.0"
+rskafka = { version = "0.5.0", optional = true }
 chrono = "0.4"
 dotenv = "0.15"
 
@@ -52,6 +52,7 @@ pcap = "1.1.0"
 
 [features]
 default = []
+kafka = ["dep:rskafka"]
 traffic-capture = []
 
 [profile.release]

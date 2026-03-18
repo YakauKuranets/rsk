@@ -6644,6 +6644,12 @@ fn main() {
         .manage(feedback_store.clone())
         .manage(archive_ai::AiState {
             is_running: Arc::new(AtomicBool::new(false)),
+            model_path: {
+                let model_path = get_vault_path()
+                    .join("models")
+                    .join("archive_detector.onnx");
+                model_path.exists().then_some(model_path)
+            },
         })
         .manage(playbook_exec_state)
         .manage(targets_db)
