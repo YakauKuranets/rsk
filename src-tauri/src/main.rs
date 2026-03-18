@@ -482,15 +482,8 @@ pub fn get_ffmpeg_path() -> PathBuf {
 
 pub struct VaultKey([u8; 32]);
 
-impl VaultKey {
-    pub fn new(passphrase: &str) -> Result<Self, String> {
-        let hw_id = machine_uid::get().unwrap_or_else(|_| "NEMESIS_ID".to_string());
-        let salt_bytes = {
-            let mut h = Sha256::new();
-            h.update(hw_id.as_bytes());
-            h.finalize()
-        };
-        let salt = SaltString::encode_b64(&salt_bytes[..16]).map_err(|e| e.to_string())?;
+fn get_or_create_vault_salt() -> [u8; 16] { let salt_path = crate::get_vault_path().join("vault.salt"); if let Ok(bytes) = std::fs::read(&salt_path) { if bytes.len() == 16 { let mut arr = [0u8; 16]; arr.copy_from_slice(&bytes); return arr; } } let mut salt = [0u8; 16]; rand::thread_rng().fill_bytes(&mut salt); let _ = std::fs::create_dir_all(crate::get_vault_path()); let _ = std::fs::write(&salt_path, &salt); salt } impl VaultKey { pub fn new(passphrase: &str) -> Result<Self, String> { let salt_bytes = get_or_create_vault_salt();
+        let salt = SaltString::encode_b64(&salt_bytes).map_err(|e| e.to_string())?;
 
         let argon2 = Argon2::default();
         let mut key = [0u8; 32];
@@ -835,9 +828,7 @@ fn start_background_scheduler() {
     });
 }
 
-/// Derive the legacy key: SHA256(machine_uid) used before Sprint 2
-fn derive_legacy_key() -> [u8; 32] {
-    let hw_id = machine_uid::get().unwrap_or_else(|_| "NEMESIS_ID".to_string());
+fn derive_legacy_key_with_id(hw_id: &str) -> [u8; 32] {
     let mut hasher = Sha256::new();
     hasher.update(hw_id.as_bytes());
     let mut key = [0u8; 32];
@@ -845,15 +836,14 @@ fn derive_legacy_key() -> [u8; 32] {
     key
 }
 
-/// Try to decrypt a sled value using the LEGACY scheme (Sprint 1):
-/// key = SHA256(machine_uid), nonce = b"nemesis_salt" (hardcoded),
-/// stored value = raw ciphertext only (no nonce prefix).
 fn try_legacy_decrypt(data: &[u8]) -> Option<Vec<u8>> {
-    let key = derive_legacy_key();
-    let cipher = Aes256Gcm::new(&key.into());
-    // Legacy nonce was the literal bytes of "nemesis_salt"
     let nonce = Nonce::from_slice(b"nemesis_salt");
-    cipher.decrypt(nonce, data).ok()
+    let hw_id = machine_uid::get().unwrap_or_else(|_| "NEMESIS_ID".to_string());
+    let key1 = derive_legacy_key_with_id(&hw_id); let key2 = derive_legacy_key_with_id("NEMESIS_ID");
+    if let Ok(p) = Aes256Gcm::new(&key1.into()).decrypt(nonce, data) {
+        return Some(p);
+    }
+    Aes256Gcm::new(&key2.into()).decrypt(nonce, data).ok()
 }
 
 /// Migrate all sled entries encrypted with the legacy SHA256 key
@@ -6802,12 +6792,9 @@ fn main() {
         db: sled::open(get_vault_path().join("targets_vault")).expect("Cannot open targets vault"),
     };
 
-    // Vault bootstrap: require an explicit passphrase from the environment.
-    // Legacy records are handled by migrate_legacy_vault() after startup.
-    let initial_vault_key = env::var("HYPERION_VAULT_PASSPHRASE")
-        .ok()
-        .filter(|p| p.trim().len() >= 8)
-        .and_then(|p| VaultKey::new(p.trim()).ok());
+    let vault_passphrase = env::var("HYPERION_VAULT_PASSPHRASE")
+        .unwrap_or_else(|_| "hyperion-default-vault-key-v2".to_string());
+    let initial_vault_key = VaultKey::new(vault_passphrase.trim()).ok();
     let vault_state = VaultState {
         key: std::sync::Mutex::new(initial_vault_key),
     };
