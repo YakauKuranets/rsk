@@ -2,8 +2,6 @@
 // Headless REST API mode — Hyperion as a backend service
 // Exposes key commands over HTTP without Tauri UI
 use serde::{Deserialize, Serialize};
-use std::sync::Arc;
-use tokio::sync::Mutex;
 use warp::Filter;
 
 #[derive(Clone)]

@@ -132,7 +132,7 @@ pub async fn start_archive_analysis(
     };
 
     tokio::spawn(async move {
-        let session = match (|| -> ort::Result<Session> {
+        let mut session = match (|| -> ort::Result<Session> {
             Session::builder()?
                 .with_optimization_level(GraphOptimizationLevel::Level3)?
                 .with_intra_threads(2)?
