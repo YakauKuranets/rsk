@@ -1,4 +1,4 @@
-use crate::*;
+use super::*;
 
 #[tauri::command]
 pub fn cancel_download_task(
@@ -6,7 +6,7 @@ pub fn cancel_download_task(
     cancel_state: State<'_, DownloadCancelState>,
     log_state: State<'_, LogState>,
 ) -> Result<String, String> {
-    crate::cancel_download_task(task_id, cancel_state, log_state)
+    super::cancel_download_task(task_id, cancel_state, log_state)
 }
 
 #[tauri::command]
@@ -16,7 +16,7 @@ pub async fn probe_archive_export_endpoints(
     pass: String,
     log_state: State<'_, LogState>,
 ) -> Result<Vec<ArchiveEndpointResult>, String> {
-    crate::probe_archive_export_endpoints(host, login, pass, log_state).await
+    super::probe_archive_export_endpoints(host, login, pass, log_state).await
 }
 
 #[tauri::command]
@@ -31,7 +31,7 @@ pub async fn download_isapi_playback_uri(
     cancel_state: State<'_, DownloadCancelState>,
     ffmpeg_limiter: State<'_, FfmpegLimiterState>,
 ) -> Result<DownloadReport, String> {
-    crate::download_isapi_playback_uri(
+    super::download_isapi_playback_uri(
         playback_uri,
         login,
         pass,
@@ -57,7 +57,7 @@ pub async fn start_archive_export_job(
     cancel_state: State<'_, DownloadCancelState>,
     ffmpeg_limiter: State<'_, FfmpegLimiterState>,
 ) -> Result<ArchiveExportJobResult, String> {
-    crate::start_archive_export_job(
+    super::start_archive_export_job(
         playback_uri,
         login,
         pass,

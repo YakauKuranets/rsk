@@ -7,8 +7,8 @@ pub struct FtpFolder {
     pub path: String,
 }
 
-// Legacy FTP scanner helper retained for reference; the active Tauri command lives in main.rs.
-#[allow(dead_code)]
+// Эта команда будет вызываться из твоего JavaScript
+#[tauri::command]
 pub fn get_ftp_folders(server_alias: &str) -> Result<Vec<FtpFolder>, String> {
     // Выбираем IP по имени
     let (host, user, pass) = match server_alias {

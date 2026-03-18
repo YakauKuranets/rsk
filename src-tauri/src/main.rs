@@ -40,18 +40,15 @@ pub mod exploit_searcher;
 pub mod exploit_verifier;
 mod feedback_store;
 mod ffmpeg;
-mod ftp_scanner;
 mod firmware_analyzer;
 mod fuzzer;
 mod job_runner;
 mod knowledge;
 mod lateral_scanner;
-mod llm_orchestrator;
 pub mod mass_auditor;
 pub mod metadata_extractor;
 mod nexus;
 mod passive_scanner;
-mod payload_gen;
 pub mod persistence_checker;
 mod playbook;
 pub mod rce_verifier;
@@ -63,7 +60,6 @@ mod streaming;
 pub mod subnet_scanner;
 mod system_cmds;
 mod traffic_analyzer;
-mod tool_executor;
 mod unified_archive;
 mod vuln_db_updater;
 pub mod vuln_scanner;
@@ -153,12 +149,12 @@ struct NexusLogBridge {
     lines: Arc<std::sync::Mutex<Vec<String>>>,
 }
 
-pub fn isapi_http_download_semaphore() -> Arc<Semaphore> {
+fn isapi_http_download_semaphore() -> Arc<Semaphore> {
     static SEM: OnceLock<Arc<Semaphore>> = OnceLock::new();
     SEM.get_or_init(|| Arc::new(Semaphore::new(1))).clone()
 }
 
-pub fn make_unique_task_key(base: Option<String>, prefix: &str) -> String {
+fn make_unique_task_key(base: Option<String>, prefix: &str) -> String {
     static SEQ: AtomicU64 = AtomicU64::new(1);
     let n = SEQ.fetch_add(1, Ordering::Relaxed);
     let raw = base.unwrap_or_else(|| format!("{}_{}", prefix, Utc::now().timestamp_millis()));
@@ -179,27 +175,27 @@ pub fn push_runtime_log(state: &State<'_, LogState>, message: impl Into<String>)
 
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
-pub struct NvrDeviceInfoResult {
+struct NvrDeviceInfoResult {
     endpoint: String,
     status: String,
     body_preview: String,
 }
 
 #[derive(Debug, Serialize)]
-pub struct ProtocolProbeResult {
+struct ProtocolProbeResult {
     protocol: String,
     endpoint: String,
     status: String,
 }
 
 #[derive(Debug, Serialize)]
-pub struct RoadmapItem {
+struct RoadmapItem {
     name: String,
     status: String,
 }
 
 #[derive(Debug, Serialize)]
-pub struct ImplementationStatus {
+struct ImplementationStatus {
     total: usize,
     completed: usize,
     in_progress: usize,
@@ -210,7 +206,7 @@ pub struct ImplementationStatus {
 
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
-pub struct IsapiRecordingItem {
+struct IsapiRecordingItem {
     endpoint: String,
     track_id: Option<String>,
     start_time: Option<String>,
@@ -224,7 +220,7 @@ pub struct IsapiRecordingItem {
 
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
-pub struct IsapiHarTemplateResult {
+struct IsapiHarTemplateResult {
     endpoint: String,
     method: String,
     content_type: Option<String>,
@@ -237,14 +233,14 @@ pub struct IsapiHarTemplateResult {
 
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
-pub struct XmRecordingItem {
+struct XmRecordingItem {
     start_time: String,
     end_time: String,
     playback_uri: String,
     label: String,
 }
 
-pub fn classify_isapi_record(
+fn classify_isapi_record(
     playback_uri: Option<&str>,
     start_time: Option<&str>,
     end_time: Option<&str>,
@@ -298,14 +294,14 @@ pub fn classify_isapi_record(
 
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
-pub struct OnvifRecordingItem {
+struct OnvifRecordingItem {
     endpoint: String,
     token: String,
 }
 
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
-pub struct ArchiveEndpointResult {
+struct ArchiveEndpointResult {
     protocol: String,
     endpoint: String,
     method: String,
@@ -315,7 +311,7 @@ pub struct ArchiveEndpointResult {
 
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
-pub struct ArchiveExportStage {
+struct ArchiveExportStage {
     stage: String,
     success: bool,
     reason: Option<String>,
@@ -325,7 +321,7 @@ pub struct ArchiveExportStage {
 
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
-pub struct ArchiveExportJobResult {
+struct ArchiveExportJobResult {
     task_id: String,
     final_status: String,
     selected_stage: String,
@@ -337,7 +333,7 @@ pub struct ArchiveExportJobResult {
     stages: Vec<ArchiveExportStage>,
 }
 
-pub fn parse_archive_duration_from_uri(uri: &str) -> Option<u64> {
+fn parse_archive_duration_from_uri(uri: &str) -> Option<u64> {
     fn parse_ts(input: &str) -> Option<chrono::DateTime<chrono::Utc>> {
         let cleaned = input.trim().replace("%3A", ":").replace("%2F", "/");
         let normalized = cleaned
@@ -372,7 +368,7 @@ pub fn parse_archive_duration_from_uri(uri: &str) -> Option<u64> {
     Some((sec as u64).saturating_add(15).clamp(30, 1800))
 }
 
-pub fn clamp_isapi_item_window(
+fn clamp_isapi_item_window(
     start_time: Option<String>,
     end_time: Option<String>,
     from: &str,
@@ -412,7 +408,7 @@ pub fn clamp_isapi_item_window(
     }
 }
 
-pub fn clamp_isapi_playback_uri_window(uri: &str, from: &str, to: &str) -> String {
+fn clamp_isapi_playback_uri_window(uri: &str, from: &str, to: &str) -> String {
     if !(uri.to_ascii_lowercase().starts_with("rtsp://")
         || uri.to_ascii_lowercase().starts_with("rtsps://"))
     {
@@ -596,7 +592,7 @@ async fn save_device_to_db(
 // --- ИНТЕГРАЦИЯ SHODAN ---
 // --- ИНТЕГРАЦИЯ SHODAN ---
 #[tauri::command]
-pub async fn external_search(
+async fn external_search(
     country: String,
     city: String,
     log_state: State<'_, LogState>,
@@ -792,7 +788,7 @@ pub async fn start_hub_stream(
 
 // --- ИСПРАВЛЕННЫЙ СКАНЕР: НАХОДИТ ВСЕ КАНАЛЫ (КАМЕРЫ) ---
 #[tauri::command]
-pub async fn search_global_hub(query: String, cookie: String) -> Result<Vec<Value>, String> {
+async fn search_global_hub(query: String, cookie: String) -> Result<Vec<Value>, String> {
     let client = reqwest::Client::new();
     let encoded_query = urlencoding::encode(&query);
     let url = format!(
@@ -1055,7 +1051,7 @@ fn delete_target(target_id: String, db_state: State<'_, TargetsDb>) -> Result<St
 }
 
 #[tauri::command]
-pub async fn geocode_address(address: String) -> Result<(f64, f64), String> {
+async fn geocode_address(address: String) -> Result<(f64, f64), String> {
     let encoded = urlencoding::encode(&address);
     let url = format!(
         "https://nominatim.openstreetmap.org/search?q={}&format=json&limit=1",
@@ -1094,7 +1090,7 @@ pub async fn geocode_address(address: String) -> Result<(f64, f64), String> {
 }
 
 #[tauri::command]
-pub fn generate_nvr_channels(_vendor: String, channel_count: u32) -> Result<Vec<Value>, String> {
+fn generate_nvr_channels(_vendor: String, channel_count: u32) -> Result<Vec<Value>, String> {
     let mut channels = Vec::new();
     for i in 1..=channel_count {
         channels.push(serde_json::json!({ "id": format!("ch{}", i), "index": i, "name": format!("Cam {}", i) }));
@@ -1104,7 +1100,7 @@ pub fn generate_nvr_channels(_vendor: String, channel_count: u32) -> Result<Vec<
 
 /// Очистка старых HLS-файлов перед запуском нового стрима
 
-pub fn read_last_log_lines(path: &std::path::Path, lines: usize) -> String {
+fn read_last_log_lines(path: &std::path::Path, lines: usize) -> String {
     let Ok(content) = std::fs::read_to_string(path) else {
         return String::new();
     };
@@ -1119,7 +1115,7 @@ pub fn read_last_log_lines(path: &std::path::Path, lines: usize) -> String {
         .join(" | ")
 }
 
-pub fn cleanup_hls_cache(cache_dir: &std::path::Path) {
+fn cleanup_hls_cache(cache_dir: &std::path::Path) {
     if cache_dir.exists() {
         if let Ok(entries) = std::fs::read_dir(cache_dir) {
             for entry in entries.flatten() {
@@ -1402,7 +1398,7 @@ pub struct FtpFolder {
     pub is_file: bool,
 }
 
-pub struct FtpConfig {
+struct FtpConfig {
     host: &'static str,
     user: &'static str,
     pass: &'static str,
@@ -1410,7 +1406,7 @@ pub struct FtpConfig {
 
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
-pub struct DownloadReport {
+struct DownloadReport {
     server_alias: String,
     filename: String,
     save_path: String,
@@ -1441,7 +1437,7 @@ pub fn sanitize_filename_component(input: &str) -> String {
 /// Инжектит login:pass в RTSP URI если кредентиалы ещё не встроены.
 /// rtsp://host:554/path → rtsp://login:pass@host:554/path
 /// rtsp://admin:old@host/path → rtsp://login:pass@host/path (заменяет)
-pub fn inject_rtsp_credentials(uri: &str, login: &str, pass: &str) -> String {
+fn inject_rtsp_credentials(uri: &str, login: &str, pass: &str) -> String {
     if login.is_empty() {
         return uri.to_string();
     }
@@ -1474,7 +1470,7 @@ pub fn inject_rtsp_credentials(uri: &str, login: &str, pass: &str) -> String {
 
 /// Строит HTTP(S) endpoint выгрузки архива из RTSP playbackURI:
 ///   rtsp://host:2019/... -> http://host:2019/ISAPI/ContentMgmt/download?playbackURI=...
-pub fn parse_host_port_hint(input: &str) -> Option<(String, Option<u16>)> {
+fn parse_host_port_hint(input: &str) -> Option<(String, Option<u16>)> {
     let trimmed = input.trim();
     if trimmed.is_empty() {
         return None;
@@ -1491,7 +1487,7 @@ pub fn parse_host_port_hint(input: &str) -> Option<(String, Option<u16>)> {
     Some((host, parsed.port()))
 }
 
-pub fn extract_host_hint_from_filename_hint(filename_hint: Option<&str>) -> Option<String> {
+fn extract_host_hint_from_filename_hint(filename_hint: Option<&str>) -> Option<String> {
     let hint = filename_hint?.trim();
     if hint.is_empty() {
         return None;
@@ -1510,7 +1506,7 @@ pub fn extract_host_hint_from_filename_hint(filename_hint: Option<&str>) -> Opti
     Some(parts.join("."))
 }
 
-pub fn build_isapi_download_endpoints_from_rtsp(
+fn build_isapi_download_endpoints_from_rtsp(
     playback_uri: &str,
     source_host_hint: Option<&str>,
 ) -> Vec<String> {
@@ -1579,7 +1575,7 @@ pub fn build_isapi_download_endpoints_from_rtsp(
     out
 }
 
-pub fn resolve_ftp_config(server_alias: &str) -> Result<FtpConfig, String> {
+fn resolve_ftp_config(server_alias: &str) -> Result<FtpConfig, String> {
     match server_alias {
         "video1" => Ok(FtpConfig {
             host: "93.125.48.66:21",
@@ -1601,7 +1597,7 @@ pub fn resolve_ftp_config(server_alias: &str) -> Result<FtpConfig, String> {
 
 /// Получить список файлов через relay
 #[tauri::command]
-pub async fn relay_list_files(
+async fn relay_list_files(
     relay_url: String,
     relay_token: Option<String>,
     server_alias: String,
@@ -1649,7 +1645,7 @@ pub async fn relay_list_files(
 
 /// Скачать файл через relay и сохранить локально
 #[tauri::command]
-pub async fn relay_download_file(
+async fn relay_download_file(
     relay_url: String,
     relay_token: Option<String>,
     server_alias: String,
@@ -1785,7 +1781,7 @@ pub async fn relay_download_file(
 
 /// Проверить что relay доступен
 #[tauri::command]
-pub async fn relay_ping(relay_url: String, relay_token: Option<String>) -> Result<Value, String> {
+async fn relay_ping(relay_url: String, relay_token: Option<String>) -> Result<Value, String> {
     let client = reqwest::Client::builder()
         .timeout(Duration::from_secs(5))
         .build()
@@ -1805,7 +1801,7 @@ pub async fn relay_ping(relay_url: String, relay_token: Option<String>) -> Resul
     Ok(data)
 }
 
-pub fn resolve_socket_addrs(host: &str) -> Result<Vec<std::net::SocketAddr>, String> {
+fn resolve_socket_addrs(host: &str) -> Result<Vec<std::net::SocketAddr>, String> {
     host.to_socket_addrs()
         .map(|iter| iter.collect::<Vec<_>>())
         .map_err(|e| format!("Не удалось резолвить FTP хост {}: {}", host, e))
@@ -1818,7 +1814,7 @@ pub fn resolve_socket_addrs(host: &str) -> Result<Vec<std::net::SocketAddr>, Str
         })
 }
 
-pub fn ftp_banner_probe(host: &str, attempts: usize) -> Result<String, String> {
+fn ftp_banner_probe(host: &str, attempts: usize) -> Result<String, String> {
     let mut last_err = String::from("FTP preflight не выполнился");
 
     let addrs = resolve_socket_addrs(host).ok();
@@ -1910,7 +1906,7 @@ pub fn ftp_banner_probe(host: &str, attempts: usize) -> Result<String, String> {
     })
 }
 
-pub fn ftp_connect_with_retry(
+fn ftp_connect_with_retry(
     host: &str,
     user: &str,
     pass: &str,
@@ -1954,7 +1950,7 @@ pub fn ftp_connect_with_retry(
     ))
 }
 
-pub fn ftp_nlst_root_with_fallback(ftp: &mut FtpStream) -> Result<Vec<String>, String> {
+fn ftp_nlst_root_with_fallback(ftp: &mut FtpStream) -> Result<Vec<String>, String> {
     let mut errors: Vec<String> = Vec::new();
 
     for candidate in [Some("/"), Some("."), None] {
@@ -2007,7 +2003,7 @@ pub fn ftp_nlst_root_with_fallback(ftp: &mut FtpStream) -> Result<Vec<String>, S
 }
 
 #[tauri::command]
-pub fn get_ftp_folders(
+fn get_ftp_folders(
     server_alias: &str,
     folder_path: Option<String>,
     log_state: State<'_, LogState>,
@@ -2103,7 +2099,7 @@ pub fn get_ftp_folders(
 }
 
 #[tauri::command]
-pub fn download_ftp_file(
+fn download_ftp_file(
     server_alias: &str,
     folder_path: String,
     filename: String,
@@ -2384,7 +2380,7 @@ pub fn download_ftp_file(
     })
 }
 
-pub fn cancel_download_task(
+fn cancel_download_task(
     task_id: String,
     cancel_state: State<'_, DownloadCancelState>,
     log_state: State<'_, LogState>,
@@ -2510,7 +2506,7 @@ pub fn download_ftp_scanner(
 }
 
 #[tauri::command]
-pub async fn probe_nvr_protocols(
+async fn probe_nvr_protocols(
     host: String,
     login: String,
     pass: String,
@@ -2593,7 +2589,7 @@ pub async fn probe_nvr_protocols(
 }
 
 #[tauri::command]
-pub async fn fetch_nvr_device_info(
+async fn fetch_nvr_device_info(
     host: String,
     login: String,
     pass: String,
@@ -2743,7 +2739,7 @@ pub async fn fetch_nvr_device_info(
 }
 
 #[tauri::command]
-pub async fn fetch_onvif_device_info(
+async fn fetch_onvif_device_info(
     host: String,
     login: String,
     pass: String,
@@ -2822,7 +2818,7 @@ pub async fn fetch_onvif_device_info(
     Err("ONVIF device_service недоступен или не поддерживает GetDeviceInformation".into())
 }
 
-pub fn isapi_reference_search_request_xml(from: &str, to: &str, track_id: &str) -> String {
+fn isapi_reference_search_request_xml(from: &str, to: &str, track_id: &str) -> String {
     format!(
         r#"<?xml version="1.0" encoding="UTF-8"?>
 <CMSearchDescription version="1.0" xmlns="http://www.hikvision.com/ver20/XMLSchema">
@@ -2845,7 +2841,7 @@ pub fn isapi_reference_search_request_xml(from: &str, to: &str, track_id: &str) 
     )
 }
 
-pub fn isapi_diagnostics_request_template(
+fn isapi_diagnostics_request_template(
     host: &str,
     endpoint: &str,
     reason: &str,
@@ -2867,7 +2863,7 @@ pub fn isapi_diagnostics_request_template(
 }
 
 #[tauri::command]
-pub async fn extract_isapi_search_template_from_har(
+async fn extract_isapi_search_template_from_har(
     har_json: String,
     host: Option<String>,
     log_state: State<'_, LogState>,
@@ -2986,7 +2982,7 @@ pub async fn extract_isapi_search_template_from_har(
 }
 
 #[tauri::command]
-pub async fn search_isapi_recordings(
+async fn search_isapi_recordings(
     host: String,
     login: String,
     pass: String,
@@ -3668,7 +3664,7 @@ pub async fn search_isapi_recordings(
 }
 
 #[tauri::command]
-pub async fn search_xm_recordings(
+async fn search_xm_recordings(
     host: String,
     login: String,
     pass: String,
@@ -3716,7 +3712,7 @@ pub async fn search_xm_recordings(
 }
 
 #[tauri::command]
-pub async fn download_xm_archive(
+async fn download_xm_archive(
     playback_uri: String,
     filename_hint: Option<String>,
     task_id: Option<String>,
@@ -3873,7 +3869,7 @@ pub async fn download_xm_archive(
 }
 
 #[tauri::command]
-pub async fn search_onvif_recordings(
+async fn search_onvif_recordings(
     host: String,
     login: String,
     pass: String,
@@ -3962,7 +3958,7 @@ pub async fn search_onvif_recordings(
     Err("ONVIF recording_service недоступен или не вернул recording tokens".into())
 }
 
-pub async fn probe_archive_export_endpoints(
+async fn probe_archive_export_endpoints(
     host: String,
     login: String,
     pass: String,
@@ -4095,7 +4091,7 @@ pub async fn probe_archive_export_endpoints(
 }
 
 #[tauri::command]
-pub async fn download_onvif_recording_token(
+async fn download_onvif_recording_token(
     endpoint: String,
     recording_token: String,
     login: String,
@@ -4444,7 +4440,7 @@ pub async fn download_onvif_recording_token(
     })
 }
 
-pub async fn download_isapi_playback_uri(
+async fn download_isapi_playback_uri(
     playback_uri: String,
     login: String,
     pass: String,
@@ -4914,7 +4910,7 @@ pub async fn download_isapi_playback_uri(
     })
 }
 
-pub async fn start_archive_export_job(
+async fn start_archive_export_job(
     playback_uri: String,
     login: String,
     pass: String,
@@ -5076,7 +5072,7 @@ pub async fn start_archive_export_job(
 
 /// RTSP ветка: скачивание через FFmpeg capture
 /// Инжектит login:pass в RTSP URI и запускает FFmpeg
-pub async fn download_isapi_via_rtsp(
+async fn download_isapi_via_rtsp(
     uri: &str,
     login: &str,
     pass: &str,
@@ -5209,7 +5205,7 @@ pub async fn download_isapi_via_rtsp(
     })
 }
 
-pub async fn try_isapi_download_post_xml(
+async fn try_isapi_download_post_xml(
     client: &reqwest::Client,
     endpoint: &str,
     playback_uri: &str,
@@ -5324,7 +5320,7 @@ pub async fn try_isapi_download_post_xml(
     Err(last_err)
 }
 
-pub async fn send_isapi_http_get_with_retry(
+async fn send_isapi_http_get_with_retry(
     client: &reqwest::Client,
     uri: &str,
     login: &str,
@@ -5381,7 +5377,7 @@ pub async fn send_isapi_http_get_with_retry(
 }
 
 /// HTTP ветка: скачивание через reqwest (оригинальная логика)
-pub async fn download_isapi_via_http(
+async fn download_isapi_via_http(
     uri: &str,
     login: &str,
     pass: &str,
@@ -5591,7 +5587,7 @@ pub async fn download_isapi_via_http(
 }
 
 #[tauri::command]
-pub async fn capture_archive_segment(
+async fn capture_archive_segment(
     source_url: String,
     filename_hint: Option<String>,
     duration_seconds: Option<u64>,
@@ -5900,7 +5896,7 @@ pub async fn capture_archive_segment(
 }
 
 #[tauri::command]
-pub fn get_implementation_status() -> Result<ImplementationStatus, String> {
+fn get_implementation_status() -> Result<ImplementationStatus, String> {
     let items = vec![
         RoadmapItem {
             name: "Vault encryption + sled storage".into(),
@@ -5958,7 +5954,7 @@ pub fn get_implementation_status() -> Result<ImplementationStatus, String> {
 /// HTTP-скачивание файла по прямой ссылке с прогрессом
 /// Универсальный метод для ISAPI playback URI, HUB download links и любых HTTP-источников
 #[tauri::command]
-pub async fn download_http_archive(
+async fn download_http_archive(
     url: String,
     login: Option<String>,
     pass: Option<String>,
@@ -6117,7 +6113,7 @@ pub async fn download_http_archive(
 
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
-pub struct ArchiveRouteProbe {
+struct ArchiveRouteProbe {
     url: String,
     method: String,
     status_code: u16,
@@ -6137,7 +6133,7 @@ pub struct ArchiveRouteProbe {
 /// проксирует видеопотоки. Нужно найти параметры, которые переключают
 /// его на архивный режим (дата, время, cam id, файловый путь).
 #[tauri::command]
-pub async fn recon_hub_archive_routes(
+async fn recon_hub_archive_routes(
     user_id: String,
     channel_id: String,
     admin_hash: String,
@@ -6375,7 +6371,7 @@ pub async fn recon_hub_archive_routes(
 }
 
 /// Вспомогательная: отправляет один запрос и анализирует ответ
-pub async fn probe_url(
+async fn probe_url(
     client: &reqwest::Client,
     url: &str,
     method: &str,
@@ -6486,7 +6482,7 @@ pub async fn probe_url(
 }
 
 #[tauri::command]
-pub async fn nemesis_auto_login(username: String, password: String) -> Result<String, String> {
+async fn nemesis_auto_login(username: String, password: String) -> Result<String, String> {
     let client = reqwest::Client::builder()
         .user_agent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/120.0.0.0 Safari/537.36")
         // device client: self-signed certs expected on local network hardware
@@ -6530,7 +6526,7 @@ pub async fn nemesis_auto_login(username: String, password: String) -> Result<St
 
 #[derive(Debug, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
-pub struct WebAnalysisResult {
+struct WebAnalysisResult {
     forms: Vec<String>,
     inputs: Vec<String>,
     scripts: Vec<String>,
@@ -6538,7 +6534,7 @@ pub struct WebAnalysisResult {
 }
 
 #[tauri::command]
-pub async fn nemesis_analyze_web_sources(
+async fn nemesis_analyze_web_sources(
     target_url: String,
     admin_hash: String,
     log_state: State<'_, LogState>,
@@ -6647,7 +6643,7 @@ pub async fn nemesis_analyze_web_sources(
 }
 
 #[tauri::command]
-pub async fn analyze_security_headers(
+async fn analyze_security_headers(
     target_url: String,
     log_state: State<'_, LogState>,
 ) -> Result<Vec<String>, String> {
@@ -7100,13 +7096,6 @@ fn main() {
             ioc_sharing::lookup_ioc,
             passive_scanner::passive_scan_network,
             passive_scanner::analyze_pcap_file,
-            payload_gen::generate_polymorphic_payload,
-            payload_gen::list_generated_payloads,
-            llm_orchestrator::llm_analyze_findings,
-            llm_orchestrator::llm_generate_attack_plan,
-            llm_orchestrator::llm_health_check,
-            tool_executor::execute_tool,
-            tool_executor::check_tools_available,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
