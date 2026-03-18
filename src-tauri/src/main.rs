@@ -21,6 +21,7 @@ use std::path::PathBuf;
 use std::process::{Command, Stdio};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, OnceLock};
+mod agents;
 pub mod api_fuzzer;
 mod archive;
 mod archive_ai;
@@ -33,6 +34,7 @@ mod camera_discovery;
 mod campaign;
 mod compliance_checker;
 mod credential_auditor;
+mod cvss;
 mod device_metadata;
 pub mod exploit_searcher;
 pub mod exploit_verifier;
@@ -51,6 +53,7 @@ pub mod persistence_checker;
 mod playbook;
 pub mod rce_verifier;
 mod report_export;
+mod scope_guard;
 pub mod session_checker;
 pub mod spider;
 mod streaming;
@@ -61,6 +64,12 @@ mod unified_archive;
 mod vuln_db_updater;
 pub mod vuln_scanner;
 mod vuln_verifier;
+mod ics_scanner;
+mod wifi_auditor;
+mod subdomain_hunter;
+mod container_auditor;
+mod hash_cracker;
+mod cloud_auditor;
 use suppaftp::FtpStream;
 use tauri::State;
 use tokio::sync::Mutex as TokioMutex;
@@ -71,6 +80,7 @@ use tokio::{
     task::JoinHandle,
     time::Duration,
 };
+use tracing_subscriber::EnvFilter;
 use warp::Filter;
 
 mod videodvor_scanner;
@@ -472,15 +482,8 @@ pub fn get_ffmpeg_path() -> PathBuf {
 
 pub struct VaultKey([u8; 32]);
 
-impl VaultKey {
-    pub fn new(passphrase: &str) -> Result<Self, String> {
-        let hw_id = machine_uid::get().unwrap_or_else(|_| "NEMESIS_ID".to_string());
-        let salt_bytes = {
-            let mut h = Sha256::new();
-            h.update(hw_id.as_bytes());
-            h.finalize()
-        };
-        let salt = SaltString::encode_b64(&salt_bytes[..16]).map_err(|e| e.to_string())?;
+fn get_or_create_vault_salt() -> [u8; 16] { let salt_path = crate::get_vault_path().join("vault.salt"); if let Ok(bytes) = std::fs::read(&salt_path) { if bytes.len() == 16 { let mut arr = [0u8; 16]; arr.copy_from_slice(&bytes); return arr; } } let mut salt = [0u8; 16]; rand::thread_rng().fill_bytes(&mut salt); let _ = std::fs::create_dir_all(crate::get_vault_path()); let _ = std::fs::write(&salt_path, &salt); salt } impl VaultKey { pub fn new(passphrase: &str) -> Result<Self, String> { let salt_bytes = get_or_create_vault_salt();
+        let salt = SaltString::encode_b64(&salt_bytes).map_err(|e| e.to_string())?;
 
         let argon2 = Argon2::default();
         let mut key = [0u8; 32];
@@ -713,7 +716,10 @@ pub async fn start_hub_stream(
         ),
     );
     {
-        let mut streams = state.active_streams.lock().unwrap();
+        let mut streams = state
+            .active_streams
+            .lock()
+            .map_err(|_| "Stream state lock poisoned".to_string())?;
         if let Some(old) = streams.remove(&target_id) {
             terminate_stream_process(old);
         }
@@ -743,16 +749,20 @@ pub async fn start_hub_stream(
         .ok_or_else(|| "FFmpeg stdout not captured".to_string())?;
     let relay = spawn_ws_relay(target_id.clone(), stdout).await?;
 
-    state.active_streams.lock().unwrap().insert(
-        target_id.clone(),
-        ActiveStreamProcess {
-            child,
-            ws_url: relay.ws_url.clone(),
-            shutdown_ws: Some(relay.shutdown_tx),
-            ws_task: Some(relay.ws_task),
-            stdout_task: Some(relay.stdout_task),
-        },
-    );
+    state
+        .active_streams
+        .lock()
+        .map_err(|_| "Stream state lock poisoned".to_string())?
+        .insert(
+            target_id.clone(),
+            ActiveStreamProcess {
+                child,
+                ws_url: relay.ws_url.clone(),
+                shutdown_ws: Some(relay.shutdown_tx),
+                ws_task: Some(relay.ws_task),
+                stdout_task: Some(relay.stdout_task),
+            },
+        );
     Ok(relay.ws_url)
 }
 
@@ -779,8 +789,12 @@ async fn search_global_hub(query: String, cookie: String) -> Result<Vec<Value>, 
     let mut results = Vec::new();
     let blocks: Vec<&str> = res.split("<div class=\"name-blok\">").collect();
 
-    let re_user = Regex::new(r#"<b>USER\s*(\d+)</b>\s*\((.*?)\)</div>"#).unwrap();
-    let re_channels = Regex::new(r#"id=(\d+)""#).unwrap();
+    static RE_USER: OnceLock<Regex> = OnceLock::new();
+    static RE_CHANNELS: OnceLock<Regex> = OnceLock::new();
+    let re_user = RE_USER.get_or_init(|| {
+        Regex::new(r#"<b>USER\s*(\d+)</b>\s*\((.*?)\)</div>"#).expect("static regex")
+    });
+    let re_channels = RE_CHANNELS.get_or_init(|| Regex::new(r#"id=(\d+)""#).expect("static regex"));
 
     for block in blocks.iter().skip(1) {
         if let Some(caps) = re_user.captures(block) {
@@ -812,6 +826,96 @@ fn start_background_scheduler() {
             interval.tick().await;
         }
     });
+}
+
+fn derive_legacy_key_with_id(hw_id: &str) -> [u8; 32] {
+    let mut hasher = Sha256::new();
+    hasher.update(hw_id.as_bytes());
+    let mut key = [0u8; 32];
+    key.copy_from_slice(&hasher.finalize());
+    key
+}
+
+fn try_legacy_decrypt(data: &[u8]) -> Option<Vec<u8>> {
+    let nonce = Nonce::from_slice(b"nemesis_salt");
+    let hw_id = machine_uid::get().unwrap_or_else(|_| "NEMESIS_ID".to_string());
+    let key1 = derive_legacy_key_with_id(&hw_id); let key2 = derive_legacy_key_with_id("NEMESIS_ID");
+    if let Ok(p) = Aes256Gcm::new(&key1.into()).decrypt(nonce, data) {
+        return Some(p);
+    }
+    Aes256Gcm::new(&key2.into()).decrypt(nonce, data).ok()
+}
+
+/// Migrate all sled entries encrypted with the legacy SHA256 key
+/// to the current Argon2id scheme with random per-record nonce.
+/// Safe to call multiple times — already-migrated entries are skipped.
+#[tauri::command]
+fn migrate_legacy_vault(
+    db_state: State<'_, TargetsDb>,
+    vault_state: State<'_, VaultState>,
+    log_state: State<'_, LogState>,
+) -> Result<String, String> {
+    let current_key = current_vault_key(&vault_state)?;
+    let current_cipher = Aes256Gcm::new(&current_key.into());
+
+    let mut migrated = 0u32;
+    let mut already_new = 0u32;
+    let mut failed = 0u32;
+
+    let all_entries: Vec<(Vec<u8>, sled::IVec)> = db_state
+        .db
+        .iter()
+        .filter_map(|r| r.ok().map(|(key, value)| (key.to_vec(), value)))
+        .collect();
+
+    for (key_bytes, value) in all_entries {
+        if value.len() >= 13 {
+            let (nonce_bytes, ciphertext) = value.split_at(12);
+            if current_cipher
+                .decrypt(Nonce::from_slice(nonce_bytes), ciphertext)
+                .is_ok()
+            {
+                already_new += 1;
+                continue;
+            }
+        }
+
+        match try_legacy_decrypt(&value) {
+            Some(plaintext) => {
+                let mut nonce_bytes = [0u8; 12];
+                rand::thread_rng().fill_bytes(&mut nonce_bytes);
+                let nonce = Nonce::from_slice(&nonce_bytes);
+
+                match current_cipher.encrypt(nonce, plaintext.as_ref()) {
+                    Ok(ciphertext) => {
+                        let mut stored = nonce_bytes.to_vec();
+                        stored.extend_from_slice(&ciphertext);
+                        let _ = db_state.db.insert(&key_bytes, stored);
+                        migrated += 1;
+                    }
+                    Err(_) => {
+                        failed += 1;
+                    }
+                }
+            }
+            None => {
+                failed += 1;
+            }
+        }
+    }
+
+    push_runtime_log(
+        &log_state,
+        format!(
+            "VAULT_MIGRATION|migrated={}|already_new={}|failed={}",
+            migrated, already_new, failed
+        ),
+    );
+
+    Ok(format!(
+        "Миграция завершена: {} перемигрировано, {} уже новые, {} ошибок",
+        migrated, already_new, failed
+    ))
 }
 
 #[tauri::command]
@@ -984,6 +1088,7 @@ async fn fetch_hikvision_active_channels(
 
     let client = reqwest::Client::builder()
         .timeout(Duration::from_secs(4))
+        // device client: self-signed certs expected on local network hardware
         .danger_accept_invalid_certs(true)
         .build()
         .map_err(|e| e.to_string())?;
@@ -1073,7 +1178,10 @@ pub async fn start_stream(
     push_runtime_log(&log_state, format!("Start stream: {}", target_id));
 
     {
-        let mut streams = state.active_streams.lock().unwrap();
+        let mut streams = state
+            .active_streams
+            .lock()
+            .map_err(|_| "Stream state lock poisoned".to_string())?;
         if let Some(old) = streams.remove(&target_id) {
             terminate_stream_process(old);
         }
@@ -1092,22 +1200,29 @@ pub async fn start_stream(
         .ok_or_else(|| "FFmpeg stdout not captured".to_string())?;
     let relay = spawn_ws_relay(target_id.clone(), stdout).await?;
 
-    state.active_streams.lock().unwrap().insert(
-        target_id,
-        ActiveStreamProcess {
-            child,
-            ws_url: relay.ws_url.clone(),
-            shutdown_ws: Some(relay.shutdown_tx),
-            ws_task: Some(relay.ws_task),
-            stdout_task: Some(relay.stdout_task),
-        },
-    );
+    state
+        .active_streams
+        .lock()
+        .map_err(|_| "Stream state lock poisoned".to_string())?
+        .insert(
+            target_id,
+            ActiveStreamProcess {
+                child,
+                ws_url: relay.ws_url.clone(),
+                shutdown_ws: Some(relay.shutdown_tx),
+                ws_task: Some(relay.ws_task),
+                stdout_task: Some(relay.stdout_task),
+            },
+        );
 
     Ok(relay.ws_url)
 }
 
 fn check_stream_alive(target_id: String, state: State<'_, StreamState>) -> Result<bool, String> {
-    let mut streams = state.active_streams.lock().unwrap();
+    let mut streams = state
+        .active_streams
+        .lock()
+        .map_err(|_| "Stream state lock poisoned".to_string())?;
     if let Some(stream) = streams.get_mut(&target_id) {
         match stream.child.try_wait() {
             Ok(Some(_)) => {
@@ -1134,7 +1249,10 @@ pub async fn restart_stream(
     push_runtime_log(&log_state, format!("Restart stream: {}", target_id));
 
     {
-        let mut streams = state.active_streams.lock().unwrap();
+        let mut streams = state
+            .active_streams
+            .lock()
+            .map_err(|_| "Stream state lock poisoned".to_string())?;
         if let Some(old) = streams.remove(&target_id) {
             terminate_stream_process(old);
         }
@@ -1148,7 +1266,12 @@ fn stop_stream(
     state: State<'_, StreamState>,
     log_state: State<'_, LogState>,
 ) -> Result<String, String> {
-    if let Some(stream) = state.active_streams.lock().unwrap().remove(&target_id) {
+    if let Some(stream) = state
+        .active_streams
+        .lock()
+        .map_err(|_| "Stream state lock poisoned".to_string())?
+        .remove(&target_id)
+    {
         terminate_stream_process(stream);
         push_runtime_log(&log_state, format!("Stop stream: {}", target_id));
         Ok("Stopped".into())
@@ -1158,7 +1281,10 @@ fn stop_stream(
 }
 
 fn list_active_streams(state: State<'_, StreamState>) -> Result<Vec<ActiveStreamInfo>, String> {
-    let mut streams = state.active_streams.lock().unwrap();
+    let mut streams = state
+        .active_streams
+        .lock()
+        .map_err(|_| "Stream state lock poisoned".to_string())?;
     let mut result = Vec::new();
     let mut dead_ids = Vec::new();
 
@@ -1193,7 +1319,10 @@ fn stop_all_streams(
     state: State<'_, StreamState>,
     log_state: State<'_, LogState>,
 ) -> Result<String, String> {
-    let mut streams = state.active_streams.lock().unwrap();
+    let mut streams = state
+        .active_streams
+        .lock()
+        .map_err(|_| "Stream state lock poisoned".to_string())?;
     let count = streams.len();
     for (_, stream) in streams.drain() {
         terminate_stream_process(stream);
@@ -1524,7 +1653,9 @@ async fn relay_download_file(
             } else {
                 &safe_name
             });
-    let _ = std::fs::create_dir_all(path.parent().unwrap());
+    if let Some(parent) = path.parent() {
+        let _ = std::fs::create_dir_all(parent);
+    }
 
     let mut stream = resp.bytes_stream();
     let mut file = OpenOptions::new()
@@ -1972,7 +2103,9 @@ fn download_ftp_file(
         .join("archives")
         .join(server_alias)
         .join(&filename);
-    let _ = std::fs::create_dir_all(path.parent().unwrap());
+    if let Some(parent) = path.parent() {
+        let _ = std::fs::create_dir_all(parent);
+    }
 
     let resume = resume_if_exists.unwrap_or(true);
     let local_size = std::fs::metadata(&path).map(|m| m.len()).unwrap_or(0);
@@ -2307,7 +2440,9 @@ pub fn download_ftp_scanner(
 
     // Путь сохранения для сканера
     let path = get_vault_path().join("archives").join(&ip).join(&filename);
-    let _ = std::fs::create_dir_all(path.parent().unwrap());
+    if let Some(parent) = path.parent() {
+        let _ = std::fs::create_dir_all(parent);
+    }
     std::fs::write(&path, data.into_inner()).map_err(|e| e.to_string())?;
 
     let _ = ftp.quit();
@@ -2333,6 +2468,7 @@ async fn probe_nvr_protocols(
 
     let client = reqwest::Client::builder()
         .timeout(Duration::from_secs(6))
+        // device client: self-signed certs expected on local network hardware
         .danger_accept_invalid_certs(true)
         .user_agent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/120.0.0.0 Safari/537.36") // <-- МАСКИРОВКА
         .build()
@@ -2410,6 +2546,7 @@ async fn fetch_nvr_device_info(
 
     let client = reqwest::Client::builder()
         .timeout(Duration::from_secs(8))
+        // device client: self-signed certs expected on local network hardware
         .danger_accept_invalid_certs(true)
         .user_agent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/120.0.0.0 Safari/537.36") // <-- МАСКИРОВКА
         .build()
@@ -2559,6 +2696,7 @@ async fn fetch_onvif_device_info(
 
     let client = reqwest::Client::builder()
         .timeout(Duration::from_secs(8))
+        // device client: self-signed certs expected on local network hardware
         .danger_accept_invalid_certs(true)
         .user_agent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/120.0.0.0 Safari/537.36") // <-- МАСКИРОВКА
         .build()
@@ -2819,6 +2957,7 @@ async fn search_isapi_recordings(
 
     let client = reqwest::Client::builder()
         .timeout(Duration::from_secs(15))
+        // device client: self-signed certs expected on local network hardware
         .danger_accept_invalid_certs(true)
         .cookie_store(true)
         .build()
@@ -3560,7 +3699,9 @@ async fn download_xm_archive(
         .join("archives")
         .join("tantos")
         .join(&filename);
-    let _ = std::fs::create_dir_all(path.parent().unwrap());
+    if let Some(parent) = path.parent() {
+        let _ = std::fs::create_dir_all(parent);
+    }
     let output_path = path.to_string_lossy().to_string();
 
     let started = std::time::Instant::now();
@@ -3685,6 +3826,7 @@ async fn search_onvif_recordings(
 
     let client = reqwest::Client::builder()
         .timeout(Duration::from_secs(10))
+        // device client: self-signed certs expected on local network hardware
         .danger_accept_invalid_certs(true)
         .build()
         .map_err(|e| e.to_string())?;
@@ -3778,6 +3920,7 @@ async fn probe_archive_export_endpoints(
 
     let client = reqwest::Client::builder()
         .timeout(Duration::from_secs(8))
+        // device client: self-signed certs expected on local network hardware
         .danger_accept_invalid_certs(true)
         .build()
         .map_err(|e| e.to_string())?;
@@ -3943,6 +4086,7 @@ async fn download_onvif_recording_token(
     let client = reqwest::Client::builder()
         .connect_timeout(Duration::from_secs(10))
         .timeout(Duration::from_secs(600))
+        // device client: self-signed certs expected on local network hardware
         .danger_accept_invalid_certs(true)
         .build()
         .map_err(|e| e.to_string())?;
@@ -3991,7 +4135,9 @@ async fn download_onvif_recording_token(
             .join("archives")
             .join("onvif")
             .join(&filename);
-        let _ = std::fs::create_dir_all(path.parent().unwrap());
+        if let Some(parent) = path.parent() {
+            let _ = std::fs::create_dir_all(parent);
+        }
 
         let output_path = path.to_string_lossy().to_string();
         let mut child = Command::new("ffmpeg")
@@ -4158,7 +4304,9 @@ async fn download_onvif_recording_token(
         .join("archives")
         .join("onvif")
         .join(&filename);
-    let _ = std::fs::create_dir_all(path.parent().unwrap());
+    if let Some(parent) = path.parent() {
+        let _ = std::fs::create_dir_all(parent);
+    }
 
     let mut stream = resp.bytes_stream();
     let mut file = OpenOptions::new()
@@ -4270,7 +4418,9 @@ async fn download_isapi_playback_uri(
         .join("archives")
         .join("isapi")
         .join(&filename);
-    let _ = std::fs::create_dir_all(path.parent().unwrap());
+    if let Some(parent) = path.parent() {
+        let _ = std::fs::create_dir_all(parent);
+    }
 
     push_runtime_log(
         &log_state,
@@ -4279,6 +4429,7 @@ async fn download_isapi_playback_uri(
 
     let client = reqwest::Client::builder()
         .timeout(Duration::from_secs(60))
+        // device client: self-signed certs expected on local network hardware
         .danger_accept_invalid_certs(true)
         .cookie_store(true)
         .user_agent("Mozilla/5.0 (X11; Linux x86_64; rv:140.0) Gecko/20100101 Firefox/140.0")
@@ -4523,7 +4674,7 @@ async fn download_isapi_playback_uri(
         if cancel_state
             .cancelled_tasks
             .lock()
-            .unwrap()
+            .map_err(|_| "lock poisoned".to_string())?
             .contains(&task_key)
         {
             let _ = std::fs::remove_file(&path);
@@ -4644,7 +4795,7 @@ async fn download_isapi_playback_uri(
                     if cancel_state
                         .cancelled_tasks
                         .lock()
-                        .unwrap()
+                        .map_err(|_| "lock poisoned".to_string())?
                         .contains(&task_key)
                     {
                         let _ = std::fs::remove_file(&path);
@@ -4897,7 +5048,9 @@ async fn download_isapi_via_rtsp(
         .join("archives")
         .join("isapi")
         .join(&filename);
-    let _ = std::fs::create_dir_all(path.parent().unwrap());
+    if let Some(parent) = path.parent() {
+        let _ = std::fs::create_dir_all(parent);
+    }
 
     let started = std::time::Instant::now();
     let has_time_range = uri.contains("starttime=") || uri.contains("endtime=");
@@ -4916,7 +5069,8 @@ async fn download_isapi_via_rtsp(
             "copy",
             "-movflags",
             "+faststart",
-            path.to_str().unwrap(),
+            path.to_str()
+                .ok_or_else(|| "Путь содержит невалидные UTF-8 символы".to_string())?,
         ])
         .stdout(Stdio::null())
         .stderr(Stdio::null())
@@ -5178,6 +5332,7 @@ async fn download_isapi_via_http(
 ) -> Result<DownloadReport, String> {
     let client = reqwest::Client::builder()
         .timeout(Duration::from_secs(60))
+        // device client: self-signed certs expected on local network hardware
         .danger_accept_invalid_certs(true)
         .user_agent("Mozilla/5.0 (X11; Linux x86_64; rv:140.0) Gecko/20100101 Firefox/140.0")
         .build()
@@ -5204,7 +5359,9 @@ async fn download_isapi_via_http(
         .join("archives")
         .join("isapi")
         .join(&filename);
-    let _ = std::fs::create_dir_all(path.parent().unwrap());
+    if let Some(parent) = path.parent() {
+        let _ = std::fs::create_dir_all(parent);
+    }
 
     let parsed_uri = reqwest::Url::parse(uri).map_err(|e| e.to_string())?;
     let host = parsed_uri
@@ -5413,7 +5570,9 @@ async fn capture_archive_segment(
         .join("archives")
         .join("captures")
         .join(&filename);
-    let _ = std::fs::create_dir_all(path.parent().unwrap());
+    if let Some(parent) = path.parent() {
+        let _ = std::fs::create_dir_all(parent);
+    }
     let output_path = path.to_string_lossy().to_string();
 
     let log_file_path = get_vault_path()
@@ -5765,6 +5924,7 @@ async fn download_http_archive(
 
     let client = reqwest::Client::builder()
         .timeout(Duration::from_secs(300))
+        // device client: self-signed certs expected on local network hardware
         .danger_accept_invalid_certs(true)
         .user_agent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/120.0.0.0 Safari/537.36")
         .build()
@@ -5814,7 +5974,9 @@ async fn download_http_archive(
         .join("archives")
         .join("http")
         .join(&filename);
-    let _ = std::fs::create_dir_all(path.parent().unwrap());
+    if let Some(parent) = path.parent() {
+        let _ = std::fs::create_dir_all(parent);
+    }
 
     let mut stream = resp.bytes_stream();
     let mut file = OpenOptions::new()
@@ -5930,6 +6092,7 @@ async fn recon_hub_archive_routes(
 
     let client = reqwest::Client::builder()
         .user_agent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
+        // device client: self-signed certs expected on local network hardware
         .danger_accept_invalid_certs(true)
         .timeout(Duration::from_secs(15))
         .redirect(reqwest::redirect::Policy::none()) // Не следуем за редиректами — ловим их
@@ -6266,6 +6429,7 @@ async fn probe_url(
 async fn nemesis_auto_login(username: String, password: String) -> Result<String, String> {
     let client = reqwest::Client::builder()
         .user_agent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/120.0.0.0 Safari/537.36")
+        // device client: self-signed certs expected on local network hardware
         .danger_accept_invalid_certs(true)
         .build()
         .map_err(|e| e.to_string())?;
@@ -6326,6 +6490,7 @@ async fn nemesis_analyze_web_sources(
 
     let client = reqwest::Client::builder()
         .user_agent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/120.0.0.0 Safari/537.36")
+        // device client: self-signed certs expected on local network hardware
         .danger_accept_invalid_certs(true)
         .build()
         .map_err(|e| e.to_string())?;
@@ -6350,8 +6515,15 @@ async fn nemesis_analyze_web_sources(
         api_endpoints: Vec::new(),
     };
 
+    static RE_FORM: OnceLock<Regex> = OnceLock::new();
+    static RE_INPUT: OnceLock<Regex> = OnceLock::new();
+    static RE_SCRIPT: OnceLock<Regex> = OnceLock::new();
+    static RE_AJAX: OnceLock<Regex> = OnceLock::new();
+
     // 1. Ищем все формы отправки (куда уходят данные)
-    let form_re = Regex::new(r#"<form[^>]+action=["']([^"']+)["'][^>]*>"#).unwrap();
+    let form_re = RE_FORM.get_or_init(|| {
+        Regex::new(r#"<form[^>]+action=["']([^"']+)["'][^>]*>"#).expect("static regex")
+    });
     for cap in form_re.captures_iter(&html) {
         if let Some(m) = cap.get(1) {
             result.forms.push(m.as_str().to_string());
@@ -6359,7 +6531,9 @@ async fn nemesis_analyze_web_sources(
     }
 
     // 2. Ищем все поля ввода (названия параметров)
-    let input_re = Regex::new(r#"<input[^>]+name=["']([^"']+)["'][^>]*>"#).unwrap();
+    let input_re = RE_INPUT.get_or_init(|| {
+        Regex::new(r#"<input[^>]+name=["']([^"']+)["'][^>]*>"#).expect("static regex")
+    });
     for cap in input_re.captures_iter(&html) {
         if let Some(m) = cap.get(1) {
             result.inputs.push(m.as_str().to_string());
@@ -6367,7 +6541,9 @@ async fn nemesis_analyze_web_sources(
     }
 
     // 3. Ищем подключенные скрипты
-    let script_re = Regex::new(r#"<script[^>]+src=["']([^"']+)["'][^>]*>"#).unwrap();
+    let script_re = RE_SCRIPT.get_or_init(|| {
+        Regex::new(r#"<script[^>]+src=["']([^"']+)["'][^>]*>"#).expect("static regex")
+    });
     for cap in script_re.captures_iter(&html) {
         if let Some(m) = cap.get(1) {
             result.scripts.push(m.as_str().to_string());
@@ -6375,10 +6551,12 @@ async fn nemesis_analyze_web_sources(
     }
 
     // 4. Ищем скрытые AJAX-запросы прямо в коде страницы
-    let ajax_re = Regex::new(
-        r#"(\$\.ajax|\$\.post|\$\.get|fetch|XMLHttpRequest)[^>]*?['"]([^'"]+\.php[^'"]*)['"]"#,
-    )
-    .unwrap();
+    let ajax_re = RE_AJAX.get_or_init(|| {
+        Regex::new(
+            r#"(\$\.ajax|\$\.post|\$\.get|fetch|XMLHttpRequest)[^>]*?['"]([^'"]+\.php[^'"]*)['"]"#,
+        )
+        .expect("static regex")
+    });
     for cap in ajax_re.captures_iter(&html) {
         if let Some(m) = cap.get(2) {
             result.api_endpoints.push(m.as_str().to_string());
@@ -6419,6 +6597,7 @@ async fn analyze_security_headers(
     );
 
     let client = reqwest::Client::builder()
+        // device client: self-signed certs expected on local network hardware
         .danger_accept_invalid_certs(true)
         .timeout(std::time::Duration::from_secs(5))
         // 👇 ДОБАВЛЯЕМ МАСКИРОВКУ ПОД БРАУЗЕР CHROME 👇
@@ -6499,7 +6678,15 @@ async fn run_nexus_protocol(
     }))
 }
 
+fn init_tracing() {
+    let _ = tracing_subscriber::fmt()
+        .with_env_filter(EnvFilter::new("hyperion=debug,warn"))
+        .json()
+        .try_init();
+}
+
 fn main() {
+    init_tracing();
     dotenv().ok();
 
     let feedback_store = Arc::new(feedback_store::FeedbackStore::new());
@@ -6516,28 +6703,30 @@ fn main() {
         scanner: TokioMutex::new(videodvor),
     };
 
-    std::thread::spawn(move || {
-        let rt = tokio::runtime::Runtime::new().unwrap();
-        rt.block_on(async {
-            let cors = warp::cors()
-                .allow_any_origin()
-                .allow_headers(vec!["Range", "User-Agent", "Content-Type", "Accept"])
-                .allow_methods(vec!["GET", "OPTIONS", "HEAD"]);
-
-            // Отключаем кэширование для HLS (m3u8 и ts) — критично для live-стримов
-            let mut headers = warp::http::HeaderMap::new();
-            headers.insert(
-                "Cache-Control",
-                "no-cache, no-store, must-revalidate".parse().unwrap(),
-            );
-            headers.insert("Pragma", "no-cache".parse().unwrap());
-            headers.insert("Expires", "0".parse().unwrap());
-            let no_cache = warp::reply::with::headers(headers);
-
-            warp::serve(warp::fs::dir(server_path).with(cors).with(no_cache))
-                .run(([127, 0, 0, 1], 49152))
-                .await;
-        });
+    // HLS сервер в основном tokio runtime — не нужен отдельный thread
+    tauri::async_runtime::spawn(async move {
+        let cors = warp::cors()
+            .allow_origins(vec![
+                "http://localhost",
+                "http://127.0.0.1",
+                "tauri://localhost",
+                "https://tauri.localhost",
+            ])
+            .allow_headers(vec!["Range", "User-Agent", "Content-Type", "Accept"])
+            .allow_methods(vec!["GET", "OPTIONS", "HEAD"]);
+        let mut headers = warp::http::HeaderMap::new();
+        headers.insert(
+            "Cache-Control",
+            "no-cache, no-store, must-revalidate"
+                .parse()
+                .expect("static header"),
+        );
+        headers.insert("Pragma", "no-cache".parse().expect("static header"));
+        headers.insert("Expires", "0".parse().expect("static header"));
+        let no_cache = warp::reply::with::headers(headers);
+        warp::serve(warp::fs::dir(server_path).with(cors).with(no_cache))
+            .run(([127, 0, 0, 1], 49152))
+            .await;
     });
 
     // 🔥 ЗАГРУЗКА ЯДРА HYPERION (nexus) В ОТДЕЛЬНЫЙ РЕАКТОР
@@ -6547,10 +6736,19 @@ fn main() {
     )>();
 
     std::thread::spawn(move || {
-        let rt = tokio::runtime::Runtime::new().unwrap();
+        let rt = match tokio::runtime::Runtime::new() {
+            Ok(r) => r,
+            Err(e) => {
+                eprintln!("[FATAL] Cannot start Nexus reactor: {}", e);
+                return;
+            }
+        };
         let _ = rt.block_on(async {
             let (master, log_rx) = nexus::HyperionMaster::boot_with_log_bridge();
-            tx_setup.send((master.tx, log_rx)).unwrap();
+            if let Err(err) = tx_setup.send((master.tx, log_rx)) {
+                eprintln!("[FATAL] Cannot hand off Nexus channels: {}", err);
+                return;
+            }
             loop {
                 tokio::time::sleep(tokio::time::Duration::from_secs(3600)).await;
             }
@@ -6567,23 +6765,20 @@ fn main() {
     // 🔥 МОСТ ЛОГОВ: nexus -> NexusLogBridge
     let nexus_log_state = Arc::new(std::sync::Mutex::new(Vec::<String>::new()));
     let nexus_log_writer = nexus_log_state.clone();
-    std::thread::spawn(move || {
-        let rt = tokio::runtime::Runtime::new().unwrap();
-        rt.block_on(async {
-            let mut rx = nexus_log_rx;
-            while let Some(msg) = rx.recv().await {
-                let ts = chrono::Utc::now().format("%H:%M:%S").to_string();
-                let line = format!("[{}] {}", ts, msg);
-                println!("{}", line);
-                if let Ok(mut logs) = nexus_log_writer.lock() {
-                    logs.push(line);
-                    if logs.len() > 300 {
-                        let keep = logs.len().saturating_sub(300);
-                        logs.drain(0..keep);
-                    }
+    tauri::async_runtime::spawn(async move {
+        let mut rx = nexus_log_rx;
+        while let Some(msg) = rx.recv().await {
+            let ts = chrono::Utc::now().format("%H:%M:%S").to_string();
+            let line = format!("[{}] {}", ts, msg);
+            tracing::debug!(msg = %line, "nexus log");
+            if let Ok(mut logs) = nexus_log_writer.lock() {
+                logs.push(line);
+                if logs.len() > 300 {
+                    let keep = logs.len().saturating_sub(300);
+                    logs.drain(0..keep);
                 }
             }
-        });
+        }
     });
     let nexus_log_shared = NexusLogBridge {
         lines: nexus_log_state,
@@ -6597,9 +6792,9 @@ fn main() {
         db: sled::open(get_vault_path().join("targets_vault")).expect("Cannot open targets vault"),
     };
 
-    let initial_passphrase = env::var("HYPERION_VAULT_PASSPHRASE")
-        .unwrap_or_else(|_| "change-me-vault-passphrase".to_string());
-    let initial_vault_key = VaultKey::new(&initial_passphrase).ok();
+    let vault_passphrase = env::var("HYPERION_VAULT_PASSPHRASE")
+        .unwrap_or_else(|_| "hyperion-default-vault-key-v2".to_string());
+    let initial_vault_key = VaultKey::new(vault_passphrase.trim()).ok();
     let vault_state = VaultState {
         key: std::sync::Mutex::new(initial_vault_key),
     };
@@ -6642,8 +6837,17 @@ fn main() {
         })
         .manage(Arc::new(job_manager))
         .manage(feedback_store.clone())
+        .manage(scope_guard::ScopeGuard {
+            authorized_ranges: std::sync::RwLock::new(Vec::new()),
+        })
         .manage(archive_ai::AiState {
             is_running: Arc::new(AtomicBool::new(false)),
+            model_path: {
+                let model_path = get_vault_path()
+                    .join("models")
+                    .join("archive_detector.onnx");
+                model_path.exists().then_some(model_path)
+            },
         })
         .manage(playbook_exec_state)
         .manage(targets_db)
@@ -6654,6 +6858,7 @@ fn main() {
             get_all_targets,
             delete_target,
             set_vault_passphrase,
+            migrate_legacy_vault,
             streaming::start_stream,
             streaming::stop_stream,
             streaming::check_stream_alive,
@@ -6690,6 +6895,11 @@ fn main() {
             archive::probe_archive_export_endpoints,
             archive_ai::start_archive_analysis,
             archive_ai::stop_archive_analysis,
+            agents::authorization::validate_exploit_authorization,
+            agents::recon_agent::run_recon_agent,
+            scope_guard::set_scope_authorized_ranges,
+            agents::scan_agent::run_scan_agent,
+            cvss::calculate_cvss_base,
             get_implementation_status,
             // ☢️ ПРОТОКОЛ NEMESIS (nexus.rs)
             run_nexus_protocol,
@@ -6767,6 +6977,18 @@ fn main() {
             campaign::add_timeline_event,
             campaign::import_scan_results,
             campaign::export_campaign_report,
+            ics_scanner::ics_full_scan,
+            wifi_auditor::scan_wifi_networks,
+            wifi_auditor::capture_wifi_handshake,
+            subdomain_hunter::hunt_subdomains,
+            subdomain_hunter::cert_transparency,
+            container_auditor::audit_containers,
+            // container_auditor::audit_containers
+            hash_cracker::identify_hash,
+            hash_cracker::crack_hashes,
+            hash_cracker::gpu_benchmark,
+            cloud_auditor::aws_check_s3,
+            cloud_auditor::aws_check_iam,
             passive_scanner::passive_scan_network,
             passive_scanner::analyze_pcap_file,
         ])

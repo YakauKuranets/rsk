@@ -43,11 +43,10 @@ impl Default for CredentialAuditConfig {
         }
     }
 }
-
-
 fn build_rotated_client(proxies: &Option<Vec<String>>) -> Result<Client, String> {
     let mut builder = Client::builder()
         .timeout(Duration::from_secs(8))
+        // device client: self-signed certs expected on local network hardware
         .danger_accept_invalid_certs(true);
 
     if let Some(proxy_list) = proxies {
@@ -236,8 +235,6 @@ pub async fn advanced_credential_audit(
         adaptive_delay_ms: adaptive_delay,
     })
 }
-
-
 fn generate_osint_passwords(base_words: &[String]) -> Vec<String> {
     let mut results = HashSet::new();
     let years = ["2023", "2024", "2025", "2026"];
@@ -337,7 +334,10 @@ fn build_smart_wordlist(
         let mutated = generate_osint_passwords(words);
         crate::push_runtime_log(
             log_state,
-            format!("[CRED_AUDIT] OSINT Mutator сгенерировал {} паролей", mutated.len()),
+            format!(
+                "[CRED_AUDIT] OSINT Mutator сгенерировал {} паролей",
+                mutated.len()
+            ),
         );
         for pass in mutated {
             dict.push(("admin".into(), pass));

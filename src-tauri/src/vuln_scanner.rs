@@ -6,6 +6,7 @@ use tauri::command;
 #[command]
 pub async fn verify_vulnerabilities(ip: String, vendor: String) -> Result<String, String> {
     let client = Client::builder()
+        // device client: self-signed certs expected on local network hardware
         .danger_accept_invalid_certs(true)
         .timeout(Duration::from_secs(3))
         .build()

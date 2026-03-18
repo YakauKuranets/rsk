@@ -12,6 +12,7 @@ pub async fn check_session(target_url: &str) -> Result<Option<String>, String> {
 
     let client = Client::builder()
         .timeout(Duration::from_secs(5)) // Таймаут (guardrail)
+        // device client: self-signed certs expected on local network hardware
         .danger_accept_invalid_certs(true) // Игнорируем ошибки самоподписанных SSL (часто на камерах/роутерах)
         .build()
         .map_err(|e| e.to_string())?;

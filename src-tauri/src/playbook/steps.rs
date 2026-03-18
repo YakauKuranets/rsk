@@ -20,17 +20,26 @@ fn substitute_string(
     re.replace_all(&out, |caps: &regex::Captures| {
         let step = caps.get(1).map(|m| m.as_str()).unwrap_or_default();
         let path = caps.get(2).map(|m| m.as_str()).unwrap_or_default();
-        let Some(val) = previous_outputs.get(step) else { return "".to_string(); };
+        let Some(val) = previous_outputs.get(step) else {
+            return "".to_string();
+        };
         let mut cur = val;
         for part in path.split('.') {
             if let Some((key, idx)) = part.split_once('[') {
                 let idx = idx.trim_end_matches(']').parse::<usize>().unwrap_or(0);
-                cur = cur.get(key).and_then(|x| x.get(idx)).unwrap_or(&Value::Null);
+                cur = cur
+                    .get(key)
+                    .and_then(|x| x.get(idx))
+                    .unwrap_or(&Value::Null);
             } else {
                 cur = cur.get(part).unwrap_or(&Value::Null);
             }
         }
-        if let Some(s) = cur.as_str() { s.to_string() } else { cur.to_string() }
+        if let Some(s) = cur.as_str() {
+            s.to_string()
+        } else {
+            cur.to_string()
+        }
     })
     .to_string()
 }

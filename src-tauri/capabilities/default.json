@@ -2,12 +2,25 @@
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
   "description": "Capability for the main window",
-  "windows": [
-    "main"
-  ],
+  "windows": ["main"],
   "permissions": [
     "core:default",
-    "shell:allow-execute",
+    {
+      "identifier": "shell:allow-execute",
+      "allow": [
+        { "name": "ffmpeg", "cmd": "ffmpeg", "args": true, "sidecar": false },
+        { "name": "ffprobe", "cmd": "ffprobe", "args": true, "sidecar": false },
+        { "name": "airodump-ng", "cmd": "airodump-ng", "args": true, "sidecar": false },
+        { "name": "iw", "cmd": "iw", "args": true, "sidecar": false },
+        { "name": "hashcat", "cmd": "hashcat", "args": true, "sidecar": false },
+        { "name": "aws", "cmd": "aws", "args": true, "sidecar": false },
+        { "name": "docker", "cmd": "docker", "args": true, "sidecar": false },
+        { "name": "tcpdump", "cmd": "tcpdump", "args": true, "sidecar": false },
+        { "name": "arp", "cmd": "arp", "args": true, "sidecar": false },
+        { "name": "tshark", "cmd": "tshark", "args": true, "sidecar": false },
+        { "name": "snmpwalk", "cmd": "snmpwalk", "args": true, "sidecar": false }
+      ]
+    },
     "core:window:allow-set-always-on-top"
   ]
 }

@@ -32,7 +32,7 @@ scraper = "0.19"
 sled = "0.34"
 urlencoding = "2.1"
 # МОДУЛИ "ПАУКА":
-rskafka = "0.5.0"
+rskafka = { version = "0.5.0", optional = true }
 chrono = "0.4"
 dotenv = "0.15"
 
@@ -49,9 +49,15 @@ ort = { version = "2.0.0-rc.2", features = ["ndarray"] }
 ndarray = "0.15.6"
 ipnetwork = "0.20"
 pcap = "1.1.0"
+hex = "0.4"
+base64 = "0.21"
+zip = "0.6"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
 
 [features]
 default = []
+kafka = ["dep:rskafka"]
 traffic-capture = []
 
 [profile.release]

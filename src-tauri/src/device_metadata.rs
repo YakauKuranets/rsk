@@ -120,6 +120,7 @@ struct HttpFingerprint {
 async fn collect_http_fingerprint(ip: &str) -> Result<HttpFingerprint, String> {
     let client = reqwest::Client::builder()
         .timeout(Duration::from_secs(5))
+        // device client: self-signed certs expected on local network hardware
         .danger_accept_invalid_certs(true)
         .build()
         .map_err(|e| e.to_string())?;

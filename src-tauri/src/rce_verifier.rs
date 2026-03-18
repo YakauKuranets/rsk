@@ -10,6 +10,7 @@ pub async fn verify_rce(target_url: &str) -> Result<Option<String>, String> {
 
     let client = Client::builder()
         .timeout(Duration::from_secs(5)) // Guardrail: таймаут
+        // device client: self-signed certs expected on local network hardware
         .danger_accept_invalid_certs(true)
         .build()
         .map_err(|e| e.to_string())?;

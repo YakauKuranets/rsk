@@ -85,6 +85,7 @@ pub async fn assess_persistence_risk(ip: String) -> Result<String, String> {
 pub async fn check_persistence(target: String) -> Result<Vec<WebshellReport>, String> {
     let client = Client::builder()
         .timeout(Duration::from_secs(5))
+        // device client: self-signed certs expected on local network hardware
         .danger_accept_invalid_certs(true)
         .build()
         .map_err(|e| e.to_string())?;

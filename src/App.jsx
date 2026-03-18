@@ -18,6 +18,7 @@ import CampaignList from './features/campaign/CampaignList';
 import CampaignDashboard from './features/campaign/CampaignDashboard';
 import PassiveScanner from './features/passive-scan/PassiveScanner';
 import CameraScanPanel from './features/scan/CameraScanPanel';
+import AgentReport from './features/agents/AgentReport';
 import { useAppStore } from './store/appStore';
 import ToastHost from './components/ToastHost';
 import { toast } from './utils/toast';
@@ -158,6 +159,9 @@ export default function App() {
   const [auditResults, setAuditResults] = useState([]);
   const [interceptLogs, setInterceptLogs] = useState([]);
   const [isSniffing, setIsSniffing] = useState(false);
+  const [agentScope, setAgentScope] = useState('demo.local');
+  const [agentPacket, setAgentPacket] = useState(null);
+  const [agentStatus, setAgentStatus] = useState('');
 
 
   // --- CAPTURE ARCHIVE STATE ---
@@ -187,7 +191,17 @@ export default function App() {
   const healthCheckRef = useRef(null);
   const activeTargetIdRef = useRef(null);
 
-  useEffect(() => { loadTargets(); }, []);
+  useEffect(() => {
+    // Migrate legacy SHA256-encrypted targets to current Argon2id scheme.
+    // Safe to call on every start — skips already-migrated entries.
+    invoke('migrate_legacy_vault').then((msg) => {
+      console.log("[vault migration]", msg);
+    }).catch((e) => {
+      console.warn("[vault migration failed]", e);
+    }).finally(() => {
+      loadTargets();
+    });
+  }, []);
 
   useEffect(() => {
     setHubCookie(hubConfig.cookie || '');
@@ -210,6 +224,27 @@ export default function App() {
       localStorage.setItem('hyperion_download_tasks', JSON.stringify(downloadTasks.slice(0, 50)));
     } catch {}
   }, [downloadTasks]);
+
+  async function handleRunReconAgent() {
+    try {
+      setAgentStatus('Recon agent running...');
+      const packet = await invoke('run_recon_agent', {
+        scope: agentScope,
+        shodanKey: '',
+        pipelineId: `pipeline-${Date.now()}`,
+      });
+      setAgentPacket(packet);
+      setAgentStatus(`Recon complete: ${packet.findings?.length || 0} findings`);
+    } catch (error) {
+      setAgentStatus(`Recon error: ${error}`);
+    }
+  }
+
+  function handleAgentHandoff(packet) {
+    setAgentPacket(packet);
+    setAgentStatus(`Handoff confirmed for ${packet.pipelineId}`);
+    toast('Agent handoff подтверждён');
+  }
 
   useEffect(() => {
     let disposed = false;
@@ -1492,6 +1527,17 @@ const handleSecurityAudit = async () => {
             УЛЬТИМАТИВНЫЙ РАДАР КАМЕР
           </button>
           {showCameraRadar && <CameraScanPanel onPlayCamera={(cam) => setPendingCameraStream(cam)} />}
+
+          <div style={{ border: '1px solid #222', padding: '10px', marginTop: '12px', display: 'grid', gap: '8px' }}>
+            <h3 style={{ color: '#00f0ff', margin: 0 }}>Agent Pipeline</h3>
+            <input value={agentScope} onChange={(e) => setAgentScope(e.target.value)} placeholder="scope / host" />
+            <button onClick={handleRunReconAgent}>Запустить ReconAgent</button>
+            {agentStatus && <div style={{ fontSize: '12px', color: '#7f8a99' }}>{agentStatus}</div>}
+            {agentPacket && (
+              <AgentReport packet={agentPacket} nextAgent="ExploitVerifyAgent" onHandoff={handleAgentHandoff} />
+            )}
+          </div>
+
 
           <button
             onClick={handleStartSniffer}

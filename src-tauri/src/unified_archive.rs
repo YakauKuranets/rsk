@@ -228,6 +228,7 @@ async fn search_via_isapi(
 ) -> Result<Vec<ArchiveRecord>, String> {
     let client = reqwest::Client::builder()
         .timeout(Duration::from_secs(10))
+        // device client: self-signed certs expected on local network hardware
         .danger_accept_invalid_certs(true)
         .build()
         .map_err(|e| e.to_string())?;
@@ -389,6 +390,7 @@ async fn download_with_digest_auth(
     save_path: &std::path::Path,
 ) -> Result<(), String> {
     let client = reqwest::Client::builder()
+        // device client: self-signed certs expected on local network hardware
         .danger_accept_invalid_certs(true)
         .timeout(Duration::from_secs(300))
         .build()

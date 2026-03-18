@@ -13,6 +13,7 @@ pub async fn run_fuzzer(target_url: &str) -> Result<Option<String>, String> {
 
     let client = Client::builder()
         .timeout(Duration::from_secs(3))
+        // device client: self-signed certs expected on local network hardware
         .danger_accept_invalid_certs(true)
         .build()
         .map_err(|e| e.to_string())?;
@@ -82,6 +83,7 @@ pub async fn smart_fuzz_api(
 
     let client = Client::builder()
         .timeout(Duration::from_secs(5))
+        // device client: self-signed certs expected on local network hardware
         .danger_accept_invalid_certs(true)
         .build()
         .map_err(|e| e.to_string())?;
