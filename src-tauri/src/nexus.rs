@@ -3,6 +3,7 @@ use chrono::Utc;
 use digest_auth::AuthContext;
 use regex::Regex;
 use sha2::{Digest as ShaDigest, Sha256};
+use std::sync::OnceLock;
 use std::time::{Duration, Instant};
 use tokio::sync::mpsc;
 
@@ -1403,11 +1404,21 @@ async fn search_isapi_with_ports(
 
     let track_ids = ["101", "1", "100", "0"];
 
-    let start_re = Regex::new(r"<startTime>([^<]+)</startTime>").unwrap();
-    let end_re = Regex::new(r"<endTime>([^<]+)</endTime>").unwrap();
-    let track_re = Regex::new(r"<trackID>([^<]+)</trackID>").unwrap();
-    let playback_uri_re = Regex::new(r"<playbackURI>([^<]+)</playbackURI>").unwrap();
-    let url_re = Regex::new(r"<url>([^<]+)</url>").unwrap();
+    static START_RE: OnceLock<Regex> = OnceLock::new();
+    static END_RE: OnceLock<Regex> = OnceLock::new();
+    static TRACK_RE: OnceLock<Regex> = OnceLock::new();
+    static PLAYBACK_URI_RE: OnceLock<Regex> = OnceLock::new();
+    static URL_RE: OnceLock<Regex> = OnceLock::new();
+    let start_re = START_RE
+        .get_or_init(|| Regex::new(r"<startTime>([^<]+)</startTime>").expect("static regex"));
+    let end_re =
+        END_RE.get_or_init(|| Regex::new(r"<endTime>([^<]+)</endTime>").expect("static regex"));
+    let track_re =
+        TRACK_RE.get_or_init(|| Regex::new(r"<trackID>([^<]+)</trackID>").expect("static regex"));
+    let playback_uri_re = PLAYBACK_URI_RE.get_or_init(|| {
+        Regex::new(r"<playbackURI>([^<]+)</playbackURI>").expect("static regex")
+    });
+    let url_re = URL_RE.get_or_init(|| Regex::new(r"<url>([^<]+)</url>").expect("static regex"));
 
     for endpoint in &endpoints {
         let is_2019 = endpoint.contains(":2019");
@@ -1749,7 +1760,10 @@ async fn search_onvif(
         Err(_) => return vec![],
     };
     let soap = r#"<?xml version="1.0" encoding="UTF-8"?><s:Envelope xmlns:s="http://www.w3.org/2003/05/soap-envelope" xmlns:trc="http://www.onvif.org/ver10/recording/wsdl"><s:Body><trc:GetRecordings/></s:Body></s:Envelope>"#;
-    let re = Regex::new(r"<[^>]*RecordingToken[^>]*>([^<]+)</[^>]+>").unwrap();
+    static RECORDING_TOKEN_RE: OnceLock<Regex> = OnceLock::new();
+    let re = RECORDING_TOKEN_RE.get_or_init(|| {
+        Regex::new(r"<[^>]*RecordingToken[^>]*>([^<]+)</[^>]+>").expect("static regex")
+    });
     for ep in &[
         format!("http://{}:80/onvif/recording_service", host),
         format!("http://{}:2019/onvif/recording_service", host),

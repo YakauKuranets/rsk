@@ -64,6 +64,7 @@ mod unified_archive;
 mod vuln_db_updater;
 pub mod vuln_scanner;
 mod vuln_verifier;
+mod ics_scanner;
 use suppaftp::FtpStream;
 use tauri::State;
 use tokio::sync::Mutex as TokioMutex;
@@ -4678,7 +4679,7 @@ async fn download_isapi_playback_uri(
         if cancel_state
             .cancelled_tasks
             .lock()
-            .unwrap()
+            .map_err(|_| "lock poisoned".to_string())?
             .contains(&task_key)
         {
             let _ = std::fs::remove_file(&path);
@@ -4799,7 +4800,7 @@ async fn download_isapi_playback_uri(
                     if cancel_state
                         .cancelled_tasks
                         .lock()
-                        .unwrap()
+                        .map_err(|_| "lock poisoned".to_string())?
                         .contains(&task_key)
                     {
                         let _ = std::fs::remove_file(&path);
@@ -6982,6 +6983,7 @@ fn main() {
             campaign::add_timeline_event,
             campaign::import_scan_results,
             campaign::export_campaign_report,
+            ics_scanner::ics_full_scan,
             passive_scanner::passive_scan_network,
             passive_scanner::analyze_pcap_file,
         ])

@@ -169,8 +169,10 @@ fn parse_arp_table() -> HashMap<String, String> {
     let mut map = HashMap::new();
     if let Ok(out) = output {
         let s = String::from_utf8_lossy(&out.stdout);
-        let mac_re = regex::Regex::new(r"(?i)([0-9a-f]{2}[:-]){5}[0-9a-f]{2}").unwrap();
-        let ip_re = regex::Regex::new(r"\b(\d{1,3}(?:\.\d{1,3}){3})\b").unwrap();
+        let mac_re =
+            regex::Regex::new(r"(?i)([0-9a-f]{2}[:-]){5}[0-9a-f]{2}").expect("static regex");
+        let ip_re =
+            regex::Regex::new(r"\b(\d{1,3}(?:\.\d{1,3}){3})\b").expect("static regex");
         for line in s.lines() {
             if let (Some(ip), Some(mac)) = (ip_re.find(line), mac_re.find(line)) {
                 map.insert(
