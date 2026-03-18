@@ -77,6 +77,7 @@ mod msf_client;
 mod post_exploit;
 mod phishing_generator;
 mod continuous_monitor;
+mod firmware_intelligence;
 use suppaftp::FtpStream;
 use tauri::State;
 use tokio::sync::Mutex as TokioMutex;
@@ -7053,6 +7054,8 @@ fn main() {
             continuous_monitor::stop_monitor_job,
             continuous_monitor::list_monitor_jobs,
             continuous_monitor::get_surface_snapshot,
+            firmware_intelligence::fingerprint_device,
+            firmware_intelligence::bulk_fingerprint,
             passive_scanner::passive_scan_network,
             passive_scanner::analyze_pcap_file,
         ])
