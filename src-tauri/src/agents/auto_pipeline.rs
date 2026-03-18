@@ -73,7 +73,7 @@ pub async fn run_full_pipeline(
     // Stage 5 — NLP Report (optional, requires Anthropic API key)
     let nlp = if let Some(key) = options.anthropic_api_key {
         let pj = serde_json::to_string(&p4).map_err(|e| e.to_string())?;
-        match crate::nlp_reporter::generate_nlp_report(pj, key, options.language, log_state).await {
+        match crate::nlp_reporter::generate_nlp_report(pj, key, options.language, log_state.clone()).await {
             Ok(r) => {
                 stages.push("ReportAgent(NLP)".to_string());
                 Some(r)
