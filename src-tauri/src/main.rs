@@ -81,6 +81,7 @@ mod firmware_intelligence;
 mod anomaly_detector;
 mod telegram_osint;
 mod bas_engine;
+mod cve_predictor;
 use suppaftp::FtpStream;
 use tauri::State;
 use tokio::sync::Mutex as TokioMutex;
@@ -7008,6 +7009,7 @@ fn main() {
             traffic_analyzer::analyze_traffic,
             traffic_analyzer::start_passive_sniffer,
             attack_graph::generate_attack_graph,
+            attack_graph::find_critical_attack_paths,
             camera_discovery::unified_camera_scan,
             device_metadata::collect_device_metadata,
             report_export::export_report_json,
@@ -7069,6 +7071,8 @@ fn main() {
             telegram_osint::search_telegram_osint,
             bas_engine::run_bas_simulation,
             bas_engine::list_bas_scenarios,
+            cve_predictor::predict_cve_risk,
+            cve_predictor::sync_epss_scores,
             passive_scanner::passive_scan_network,
             passive_scanner::analyze_pcap_file,
         ])
