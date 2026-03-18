@@ -717,7 +717,10 @@ pub async fn start_hub_stream(
         ),
     );
     {
-        let mut streams = state.active_streams.lock().unwrap();
+        let mut streams = state
+            .active_streams
+            .lock()
+            .map_err(|_| "Stream state lock poisoned".to_string())?;
         if let Some(old) = streams.remove(&target_id) {
             terminate_stream_process(old);
         }
@@ -747,16 +750,20 @@ pub async fn start_hub_stream(
         .ok_or_else(|| "FFmpeg stdout not captured".to_string())?;
     let relay = spawn_ws_relay(target_id.clone(), stdout).await?;
 
-    state.active_streams.lock().unwrap().insert(
-        target_id.clone(),
-        ActiveStreamProcess {
-            child,
-            ws_url: relay.ws_url.clone(),
-            shutdown_ws: Some(relay.shutdown_tx),
-            ws_task: Some(relay.ws_task),
-            stdout_task: Some(relay.stdout_task),
-        },
-    );
+    state
+        .active_streams
+        .lock()
+        .map_err(|_| "Stream state lock poisoned".to_string())?
+        .insert(
+            target_id.clone(),
+            ActiveStreamProcess {
+                child,
+                ws_url: relay.ws_url.clone(),
+                shutdown_ws: Some(relay.shutdown_tx),
+                ws_task: Some(relay.ws_task),
+                stdout_task: Some(relay.stdout_task),
+            },
+        );
     Ok(relay.ws_url)
 }
 
@@ -783,8 +790,12 @@ async fn search_global_hub(query: String, cookie: String) -> Result<Vec<Value>, 
     let mut results = Vec::new();
     let blocks: Vec<&str> = res.split("<div class=\"name-blok\">").collect();
 
-    let re_user = Regex::new(r#"<b>USER\s*(\d+)</b>\s*\((.*?)\)</div>"#).unwrap();
-    let re_channels = Regex::new(r#"id=(\d+)""#).unwrap();
+    static RE_USER: OnceLock<Regex> = OnceLock::new();
+    static RE_CHANNELS: OnceLock<Regex> = OnceLock::new();
+    let re_user = RE_USER.get_or_init(|| {
+        Regex::new(r#"<b>USER\s*(\d+)</b>\s*\((.*?)\)</div>"#).expect("static regex")
+    });
+    let re_channels = RE_CHANNELS.get_or_init(|| Regex::new(r#"id=(\d+)""#).expect("static regex"));
 
     for block in blocks.iter().skip(1) {
         if let Some(caps) = re_user.captures(block) {
@@ -1078,7 +1089,10 @@ pub async fn start_stream(
     push_runtime_log(&log_state, format!("Start stream: {}", target_id));
 
     {
-        let mut streams = state.active_streams.lock().unwrap();
+        let mut streams = state
+            .active_streams
+            .lock()
+            .map_err(|_| "Stream state lock poisoned".to_string())?;
         if let Some(old) = streams.remove(&target_id) {
             terminate_stream_process(old);
         }
@@ -1097,22 +1111,29 @@ pub async fn start_stream(
         .ok_or_else(|| "FFmpeg stdout not captured".to_string())?;
     let relay = spawn_ws_relay(target_id.clone(), stdout).await?;
 
-    state.active_streams.lock().unwrap().insert(
-        target_id,
-        ActiveStreamProcess {
-            child,
-            ws_url: relay.ws_url.clone(),
-            shutdown_ws: Some(relay.shutdown_tx),
-            ws_task: Some(relay.ws_task),
-            stdout_task: Some(relay.stdout_task),
-        },
-    );
+    state
+        .active_streams
+        .lock()
+        .map_err(|_| "Stream state lock poisoned".to_string())?
+        .insert(
+            target_id,
+            ActiveStreamProcess {
+                child,
+                ws_url: relay.ws_url.clone(),
+                shutdown_ws: Some(relay.shutdown_tx),
+                ws_task: Some(relay.ws_task),
+                stdout_task: Some(relay.stdout_task),
+            },
+        );
 
     Ok(relay.ws_url)
 }
 
 fn check_stream_alive(target_id: String, state: State<'_, StreamState>) -> Result<bool, String> {
-    let mut streams = state.active_streams.lock().unwrap();
+    let mut streams = state
+        .active_streams
+        .lock()
+        .map_err(|_| "Stream state lock poisoned".to_string())?;
     if let Some(stream) = streams.get_mut(&target_id) {
         match stream.child.try_wait() {
             Ok(Some(_)) => {
@@ -1139,7 +1160,10 @@ pub async fn restart_stream(
     push_runtime_log(&log_state, format!("Restart stream: {}", target_id));
 
     {
-        let mut streams = state.active_streams.lock().unwrap();
+        let mut streams = state
+            .active_streams
+            .lock()
+            .map_err(|_| "Stream state lock poisoned".to_string())?;
         if let Some(old) = streams.remove(&target_id) {
             terminate_stream_process(old);
         }
@@ -1153,7 +1177,12 @@ fn stop_stream(
     state: State<'_, StreamState>,
     log_state: State<'_, LogState>,
 ) -> Result<String, String> {
-    if let Some(stream) = state.active_streams.lock().unwrap().remove(&target_id) {
+    if let Some(stream) = state
+        .active_streams
+        .lock()
+        .map_err(|_| "Stream state lock poisoned".to_string())?
+        .remove(&target_id)
+    {
         terminate_stream_process(stream);
         push_runtime_log(&log_state, format!("Stop stream: {}", target_id));
         Ok("Stopped".into())
@@ -1163,7 +1192,10 @@ fn stop_stream(
 }
 
 fn list_active_streams(state: State<'_, StreamState>) -> Result<Vec<ActiveStreamInfo>, String> {
-    let mut streams = state.active_streams.lock().unwrap();
+    let mut streams = state
+        .active_streams
+        .lock()
+        .map_err(|_| "Stream state lock poisoned".to_string())?;
     let mut result = Vec::new();
     let mut dead_ids = Vec::new();
 
@@ -1198,7 +1230,10 @@ fn stop_all_streams(
     state: State<'_, StreamState>,
     log_state: State<'_, LogState>,
 ) -> Result<String, String> {
-    let mut streams = state.active_streams.lock().unwrap();
+    let mut streams = state
+        .active_streams
+        .lock()
+        .map_err(|_| "Stream state lock poisoned".to_string())?;
     let count = streams.len();
     for (_, stream) in streams.drain() {
         terminate_stream_process(stream);
@@ -1529,7 +1564,9 @@ async fn relay_download_file(
             } else {
                 &safe_name
             });
-    let _ = std::fs::create_dir_all(path.parent().unwrap());
+    if let Some(parent) = path.parent() {
+        let _ = std::fs::create_dir_all(parent);
+    }
 
     let mut stream = resp.bytes_stream();
     let mut file = OpenOptions::new()
@@ -1977,7 +2014,9 @@ fn download_ftp_file(
         .join("archives")
         .join(server_alias)
         .join(&filename);
-    let _ = std::fs::create_dir_all(path.parent().unwrap());
+    if let Some(parent) = path.parent() {
+        let _ = std::fs::create_dir_all(parent);
+    }
 
     let resume = resume_if_exists.unwrap_or(true);
     let local_size = std::fs::metadata(&path).map(|m| m.len()).unwrap_or(0);
@@ -2312,7 +2351,9 @@ pub fn download_ftp_scanner(
 
     // Путь сохранения для сканера
     let path = get_vault_path().join("archives").join(&ip).join(&filename);
-    let _ = std::fs::create_dir_all(path.parent().unwrap());
+    if let Some(parent) = path.parent() {
+        let _ = std::fs::create_dir_all(parent);
+    }
     std::fs::write(&path, data.into_inner()).map_err(|e| e.to_string())?;
 
     let _ = ftp.quit();
@@ -3569,7 +3610,9 @@ async fn download_xm_archive(
         .join("archives")
         .join("tantos")
         .join(&filename);
-    let _ = std::fs::create_dir_all(path.parent().unwrap());
+    if let Some(parent) = path.parent() {
+        let _ = std::fs::create_dir_all(parent);
+    }
     let output_path = path.to_string_lossy().to_string();
 
     let started = std::time::Instant::now();
@@ -4003,7 +4046,9 @@ async fn download_onvif_recording_token(
             .join("archives")
             .join("onvif")
             .join(&filename);
-        let _ = std::fs::create_dir_all(path.parent().unwrap());
+        if let Some(parent) = path.parent() {
+            let _ = std::fs::create_dir_all(parent);
+        }
 
         let output_path = path.to_string_lossy().to_string();
         let mut child = Command::new("ffmpeg")
@@ -4170,7 +4215,9 @@ async fn download_onvif_recording_token(
         .join("archives")
         .join("onvif")
         .join(&filename);
-    let _ = std::fs::create_dir_all(path.parent().unwrap());
+    if let Some(parent) = path.parent() {
+        let _ = std::fs::create_dir_all(parent);
+    }
 
     let mut stream = resp.bytes_stream();
     let mut file = OpenOptions::new()
@@ -4282,7 +4329,9 @@ async fn download_isapi_playback_uri(
         .join("archives")
         .join("isapi")
         .join(&filename);
-    let _ = std::fs::create_dir_all(path.parent().unwrap());
+    if let Some(parent) = path.parent() {
+        let _ = std::fs::create_dir_all(parent);
+    }
 
     push_runtime_log(
         &log_state,
@@ -4910,7 +4959,9 @@ async fn download_isapi_via_rtsp(
         .join("archives")
         .join("isapi")
         .join(&filename);
-    let _ = std::fs::create_dir_all(path.parent().unwrap());
+    if let Some(parent) = path.parent() {
+        let _ = std::fs::create_dir_all(parent);
+    }
 
     let started = std::time::Instant::now();
     let has_time_range = uri.contains("starttime=") || uri.contains("endtime=");
@@ -4929,7 +4980,8 @@ async fn download_isapi_via_rtsp(
             "copy",
             "-movflags",
             "+faststart",
-            path.to_str().unwrap(),
+            path.to_str()
+                .ok_or_else(|| "Путь содержит невалидные UTF-8 символы".to_string())?,
         ])
         .stdout(Stdio::null())
         .stderr(Stdio::null())
@@ -5218,7 +5270,9 @@ async fn download_isapi_via_http(
         .join("archives")
         .join("isapi")
         .join(&filename);
-    let _ = std::fs::create_dir_all(path.parent().unwrap());
+    if let Some(parent) = path.parent() {
+        let _ = std::fs::create_dir_all(parent);
+    }
 
     let parsed_uri = reqwest::Url::parse(uri).map_err(|e| e.to_string())?;
     let host = parsed_uri
@@ -5427,7 +5481,9 @@ async fn capture_archive_segment(
         .join("archives")
         .join("captures")
         .join(&filename);
-    let _ = std::fs::create_dir_all(path.parent().unwrap());
+    if let Some(parent) = path.parent() {
+        let _ = std::fs::create_dir_all(parent);
+    }
     let output_path = path.to_string_lossy().to_string();
 
     let log_file_path = get_vault_path()
@@ -5829,7 +5885,9 @@ async fn download_http_archive(
         .join("archives")
         .join("http")
         .join(&filename);
-    let _ = std::fs::create_dir_all(path.parent().unwrap());
+    if let Some(parent) = path.parent() {
+        let _ = std::fs::create_dir_all(parent);
+    }
 
     let mut stream = resp.bytes_stream();
     let mut file = OpenOptions::new()
@@ -6368,8 +6426,15 @@ async fn nemesis_analyze_web_sources(
         api_endpoints: Vec::new(),
     };
 
+    static RE_FORM: OnceLock<Regex> = OnceLock::new();
+    static RE_INPUT: OnceLock<Regex> = OnceLock::new();
+    static RE_SCRIPT: OnceLock<Regex> = OnceLock::new();
+    static RE_AJAX: OnceLock<Regex> = OnceLock::new();
+
     // 1. Ищем все формы отправки (куда уходят данные)
-    let form_re = Regex::new(r#"<form[^>]+action=["']([^"']+)["'][^>]*>"#).unwrap();
+    let form_re = RE_FORM.get_or_init(|| {
+        Regex::new(r#"<form[^>]+action=["']([^"']+)["'][^>]*>"#).expect("static regex")
+    });
     for cap in form_re.captures_iter(&html) {
         if let Some(m) = cap.get(1) {
             result.forms.push(m.as_str().to_string());
@@ -6377,7 +6442,9 @@ async fn nemesis_analyze_web_sources(
     }
 
     // 2. Ищем все поля ввода (названия параметров)
-    let input_re = Regex::new(r#"<input[^>]+name=["']([^"']+)["'][^>]*>"#).unwrap();
+    let input_re = RE_INPUT.get_or_init(|| {
+        Regex::new(r#"<input[^>]+name=["']([^"']+)["'][^>]*>"#).expect("static regex")
+    });
     for cap in input_re.captures_iter(&html) {
         if let Some(m) = cap.get(1) {
             result.inputs.push(m.as_str().to_string());
@@ -6385,7 +6452,9 @@ async fn nemesis_analyze_web_sources(
     }
 
     // 3. Ищем подключенные скрипты
-    let script_re = Regex::new(r#"<script[^>]+src=["']([^"']+)["'][^>]*>"#).unwrap();
+    let script_re = RE_SCRIPT.get_or_init(|| {
+        Regex::new(r#"<script[^>]+src=["']([^"']+)["'][^>]*>"#).expect("static regex")
+    });
     for cap in script_re.captures_iter(&html) {
         if let Some(m) = cap.get(1) {
             result.scripts.push(m.as_str().to_string());
@@ -6393,10 +6462,12 @@ async fn nemesis_analyze_web_sources(
     }
 
     // 4. Ищем скрытые AJAX-запросы прямо в коде страницы
-    let ajax_re = Regex::new(
-        r#"(\$\.ajax|\$\.post|\$\.get|fetch|XMLHttpRequest)[^>]*?['"]([^'"]+\.php[^'"]*)['"]"#,
-    )
-    .unwrap();
+    let ajax_re = RE_AJAX.get_or_init(|| {
+        Regex::new(
+            r#"(\$\.ajax|\$\.post|\$\.get|fetch|XMLHttpRequest)[^>]*?['"]([^'"]+\.php[^'"]*)['"]"#,
+        )
+        .expect("static regex")
+    });
     for cap in ajax_re.captures_iter(&html) {
         if let Some(m) = cap.get(2) {
             result.api_endpoints.push(m.as_str().to_string());
@@ -6543,33 +6614,30 @@ fn main() {
         scanner: TokioMutex::new(videodvor),
     };
 
-    std::thread::spawn(move || {
-        let rt = tokio::runtime::Runtime::new().unwrap();
-        rt.block_on(async {
-            let cors = warp::cors()
-                .allow_origins(vec![
-                    "http://localhost",
-                    "http://127.0.0.1",
-                    "tauri://localhost",
-                    "https://tauri.localhost",
-                ])
-                .allow_headers(vec!["Range", "User-Agent", "Content-Type", "Accept"])
-                .allow_methods(vec!["GET", "OPTIONS", "HEAD"]);
-
-            // Отключаем кэширование для HLS (m3u8 и ts) — критично для live-стримов
-            let mut headers = warp::http::HeaderMap::new();
-            headers.insert(
-                "Cache-Control",
-                "no-cache, no-store, must-revalidate".parse().unwrap(),
-            );
-            headers.insert("Pragma", "no-cache".parse().unwrap());
-            headers.insert("Expires", "0".parse().unwrap());
-            let no_cache = warp::reply::with::headers(headers);
-
-            warp::serve(warp::fs::dir(server_path).with(cors).with(no_cache))
-                .run(([127, 0, 0, 1], 49152))
-                .await;
-        });
+    // HLS сервер в основном tokio runtime — не нужен отдельный thread
+    tauri::async_runtime::spawn(async move {
+        let cors = warp::cors()
+            .allow_origins(vec![
+                "http://localhost",
+                "http://127.0.0.1",
+                "tauri://localhost",
+                "https://tauri.localhost",
+            ])
+            .allow_headers(vec!["Range", "User-Agent", "Content-Type", "Accept"])
+            .allow_methods(vec!["GET", "OPTIONS", "HEAD"]);
+        let mut headers = warp::http::HeaderMap::new();
+        headers.insert(
+            "Cache-Control",
+            "no-cache, no-store, must-revalidate"
+                .parse()
+                .expect("static header"),
+        );
+        headers.insert("Pragma", "no-cache".parse().expect("static header"));
+        headers.insert("Expires", "0".parse().expect("static header"));
+        let no_cache = warp::reply::with::headers(headers);
+        warp::serve(warp::fs::dir(server_path).with(cors).with(no_cache))
+            .run(([127, 0, 0, 1], 49152))
+            .await;
     });
 
     // 🔥 ЗАГРУЗКА ЯДРА HYPERION (nexus) В ОТДЕЛЬНЫЙ РЕАКТОР
@@ -6579,7 +6647,13 @@ fn main() {
     )>();
 
     std::thread::spawn(move || {
-        let rt = tokio::runtime::Runtime::new().unwrap();
+        let rt = match tokio::runtime::Runtime::new() {
+            Ok(r) => r,
+            Err(e) => {
+                eprintln!("[FATAL] Cannot start Nexus reactor: {}", e);
+                return;
+            }
+        };
         let _ = rt.block_on(async {
             let (master, log_rx) = nexus::HyperionMaster::boot_with_log_bridge();
             tx_setup.send((master.tx, log_rx)).unwrap();
@@ -6599,23 +6673,20 @@ fn main() {
     // 🔥 МОСТ ЛОГОВ: nexus -> NexusLogBridge
     let nexus_log_state = Arc::new(std::sync::Mutex::new(Vec::<String>::new()));
     let nexus_log_writer = nexus_log_state.clone();
-    std::thread::spawn(move || {
-        let rt = tokio::runtime::Runtime::new().unwrap();
-        rt.block_on(async {
-            let mut rx = nexus_log_rx;
-            while let Some(msg) = rx.recv().await {
-                let ts = chrono::Utc::now().format("%H:%M:%S").to_string();
-                let line = format!("[{}] {}", ts, msg);
-                println!("{}", line);
-                if let Ok(mut logs) = nexus_log_writer.lock() {
-                    logs.push(line);
-                    if logs.len() > 300 {
-                        let keep = logs.len().saturating_sub(300);
-                        logs.drain(0..keep);
-                    }
+    tauri::async_runtime::spawn(async move {
+        let mut rx = nexus_log_rx;
+        while let Some(msg) = rx.recv().await {
+            let ts = chrono::Utc::now().format("%H:%M:%S").to_string();
+            let line = format!("[{}] {}", ts, msg);
+            tracing::debug!(msg = %line, "nexus log");
+            if let Ok(mut logs) = nexus_log_writer.lock() {
+                logs.push(line);
+                if logs.len() > 300 {
+                    let keep = logs.len().saturating_sub(300);
+                    logs.drain(0..keep);
                 }
             }
-        });
+        }
     });
     let nexus_log_shared = NexusLogBridge {
         lines: nexus_log_state,

@@ -1258,8 +1258,11 @@ pub async fn spider_full_scan(
         .and_then(|e| e.ok())
         .map(|e| std::fs::read_to_string(e.path()).unwrap_or_default())
     {
-        let generator_re =
-            Regex::new(r#"<meta[^>]+name=["']generator["'][^>]+content=["']([^"']+)["']"#).unwrap();
+        static RE_GENERATOR: OnceLock<Regex> = OnceLock::new();
+        let generator_re = RE_GENERATOR.get_or_init(|| {
+            Regex::new(r#"<meta[^>]+name=["']generator["'][^>]+content=["']([^"']+)["']"#)
+                .expect("static regex")
+        });
         if let Some(cap) = generator_re.captures(&first_page_html) {
             tech_stack.push(TechFingerprint {
                 key: "Generator".into(),
@@ -1652,7 +1655,7 @@ fn extract_tag_content(html: &str, tag: &str) -> Option<String> {
 
 fn extract_links(html: &str, base: &str) -> Vec<String> {
     let document = Html::parse_document(html);
-    let selector = Selector::parse("a[href], form[action]").unwrap();
+    let selector = Selector::parse("a[href], form[action]").expect("valid static CSS selector");
     let mut links = Vec::new();
 
     for element in document.select(&selector) {
@@ -1692,7 +1695,7 @@ fn extract_links(html: &str, base: &str) -> Vec<String> {
 
 fn extract_script_srcs(html: &str, base: &str) -> Vec<String> {
     let document = Html::parse_document(html);
-    let selector = Selector::parse("script[src]").unwrap();
+    let selector = Selector::parse("script[src]").expect("valid static CSS selector");
     let mut scripts = Vec::new();
 
     for element in document.select(&selector) {
@@ -1724,37 +1727,39 @@ fn get_js_patterns() -> &'static [(Regex, &'static str)] {
     PATTERNS.get_or_init(|| {
         vec![
             (
-                Regex::new(r#"fetch\s*\(\s*['"]([^'"]+)['"]"#).unwrap(),
+                Regex::new(r#"fetch\s*\(\s*['"]([^'"]+)['"]"#).expect("static regex"),
                 "FETCH",
             ),
             (
-                Regex::new(r#"\$\.(ajax|get|post|getJSON)\s*\(\s*['"]([^'"]+)['"]"#).unwrap(),
+                Regex::new(r#"\$\.(ajax|get|post|getJSON)\s*\(\s*['"]([^'"]+)['"]"#)
+                    .expect("static regex"),
                 "JQUERY",
             ),
             (
-                Regex::new(r#"\.open\s*\(\s*['"](\w+)['"],\s*['"]([^'"]+)['"]"#).unwrap(),
+                Regex::new(r#"\.open\s*\(\s*['"](\w+)['"],\s*['"]([^'"]+)['"]"#)
+                    .expect("static regex"),
                 "XHR",
             ),
             (
-                Regex::new(r#"url\s*:\s*['"]([^'"]+\.php[^'"]*)['"]"#).unwrap(),
+                Regex::new(r#"url\s*:\s*['"]([^'"]+\.php[^'"]*)['"]"#).expect("static regex"),
                 "CONFIG",
             ),
             (
-                Regex::new(r#"action\s*:\s*['"]([^'"]+)['"]"#).unwrap(),
+                Regex::new(r#"action\s*:\s*['"]([^'"]+)['"]"#).expect("static regex"),
                 "ACTION",
             ),
             (
                 Regex::new(r#"['"](/(?:api|stream|admin|ajax|video|archive)[^'"]*\.?\w*)['"]"#)
-                    .unwrap(),
+                    .expect("static regex"),
                 "PATH",
             ),
             (
-                Regex::new(r#"WebSocket\s*\(\s*['"]([^'"]+)['"]"#).unwrap(),
+                Regex::new(r#"WebSocket\s*\(\s*['"]([^'"]+)['"]"#).expect("static regex"),
                 "WEBSOCKET",
             ),
             (
                 Regex::new(r#"(?:window\.)?location\s*(?:\.href)?\s*=\s*['"]([^'"]+)['"]"#)
-                    .unwrap(),
+                    .expect("static regex"),
                 "REDIRECT",
             ),
         ]
