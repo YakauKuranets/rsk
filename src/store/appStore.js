@@ -1,4 +1,4 @@
-import { create } from 'zustand';
+import { create } from '../../vendor/zustand/index.js';
 import { createSpiderSlice } from './slices/spiderSlice';
 import { createFtpSlice } from './slices/ftpSlice';
 import { createFuzzSlice } from './slices/fuzzSlice';

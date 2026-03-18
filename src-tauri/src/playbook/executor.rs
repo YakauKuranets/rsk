@@ -45,7 +45,10 @@ fn eval_condition(cond: &str, outputs: &HashMap<String, serde_json::Value>) -> b
         for p in parts {
             cur = cur.and_then(|c| c.get(p));
         }
-        return cur.and_then(|v| v.as_f64()).map(|n| n > rhs_num).unwrap_or(false);
+        return cur
+            .and_then(|v| v.as_f64())
+            .map(|n| n > rhs_num)
+            .unwrap_or(false);
     }
     false
 }
@@ -103,13 +106,26 @@ async fn continue_execution(
                 duration_ms: 0,
                 error: None,
             });
-            crate::push_runtime_log(log_state, format!("[PLAYBOOK] waiting approval for {}", step.id));
+            crate::push_runtime_log(
+                log_state,
+                format!("[PLAYBOOK] waiting approval for {}", step.id),
+            );
             return Ok(());
         }
 
         let t0 = Instant::now();
-        crate::push_runtime_log(log_state, format!("[PLAYBOOK] running step {} ({})", step.id, step.module));
-        match steps::execute_step(&step, &exec.playbook.scope, &exec.playbook.variables, &previous_outputs).await {
+        crate::push_runtime_log(
+            log_state,
+            format!("[PLAYBOOK] running step {} ({})", step.id, step.module),
+        );
+        match steps::execute_step(
+            &step,
+            &exec.playbook.scope,
+            &exec.playbook.variables,
+            &previous_outputs,
+        )
+        .await
+        {
             Ok(output) => {
                 let elapsed = t0.elapsed().as_millis() as u64;
                 previous_outputs.insert(step.id.clone(), output.clone());
@@ -166,7 +182,10 @@ pub async fn start_playbook(
     continue_execution(&mut exec, &log_state, 0).await?;
     let payload = status_payload(&exec);
 
-    let mut guard = exec_state.active_execution.lock().map_err(|_| "playbook state lock poisoned")?;
+    let mut guard = exec_state
+        .active_execution
+        .lock()
+        .map_err(|_| "playbook state lock poisoned")?;
     *guard = Some(exec);
 
     Ok(payload)
@@ -269,7 +288,12 @@ pub async fn approve_playbook_step(
 pub fn get_playbook_status(
     exec_state: State<'_, PlaybookExecutionState>,
 ) -> Result<serde_json::Value, String> {
-    let guard = exec_state.active_execution.lock().map_err(|_| "playbook state lock poisoned")?;
-    let Some(exec) = guard.as_ref() else { return Ok(json!({"status": "idle", "steps": []})); };
+    let guard = exec_state
+        .active_execution
+        .lock()
+        .map_err(|_| "playbook state lock poisoned")?;
+    let Some(exec) = guard.as_ref() else {
+        return Ok(json!({"status": "idle", "steps": []}));
+    };
     Ok(status_payload(exec))
 }

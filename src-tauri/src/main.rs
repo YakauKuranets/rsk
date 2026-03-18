@@ -829,6 +829,96 @@ fn start_background_scheduler() {
     });
 }
 
+/// Derive the legacy key: SHA256(machine_uid) used before Sprint 2
+fn derive_legacy_key() -> [u8; 32] {
+    let hw_id = machine_uid::get().unwrap_or_else(|_| "NEMESIS_ID".to_string());
+    let mut hasher = Sha256::new();
+    hasher.update(hw_id.as_bytes());
+    let mut key = [0u8; 32];
+    key.copy_from_slice(&hasher.finalize());
+    key
+}
+
+/// Try to decrypt a sled value using the LEGACY scheme (Sprint 1):
+/// key = SHA256(machine_uid), nonce = b"nemesis_salt" (hardcoded),
+/// stored value = raw ciphertext only (no nonce prefix).
+fn try_legacy_decrypt(data: &[u8]) -> Option<Vec<u8>> {
+    let key = derive_legacy_key();
+    let cipher = Aes256Gcm::new(&key.into());
+    // Legacy nonce was the literal bytes of "nemesis_salt"
+    let nonce = Nonce::from_slice(b"nemesis_salt");
+    cipher.decrypt(nonce, data).ok()
+}
+
+/// Migrate all sled entries encrypted with the legacy SHA256 key
+/// to the current Argon2id scheme with random per-record nonce.
+/// Safe to call multiple times — already-migrated entries are skipped.
+#[tauri::command]
+fn migrate_legacy_vault(
+    db_state: State<'_, TargetsDb>,
+    vault_state: State<'_, VaultState>,
+    log_state: State<'_, LogState>,
+) -> Result<String, String> {
+    let current_key = current_vault_key(&vault_state)?;
+    let current_cipher = Aes256Gcm::new(&current_key.into());
+
+    let mut migrated = 0u32;
+    let mut already_new = 0u32;
+    let mut failed = 0u32;
+
+    let all_entries: Vec<(Vec<u8>, sled::IVec)> =
+        db_state.db.iter().filter_map(|r| r.ok()).collect();
+
+    for (key_bytes, value) in all_entries {
+        if value.len() >= 13 {
+            let (nonce_bytes, ciphertext) = value.split_at(12);
+            if current_cipher
+                .decrypt(Nonce::from_slice(nonce_bytes), ciphertext)
+                .is_ok()
+            {
+                already_new += 1;
+                continue;
+            }
+        }
+
+        match try_legacy_decrypt(&value) {
+            Some(plaintext) => {
+                let mut nonce_bytes = [0u8; 12];
+                rand::thread_rng().fill_bytes(&mut nonce_bytes);
+                let nonce = Nonce::from_slice(&nonce_bytes);
+
+                match current_cipher.encrypt(nonce, plaintext.as_ref()) {
+                    Ok(ciphertext) => {
+                        let mut stored = nonce_bytes.to_vec();
+                        stored.extend_from_slice(&ciphertext);
+                        let _ = db_state.db.insert(&key_bytes, stored);
+                        migrated += 1;
+                    }
+                    Err(_) => {
+                        failed += 1;
+                    }
+                }
+            }
+            None => {
+                failed += 1;
+            }
+        }
+    }
+
+    push_runtime_log(
+        &log_state,
+        format!(
+            "VAULT_MIGRATION|migrated={}|already_new={}|failed={}",
+            migrated, already_new, failed
+        ),
+    );
+
+    Ok(format!(
+        "Миграция завершена: {} перемигрировано, {} уже новые, {} ошибок",
+        migrated, already_new, failed
+    ))
+}
+
 #[tauri::command]
 fn save_target(
     target_id: String,
@@ -6770,6 +6860,7 @@ fn main() {
             get_all_targets,
             delete_target,
             set_vault_passphrase,
+            migrate_legacy_vault,
             streaming::start_stream,
             streaming::stop_stream,
             streaming::check_stream_alive,

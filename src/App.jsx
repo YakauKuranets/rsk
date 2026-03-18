@@ -191,7 +191,17 @@ export default function App() {
   const healthCheckRef = useRef(null);
   const activeTargetIdRef = useRef(null);
 
-  useEffect(() => { loadTargets(); }, []);
+  useEffect(() => {
+    // Migrate legacy SHA256-encrypted targets to current Argon2id scheme.
+    // Safe to call on every start — skips already-migrated entries.
+    invoke('migrate_legacy_vault').then((msg) => {
+      console.log("[vault migration]", msg);
+    }).catch((e) => {
+      console.warn("[vault migration failed]", e);
+    }).finally(() => {
+      loadTargets();
+    });
+  }, []);
 
   useEffect(() => {
     setHubCookie(hubConfig.cookie || '');

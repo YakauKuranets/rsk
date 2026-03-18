@@ -94,12 +94,18 @@ pub fn validate_playbook(pb: &Playbook) -> Result<(), Vec<String>> {
     let step_ids: HashSet<String> = pb.steps.iter().map(|s| s.id.clone()).collect();
     for step in &pb.steps {
         if !KNOWN_MODULES.contains(&step.module.as_str()) {
-            errors.push(format!("Unknown module '{}' in step '{}'", step.module, step.id));
+            errors.push(format!(
+                "Unknown module '{}' in step '{}'",
+                step.module, step.id
+            ));
         }
 
         if let Some(dep) = &step.use_output_from {
             if !step_ids.contains(dep) {
-                errors.push(format!("Step '{}' references unknown use_output_from '{}'", step.id, dep));
+                errors.push(format!(
+                    "Step '{}' references unknown use_output_from '{}'",
+                    step.id, dep
+                ));
             }
         }
 
@@ -113,5 +119,9 @@ pub fn validate_playbook(pb: &Playbook) -> Result<(), Vec<String>> {
         }
     }
 
-    if errors.is_empty() { Ok(()) } else { Err(errors) }
+    if errors.is_empty() {
+        Ok(())
+    } else {
+        Err(errors)
+    }
 }
