@@ -192,10 +192,8 @@ pub async fn start_archive_analysis(
 
             if let Ok(outputs) = session.run(ort::inputs!["images" => input]) {
                 if let Some(output) = outputs.values().next() {
-                    if let Ok(tensor) = output.try_extract_tensor::<f32>() {
-                        let data = tensor.view();
-                        let flat: Vec<f32> = data.iter().copied().collect();
-                        let detections = parse_yolov8_output(&flat, threshold, class_ids.as_deref());
+                    if let Ok((_, data)) = output.try_extract_tensor::<f32>() {
+                        let detections = parse_yolov8_output(data, threshold, class_ids.as_deref());
 
                         for (class_id, confidence, bbox) in detections {
                             let class_name = COCO_CLASSES.get(class_id).copied().unwrap_or("unknown");
