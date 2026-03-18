@@ -6714,7 +6714,7 @@ fn main() {
             agents::authorization::validate_exploit_authorization,
             agents::recon_agent::run_recon_agent,
             scope_guard::set_scope_authorized_ranges,
-            scope_guard::run_scan_agent,
+            agents::scan_agent::run_scan_agent,
             cvss::calculate_cvss_base,
             get_implementation_status,
             // ☢️ ПРОТОКОЛ NEMESIS (nexus.rs)

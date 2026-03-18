@@ -6,6 +6,7 @@ use rskafka::client::{partition::UnknownTopicHandling, ClientBuilder};
 use rskafka::record::Record;
 #[cfg(feature = "kafka")]
 use std::sync::Arc;
+#[cfg(feature = "kafka")]
 use tokio::time::{timeout, Duration};
 
 #[cfg(feature = "kafka")]

@@ -107,8 +107,13 @@ pub async fn run_recon_agent(
     let mut risk_indicators = Vec::new();
     let mut status = HandoffStatus::Success;
 
-    if let Some(key) = shodan_key.filter(|v| !v.trim().is_empty()) {
-        match query_shodan(&scope, &key).await {
+    let shodan_enabled = shodan_key
+        .as_ref()
+        .map(|v| !v.trim().is_empty())
+        .unwrap_or(false);
+
+    if let Some(key) = shodan_key.as_deref().filter(|v| !v.trim().is_empty()) {
+        match query_shodan(&scope, key).await {
             Ok(payload) => {
                 let shodan_findings = shodan_to_findings(&payload);
                 if !shodan_findings.is_empty() {
@@ -143,7 +148,7 @@ pub async fn run_recon_agent(
         findings,
         context_carry: json!({
             "scope": scope,
-            "shodanEnabled": shodan_key.is_some(),
+            "shodanEnabled": shodan_enabled,
         }),
         operator_notes: None,
         risk_indicators,
