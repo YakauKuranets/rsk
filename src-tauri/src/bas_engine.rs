@@ -1,7 +1,5 @@
 // src-tauri/src/bas_engine.rs
 // Breach and Attack Simulation — автоматические сценарии по MITRE ATT&CK
-use crate::agents::handoff::{AgentId, Finding, FindingType, HandoffPacket, HandoffStatus, Severity};
-use crate::mitre_atlas::map_to_mitre;
 use serde::{Deserialize, Serialize};
 use std::time::Duration;
 use tauri::State;

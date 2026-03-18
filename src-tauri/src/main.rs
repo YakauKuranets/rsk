@@ -81,8 +81,16 @@ mod firmware_intelligence;
 mod anomaly_detector;
 mod telegram_osint;
 mod bas_engine;
+mod meta_agent;
+mod scout_agent;
 mod cve_predictor;
 mod rest_api;
+mod html_report;
+mod ioc_sharing;
+mod llm_orchestrator;
+mod payload_gen;
+mod tool_executor;
+use scout_agent::ScoutState;
 use suppaftp::FtpStream;
 use tauri::State;
 use tokio::sync::Mutex as TokioMutex;
@@ -6904,6 +6912,7 @@ fn main() {
         .manage(targets_db)
         .manage(vault_state)
         .manage(MonitorState::new())
+        .manage(ScoutState::new())
         .manage(anomaly_detector::AnomalyState::new())
         .invoke_handler(tauri::generate_handler![
             save_target,
@@ -7061,6 +7070,13 @@ fn main() {
             post_exploit::cleanup_session,
             phishing_generator::generate_hta_payload,
             phishing_generator::generate_macro_lure,
+            meta_agent::run_meta_campaign,
+            meta_agent::get_meta_recommendations,
+            scout_agent::start_scout_agent,
+            scout_agent::stop_scout_agent,
+            scout_agent::list_scout_agents,
+            feedback_store::get_technique_stats,
+            feedback_store::reset_campaign_memory,
             continuous_monitor::start_monitor_job,
             continuous_monitor::stop_monitor_job,
             continuous_monitor::list_monitor_jobs,
@@ -7077,7 +7093,18 @@ fn main() {
             cve_predictor::sync_epss_scores,
             rest_api::start_rest_api,
             rest_api::get_rest_api_docs,
+            html_report::generate_html_report,
+            ioc_sharing::share_iocs,
+            ioc_sharing::receive_iocs,
+            ioc_sharing::lookup_ioc,
             passive_scanner::passive_scan_network,
+            llm_orchestrator::llm_analyze_findings,
+            llm_orchestrator::llm_generate_attack_plan,
+            llm_orchestrator::llm_health_check,
+            payload_gen::generate_polymorphic_payload,
+            payload_gen::list_generated_payloads,
+            tool_executor::execute_tool,
+            tool_executor::check_tools_available,
             passive_scanner::analyze_pcap_file,
         ])
         .run(tauri::generate_context!())
