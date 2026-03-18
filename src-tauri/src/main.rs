@@ -83,6 +83,7 @@ mod telegram_osint;
 mod bas_engine;
 mod cve_predictor;
 mod rest_api;
+mod html_report;
 use suppaftp::FtpStream;
 use tauri::State;
 use tokio::sync::Mutex as TokioMutex;
@@ -7077,6 +7078,7 @@ fn main() {
             cve_predictor::sync_epss_scores,
             rest_api::start_rest_api,
             rest_api::get_rest_api_docs,
+            html_report::generate_html_report,
             passive_scanner::passive_scan_network,
             passive_scanner::analyze_pcap_file,
         ])
