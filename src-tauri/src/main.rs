@@ -82,10 +82,12 @@ mod anomaly_detector;
 mod telegram_osint;
 mod bas_engine;
 mod meta_agent;
+mod scout_agent;
 mod cve_predictor;
 mod rest_api;
 mod html_report;
 mod ioc_sharing;
+use scout_agent::ScoutState;
 use suppaftp::FtpStream;
 use tauri::State;
 use tokio::sync::Mutex as TokioMutex;
@@ -6907,6 +6909,7 @@ fn main() {
         .manage(targets_db)
         .manage(vault_state)
         .manage(MonitorState::new())
+        .manage(ScoutState::new())
         .manage(anomaly_detector::AnomalyState::new())
         .invoke_handler(tauri::generate_handler![
             save_target,
@@ -7064,6 +7067,13 @@ fn main() {
             post_exploit::cleanup_session,
             phishing_generator::generate_hta_payload,
             phishing_generator::generate_macro_lure,
+            meta_agent::run_meta_campaign,
+            meta_agent::get_meta_recommendations,
+            scout_agent::start_scout_agent,
+            scout_agent::stop_scout_agent,
+            scout_agent::list_scout_agents,
+            feedback_store::get_technique_stats,
+            feedback_store::reset_campaign_memory,
             continuous_monitor::start_monitor_job,
             continuous_monitor::stop_monitor_job,
             continuous_monitor::list_monitor_jobs,
@@ -7076,10 +7086,6 @@ fn main() {
             telegram_osint::search_telegram_osint,
             bas_engine::run_bas_simulation,
             bas_engine::list_bas_scenarios,
-            feedback_store::get_technique_stats,
-            feedback_store::reset_campaign_memory,
-            meta_agent::run_meta_campaign,
-            meta_agent::get_meta_recommendations,
             cve_predictor::predict_cve_risk,
             cve_predictor::sync_epss_scores,
             rest_api::start_rest_api,
