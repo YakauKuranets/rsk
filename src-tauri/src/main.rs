@@ -6802,12 +6802,11 @@ fn main() {
         db: sled::open(get_vault_path().join("targets_vault")).expect("Cannot open targets vault"),
     };
 
-    // Backward-compatible vault bootstrap: prefer an explicit env passphrase,
-    // but fall back to the legacy default so existing targets/markers still load.
+    // Vault bootstrap: require an explicit passphrase from the environment.
+    // Legacy records are handled by migrate_legacy_vault() after startup.
     let initial_vault_key = env::var("HYPERION_VAULT_PASSPHRASE")
         .ok()
         .filter(|p| p.trim().len() >= 8)
-        .or_else(|| Some("change-me-vault-passphrase".to_string()))
         .and_then(|p| VaultKey::new(p.trim()).ok());
     let vault_state = VaultState {
         key: std::sync::Mutex::new(initial_vault_key),
