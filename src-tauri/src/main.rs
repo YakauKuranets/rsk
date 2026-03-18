@@ -73,6 +73,9 @@ mod cloud_auditor;
 mod mitre_atlas;
 mod threat_intel;
 mod nlp_reporter;
+mod msf_client;
+mod post_exploit;
+mod phishing_generator;
 use suppaftp::FtpStream;
 use tauri::State;
 use tokio::sync::Mutex as TokioMutex;
@@ -7034,6 +7037,14 @@ fn main() {
             mitre_atlas::map_findings_to_mitre,
             threat_intel::analyze_threat_intelligence,
             nlp_reporter::generate_nlp_report,
+            msf_client::msf_authenticate,
+            msf_client::msf_search,
+            msf_client::msf_run_module,
+            msf_client::msf_list_sessions,
+            post_exploit::gather_system_info,
+            post_exploit::cleanup_session,
+            phishing_generator::generate_hta_payload,
+            phishing_generator::generate_macro_lure,
             passive_scanner::passive_scan_network,
             passive_scanner::analyze_pcap_file,
         ])
