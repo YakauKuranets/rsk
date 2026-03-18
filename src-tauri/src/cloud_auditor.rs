@@ -1,7 +1,6 @@
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use std::time::Duration;
 use tauri::State;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -87,9 +86,11 @@ pub async fn aws_check_s3(
             .env("AWS_DEFAULT_REGION", &region)
             .args(["s3api", "get-bucket-acl", "--bucket", &name, "--output", "json"])
             .output()
-            .await
-            .unwrap_or_default();
-        let acl: Value = serde_json::from_slice(&acl_out.stdout).unwrap_or_default();
+            .await;
+        let acl: Value = match acl_out {
+            Ok(output) => serde_json::from_slice(&output.stdout).unwrap_or_default(),
+            Err(_) => Value::Null,
+        };
 
         let grants = acl["Grants"].as_array().cloned().unwrap_or_default();
         let public = grants.iter().any(|g| {
@@ -125,9 +126,8 @@ pub async fn aws_check_s3(
                 "json",
             ])
             .output()
-            .await
-            .unwrap_or_default();
-        if !enc_out.status.success() {
+            .await;
+        if !enc_out.map(|output| output.status.success()).unwrap_or(false) {
             findings.push(CloudFinding {
                 provider: "AWS".to_string(),
                 service: "S3".to_string(),
@@ -176,9 +176,11 @@ pub async fn aws_check_iam(
             .env("AWS_DEFAULT_REGION", &region)
             .args(["iam", "list-mfa-devices", "--user-name", &username, "--output", "json"])
             .output()
-            .await
-            .unwrap_or_default();
-        let mfa: Value = serde_json::from_slice(&mfa_out.stdout).unwrap_or_default();
+            .await;
+        let mfa: Value = match mfa_out {
+            Ok(output) => serde_json::from_slice(&output.stdout).unwrap_or_default(),
+            Err(_) => Value::Null,
+        };
         if mfa["MFADevices"]
             .as_array()
             .map(|a| a.is_empty())
