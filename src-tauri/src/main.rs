@@ -6997,6 +6997,7 @@ fn main() {
             subdomain_hunter::hunt_subdomains,
             subdomain_hunter::cert_transparency,
             container_auditor::audit_containers,
+            // container_auditor::audit_containers
             hash_cracker::identify_hash,
             hash_cracker::crack_hashes,
             hash_cracker::gpu_benchmark,
