@@ -1,7 +1,7 @@
 // src-tauri/src/hub_search.rs
 // Hub Search, Geocode, Nemesis, Security Headers
 
-use crate::*;
+#![allow(unused_imports)]
 
 pub use crate::{
   ImplementationStatus,

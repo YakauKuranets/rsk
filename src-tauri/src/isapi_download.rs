@@ -1,7 +1,7 @@
 // src-tauri/src/isapi_download.rs
 // ISAPI/ONVIF Download Engine — playback URI, RTSP, HTTP
 
-use crate::*;
+#![allow(unused_imports)]
 
 pub use crate::{
   ArchiveEndpointResult,

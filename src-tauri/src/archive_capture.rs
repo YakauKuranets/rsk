@@ -1,7 +1,7 @@
 // src-tauri/src/archive_capture.rs
 // Archive Capture — FFmpeg, HTTP, Hub recon routes
 
-use crate::*;
+#![allow(unused_imports)]
 
 pub use crate::{
   ArchiveRouteProbe,

@@ -1,7 +1,7 @@
 // src-tauri/src/isapi_engine.rs
 // ISAPI/ONVIF/XM Archive Search Engine
 
-use crate::*;
+#![allow(unused_imports)]
 
 pub use crate::{
   IsapiHarTemplateResult,

@@ -1,7 +1,7 @@
 // src-tauri/src/ftp_engine.rs
 // FTP Engine — banner probe, connect, download
 
-use crate::*;
+#![allow(unused_imports)]
 use suppaftp::FtpStream;
 
 pub use crate::{
