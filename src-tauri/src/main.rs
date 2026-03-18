@@ -76,6 +76,7 @@ mod nlp_reporter;
 mod msf_client;
 mod post_exploit;
 mod phishing_generator;
+mod continuous_monitor;
 use suppaftp::FtpStream;
 use tauri::State;
 use tokio::sync::Mutex as TokioMutex;
@@ -507,6 +508,8 @@ fn get_or_create_vault_salt() -> [u8; 16] { let salt_path = crate::get_vault_pat
 pub struct VaultState {
     key: std::sync::Mutex<Option<VaultKey>>,
 }
+
+use continuous_monitor::MonitorState;
 
 pub struct TargetsDb {
     db: sled::Db,
@@ -6894,6 +6897,7 @@ fn main() {
         .manage(playbook_exec_state)
         .manage(targets_db)
         .manage(vault_state)
+        .manage(MonitorState::new())
         .invoke_handler(tauri::generate_handler![
             save_target,
             read_target,
@@ -7045,6 +7049,10 @@ fn main() {
             post_exploit::cleanup_session,
             phishing_generator::generate_hta_payload,
             phishing_generator::generate_macro_lure,
+            continuous_monitor::start_monitor_job,
+            continuous_monitor::stop_monitor_job,
+            continuous_monitor::list_monitor_jobs,
+            continuous_monitor::get_surface_snapshot,
             passive_scanner::passive_scan_network,
             passive_scanner::analyze_pcap_file,
         ])
