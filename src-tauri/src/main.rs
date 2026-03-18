@@ -78,6 +78,7 @@ mod post_exploit;
 mod phishing_generator;
 mod continuous_monitor;
 mod firmware_intelligence;
+mod anomaly_detector;
 use suppaftp::FtpStream;
 use tauri::State;
 use tokio::sync::Mutex as TokioMutex;
@@ -6899,6 +6900,7 @@ fn main() {
         .manage(targets_db)
         .manage(vault_state)
         .manage(MonitorState::new())
+        .manage(anomaly_detector::AnomalyState::new())
         .invoke_handler(tauri::generate_handler![
             save_target,
             read_target,
@@ -7056,6 +7058,9 @@ fn main() {
             continuous_monitor::get_surface_snapshot,
             firmware_intelligence::fingerprint_device,
             firmware_intelligence::bulk_fingerprint,
+            anomaly_detector::analyze_traffic_sample,
+            anomaly_detector::get_anomaly_baselines,
+            anomaly_detector::reset_anomaly_baseline,
             passive_scanner::passive_scan_network,
             passive_scanner::analyze_pcap_file,
         ])
