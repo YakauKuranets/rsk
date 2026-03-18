@@ -10,6 +10,8 @@
       "allow": [
         { "name": "ffmpeg", "cmd": "ffmpeg", "args": true, "sidecar": false },
         { "name": "ffprobe", "cmd": "ffprobe", "args": true, "sidecar": false },
+        { "name": "airodump-ng", "cmd": "airodump-ng", "args": true, "sidecar": false },
+        { "name": "iw", "cmd": "iw", "args": true, "sidecar": false },
         { "name": "docker", "cmd": "docker", "args": true, "sidecar": false },
         { "name": "tcpdump", "cmd": "tcpdump", "args": true, "sidecar": false },
         { "name": "arp", "cmd": "arp", "args": true, "sidecar": false },

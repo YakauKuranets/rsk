@@ -65,6 +65,7 @@ mod vuln_db_updater;
 pub mod vuln_scanner;
 mod vuln_verifier;
 mod ics_scanner;
+mod wifi_auditor;
 use suppaftp::FtpStream;
 use tauri::State;
 use tokio::sync::Mutex as TokioMutex;
@@ -6984,6 +6985,8 @@ fn main() {
             campaign::import_scan_results,
             campaign::export_campaign_report,
             ics_scanner::ics_full_scan,
+            wifi_auditor::scan_wifi_networks,
+            wifi_auditor::capture_wifi_handshake,
             passive_scanner::passive_scan_network,
             passive_scanner::analyze_pcap_file,
         ])
