@@ -34,6 +34,7 @@ mod camera_discovery;
 mod campaign;
 mod compliance_checker;
 mod credential_auditor;
+mod cvss;
 mod device_metadata;
 pub mod exploit_searcher;
 pub mod exploit_verifier;
@@ -52,6 +53,7 @@ pub mod persistence_checker;
 mod playbook;
 pub mod rce_verifier;
 mod report_export;
+mod scope_guard;
 pub mod session_checker;
 pub mod spider;
 mod streaming;
@@ -72,6 +74,7 @@ use tokio::{
     task::JoinHandle,
     time::Duration,
 };
+use tracing_subscriber::EnvFilter;
 use warp::Filter;
 
 mod videodvor_scanner;
@@ -6500,7 +6503,15 @@ async fn run_nexus_protocol(
     }))
 }
 
+fn init_tracing() {
+    let _ = tracing_subscriber::fmt()
+        .with_env_filter(EnvFilter::new("hyperion=debug,warn"))
+        .json()
+        .try_init();
+}
+
 fn main() {
+    init_tracing();
     dotenv().ok();
 
     let feedback_store = Arc::new(feedback_store::FeedbackStore::new());
@@ -6643,6 +6654,9 @@ fn main() {
         })
         .manage(Arc::new(job_manager))
         .manage(feedback_store.clone())
+        .manage(scope_guard::ScopeGuard {
+            authorized_ranges: std::sync::RwLock::new(Vec::new()),
+        })
         .manage(archive_ai::AiState {
             is_running: Arc::new(AtomicBool::new(false)),
             model_path: {
@@ -6699,6 +6713,9 @@ fn main() {
             archive_ai::stop_archive_analysis,
             agents::authorization::validate_exploit_authorization,
             agents::recon_agent::run_recon_agent,
+            scope_guard::set_scope_authorized_ranges,
+            scope_guard::run_scan_agent,
+            cvss::calculate_cvss_base,
             get_implementation_status,
             // ☢️ ПРОТОКОЛ NEMESIS (nexus.rs)
             run_nexus_protocol,

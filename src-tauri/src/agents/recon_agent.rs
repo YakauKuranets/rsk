@@ -4,6 +4,7 @@ use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
 use tauri::State;
 use tokio::time::{timeout, Duration};
+use tracing::{info, warn};
 
 use crate::agents::handoff::{
     AgentId, Finding, FindingType, HandoffPacket, HandoffStatus, Severity,
@@ -96,6 +97,7 @@ pub async fn run_recon_agent(
         return Err("scope пустой".into());
     }
 
+    info!(pipeline_id = %pipeline_id, scope = %scope, "Recon agent started");
     crate::push_runtime_log(
         &log_state,
         format!("RECON_START|pipeline={}|scope={}", pipeline_id, scope),
@@ -115,6 +117,7 @@ pub async fn run_recon_agent(
                 }
             }
             Err(err) => {
+                warn!(pipeline_id = %pipeline_id, error = %err, "Recon agent Shodan lookup failed");
                 risk_indicators.push("shodanLookupFailed".to_string());
                 status = HandoffStatus::Partial { reason: err };
             }

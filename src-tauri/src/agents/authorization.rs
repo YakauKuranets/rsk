@@ -4,6 +4,7 @@ use regex::Regex;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use tauri::State;
+use tracing::info;
 
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -57,6 +58,8 @@ pub async fn validate_exploit_authorization(
             .parse::<std::net::IpAddr>()
             .map_err(|_| format!("Неверный IP в scope: {}", target))?;
     }
+
+    info!(permit = %request.permit_number, operator = %request.operator_id, targets = ?request.target_ips, "Exploit authorization validated");
 
     crate::push_runtime_log(
         &log_state,
