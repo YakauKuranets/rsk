@@ -69,14 +69,36 @@ pub async fn run_scan_agent(
         })?;
     }
 
+    let targets: Vec<String> = packet.findings.iter().map(|f| f.host.clone()).collect();
+    let scope_str = targets.join(",");
     crate::push_runtime_log(
         &log_state,
         format!(
             "SCAN_START|pipeline={}|targets={}",
             packet.pipeline_id,
-            packet.findings.len()
+            targets.len()
         ),
     );
+
+    match crate::asset_discovery::discover_assets(scope_str).await {
+        Ok(report) => {
+            for asset in &report.assets {
+                if !asset.open_ports.is_empty() {
+                    packet
+                        .risk_indicators
+                        .push(format!("openPorts:{}:{:?}", asset.ip, asset.open_ports));
+                }
+            }
+            packet.context_carry["scan_report"] = serde_json::to_value(&report).unwrap_or_default();
+        }
+        Err(e) => {
+            crate::push_runtime_log(
+                &log_state,
+                format!("SCAN_WARN|pipeline={}|err={}", packet.pipeline_id, e),
+            );
+            packet.risk_indicators.push(format!("scanFailed:{}", e));
+        }
+    }
 
     packet.from_agent = AgentId::ScanAgent;
     packet.status = HandoffStatus::Success;

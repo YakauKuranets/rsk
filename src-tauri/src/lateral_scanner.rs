@@ -19,6 +19,7 @@ pub async fn scan_lateral_movement(
     let mut reports = Vec::new();
     let client = Client::builder()
         .timeout(Duration::from_secs(4))
+        // device client: self-signed certs expected on local network hardware
         .danger_accept_invalid_certs(true)
         .build()
         .map_err(|e| e.to_string())?;
@@ -38,7 +39,12 @@ pub async fn scan_lateral_movement(
                     ip, login, pass
                 );
 
-                if let Ok(resp) = client.get(&test_url).basic_auth(login, Some(pass)).send().await {
+                if let Ok(resp) = client
+                    .get(&test_url)
+                    .basic_auth(login, Some(pass))
+                    .send()
+                    .await
+                {
                     let status = resp.status();
                     if status != reqwest::StatusCode::UNAUTHORIZED
                         && status != reqwest::StatusCode::FORBIDDEN
@@ -62,8 +68,6 @@ pub async fn scan_lateral_movement(
 
     Ok(reports)
 }
-
-
 pub async fn check_neighbors(
     target_ip: &str,
     known_creds: Vec<String>,

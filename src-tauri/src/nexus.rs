@@ -85,6 +85,7 @@ const ACCEPT_LANG_POOL: &[&str] = &[
 fn build_sand_client(rng: &mut SandRng, t: u64) -> Result<reqwest::Client, String> {
     reqwest::Client::builder()
         .timeout(Duration::from_secs(t))
+        // device client: self-signed certs expected on local network hardware
         .danger_accept_invalid_certs(true)
         .user_agent(*rng.pick(UA_POOL))
         .build()
@@ -93,6 +94,7 @@ fn build_sand_client(rng: &mut SandRng, t: u64) -> Result<reqwest::Client, Strin
 fn build_ie_client(t: u64) -> Result<reqwest::Client, String> {
     reqwest::Client::builder()
         .timeout(Duration::from_secs(t))
+        // device client: self-signed certs expected on local network hardware
         .danger_accept_invalid_certs(true)
         .user_agent(IE_UA)
         .build()
@@ -102,6 +104,7 @@ fn build_ie_client(t: u64) -> Result<reqwest::Client, String> {
 fn build_cookie_client(t: u64) -> Result<reqwest::Client, String> {
     reqwest::Client::builder()
         .timeout(Duration::from_secs(t))
+        // device client: self-signed certs expected on local network hardware
         .danger_accept_invalid_certs(true)
         .user_agent(IE_UA)
         .cookie_store(true)
@@ -892,6 +895,7 @@ pub async fn search_xm_recordings(
     let endpoint = format!("http://{}:2019/tdkcgi", host);
     let client = reqwest::Client::builder()
         .timeout(Duration::from_secs(20))
+        // device client: self-signed certs expected on local network hardware
         .danger_accept_invalid_certs(true)
         .build()
         .map_err(|e| e.to_string())?;
@@ -1945,6 +1949,7 @@ async fn sand_download_isapi(
 
     let client = reqwest::Client::builder()
         .timeout(Duration::from_secs(30))
+        // device client: self-signed certs expected on local network hardware
         .danger_accept_invalid_certs(true)
         .user_agent(&ua)
         .build()

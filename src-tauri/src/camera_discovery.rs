@@ -326,6 +326,7 @@ struct FingerprintResult {
 async fn fingerprint_camera(ip: &str, ports: &[PortInfo]) -> FingerprintResult {
     let client = reqwest::Client::builder()
         .timeout(Duration::from_secs(3))
+        // device client: self-signed certs expected on local network hardware
         .danger_accept_invalid_certs(true)
         .user_agent("Mozilla/5.0")
         .build()
@@ -656,6 +657,7 @@ async fn detect_archive_protocols(ip: &str, camera: &DiscoveredCamera) -> Vec<St
     let mut protocols = Vec::new();
     let client = reqwest::Client::builder()
         .timeout(Duration::from_secs(3))
+        // device client: self-signed certs expected on local network hardware
         .danger_accept_invalid_certs(true)
         .build()
         .unwrap_or_else(|_| reqwest::Client::new());

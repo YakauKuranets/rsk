@@ -41,6 +41,7 @@ fn build_device_probe_client() -> Result<Client, String> {
     Client::builder()
         .timeout(Duration::from_secs(10))
         .user_agent("Hyperion-PTES/1.0")
+        // device client: self-signed certs expected on local network hardware
         .danger_accept_invalid_certs(true)
         .build()
         .map_err(|e| e.to_string())

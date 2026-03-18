@@ -988,6 +988,7 @@ async fn fetch_hikvision_active_channels(
 
     let client = reqwest::Client::builder()
         .timeout(Duration::from_secs(4))
+        // device client: self-signed certs expected on local network hardware
         .danger_accept_invalid_certs(true)
         .build()
         .map_err(|e| e.to_string())?;
@@ -2337,6 +2338,7 @@ async fn probe_nvr_protocols(
 
     let client = reqwest::Client::builder()
         .timeout(Duration::from_secs(6))
+        // device client: self-signed certs expected on local network hardware
         .danger_accept_invalid_certs(true)
         .user_agent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/120.0.0.0 Safari/537.36") // <-- МАСКИРОВКА
         .build()
@@ -2414,6 +2416,7 @@ async fn fetch_nvr_device_info(
 
     let client = reqwest::Client::builder()
         .timeout(Duration::from_secs(8))
+        // device client: self-signed certs expected on local network hardware
         .danger_accept_invalid_certs(true)
         .user_agent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/120.0.0.0 Safari/537.36") // <-- МАСКИРОВКА
         .build()
@@ -2563,6 +2566,7 @@ async fn fetch_onvif_device_info(
 
     let client = reqwest::Client::builder()
         .timeout(Duration::from_secs(8))
+        // device client: self-signed certs expected on local network hardware
         .danger_accept_invalid_certs(true)
         .user_agent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/120.0.0.0 Safari/537.36") // <-- МАСКИРОВКА
         .build()
@@ -2823,6 +2827,7 @@ async fn search_isapi_recordings(
 
     let client = reqwest::Client::builder()
         .timeout(Duration::from_secs(15))
+        // device client: self-signed certs expected on local network hardware
         .danger_accept_invalid_certs(true)
         .cookie_store(true)
         .build()
@@ -3689,6 +3694,7 @@ async fn search_onvif_recordings(
 
     let client = reqwest::Client::builder()
         .timeout(Duration::from_secs(10))
+        // device client: self-signed certs expected on local network hardware
         .danger_accept_invalid_certs(true)
         .build()
         .map_err(|e| e.to_string())?;
@@ -3782,6 +3788,7 @@ async fn probe_archive_export_endpoints(
 
     let client = reqwest::Client::builder()
         .timeout(Duration::from_secs(8))
+        // device client: self-signed certs expected on local network hardware
         .danger_accept_invalid_certs(true)
         .build()
         .map_err(|e| e.to_string())?;
@@ -3947,6 +3954,7 @@ async fn download_onvif_recording_token(
     let client = reqwest::Client::builder()
         .connect_timeout(Duration::from_secs(10))
         .timeout(Duration::from_secs(600))
+        // device client: self-signed certs expected on local network hardware
         .danger_accept_invalid_certs(true)
         .build()
         .map_err(|e| e.to_string())?;
@@ -4283,6 +4291,7 @@ async fn download_isapi_playback_uri(
 
     let client = reqwest::Client::builder()
         .timeout(Duration::from_secs(60))
+        // device client: self-signed certs expected on local network hardware
         .danger_accept_invalid_certs(true)
         .cookie_store(true)
         .user_agent("Mozilla/5.0 (X11; Linux x86_64; rv:140.0) Gecko/20100101 Firefox/140.0")
@@ -5182,6 +5191,7 @@ async fn download_isapi_via_http(
 ) -> Result<DownloadReport, String> {
     let client = reqwest::Client::builder()
         .timeout(Duration::from_secs(60))
+        // device client: self-signed certs expected on local network hardware
         .danger_accept_invalid_certs(true)
         .user_agent("Mozilla/5.0 (X11; Linux x86_64; rv:140.0) Gecko/20100101 Firefox/140.0")
         .build()
@@ -5769,6 +5779,7 @@ async fn download_http_archive(
 
     let client = reqwest::Client::builder()
         .timeout(Duration::from_secs(300))
+        // device client: self-signed certs expected on local network hardware
         .danger_accept_invalid_certs(true)
         .user_agent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/120.0.0.0 Safari/537.36")
         .build()
@@ -5934,6 +5945,7 @@ async fn recon_hub_archive_routes(
 
     let client = reqwest::Client::builder()
         .user_agent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
+        // device client: self-signed certs expected on local network hardware
         .danger_accept_invalid_certs(true)
         .timeout(Duration::from_secs(15))
         .redirect(reqwest::redirect::Policy::none()) // Не следуем за редиректами — ловим их
@@ -6270,6 +6282,7 @@ async fn probe_url(
 async fn nemesis_auto_login(username: String, password: String) -> Result<String, String> {
     let client = reqwest::Client::builder()
         .user_agent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/120.0.0.0 Safari/537.36")
+        // device client: self-signed certs expected on local network hardware
         .danger_accept_invalid_certs(true)
         .build()
         .map_err(|e| e.to_string())?;
@@ -6330,6 +6343,7 @@ async fn nemesis_analyze_web_sources(
 
     let client = reqwest::Client::builder()
         .user_agent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/120.0.0.0 Safari/537.36")
+        // device client: self-signed certs expected on local network hardware
         .danger_accept_invalid_certs(true)
         .build()
         .map_err(|e| e.to_string())?;
@@ -6423,6 +6437,7 @@ async fn analyze_security_headers(
     );
 
     let client = reqwest::Client::builder()
+        // device client: self-signed certs expected on local network hardware
         .danger_accept_invalid_certs(true)
         .timeout(std::time::Duration::from_secs(5))
         // 👇 ДОБАВЛЯЕМ МАСКИРОВКУ ПОД БРАУЗЕР CHROME 👇
@@ -6532,7 +6547,12 @@ fn main() {
         let rt = tokio::runtime::Runtime::new().unwrap();
         rt.block_on(async {
             let cors = warp::cors()
-                .allow_any_origin()
+                .allow_origins(vec![
+                    "http://localhost",
+                    "http://127.0.0.1",
+                    "tauri://localhost",
+                    "https://tauri.localhost",
+                ])
                 .allow_headers(vec!["Range", "User-Agent", "Content-Type", "Accept"])
                 .allow_methods(vec!["GET", "OPTIONS", "HEAD"]);
 
@@ -6609,9 +6629,12 @@ fn main() {
         db: sled::open(get_vault_path().join("targets_vault")).expect("Cannot open targets vault"),
     };
 
-    let initial_passphrase = env::var("HYPERION_VAULT_PASSPHRASE")
-        .unwrap_or_else(|_| "change-me-vault-passphrase".to_string());
-    let initial_vault_key = VaultKey::new(&initial_passphrase).ok();
+    // Vault locked by default. UI must call set_vault_passphrase()
+    // before any save_target / read_target calls will succeed.
+    let initial_vault_key = env::var("HYPERION_VAULT_PASSPHRASE")
+        .ok()
+        .filter(|p| p.trim().len() >= 8)
+        .and_then(|p| VaultKey::new(p.trim()).ok());
     let vault_state = VaultState {
         key: std::sync::Mutex::new(initial_vault_key),
     };

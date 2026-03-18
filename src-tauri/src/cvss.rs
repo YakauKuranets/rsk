@@ -143,3 +143,127 @@ pub fn calculate_cvss_base(vector: CvssV3) -> CvssScore {
         severity: vector.severity().to_string(),
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn make(
+        av: AttackVector,
+        ac: AttackComplexity,
+        pr: PrivilegesRequired,
+        ui: UserInteraction,
+        s: Scope,
+        c: Impact,
+        i: Impact,
+        a: Impact,
+    ) -> CvssV3 {
+        CvssV3 {
+            av,
+            ac,
+            pr,
+            ui,
+            s,
+            c,
+            i,
+            a,
+        }
+    }
+
+    #[test]
+    fn test_critical_network_no_auth() {
+        let v = make(
+            AttackVector::Network,
+            AttackComplexity::Low,
+            PrivilegesRequired::None,
+            UserInteraction::None,
+            Scope::Unchanged,
+            Impact::High,
+            Impact::High,
+            Impact::High,
+        );
+        assert_eq!(v.base_score(), 9.8);
+        assert_eq!(v.severity(), "Critical");
+    }
+
+    #[test]
+    fn test_medium_low_priv() {
+        let v = make(
+            AttackVector::Network,
+            AttackComplexity::Low,
+            PrivilegesRequired::Low,
+            UserInteraction::None,
+            Scope::Unchanged,
+            Impact::High,
+            Impact::None,
+            Impact::None,
+        );
+        assert_eq!(v.base_score(), 6.5);
+        assert_eq!(v.severity(), "Medium");
+    }
+
+    #[test]
+    fn test_low_physical() {
+        let v = make(
+            AttackVector::Physical,
+            AttackComplexity::High,
+            PrivilegesRequired::High,
+            UserInteraction::Required,
+            Scope::Unchanged,
+            Impact::None,
+            Impact::None,
+            Impact::Low,
+        );
+        let score = v.base_score();
+        assert!((1.5..=1.7).contains(&score), "expected ~1.6, got {}", score);
+        assert_eq!(v.severity(), "Low");
+    }
+
+    #[test]
+    fn test_critical_scope_changed() {
+        let v = make(
+            AttackVector::Network,
+            AttackComplexity::Low,
+            PrivilegesRequired::None,
+            UserInteraction::None,
+            Scope::Changed,
+            Impact::High,
+            Impact::High,
+            Impact::High,
+        );
+        assert_eq!(v.base_score(), 10.0);
+    }
+
+    #[test]
+    fn test_no_impact_is_zero() {
+        let v = make(
+            AttackVector::Network,
+            AttackComplexity::Low,
+            PrivilegesRequired::None,
+            UserInteraction::None,
+            Scope::Unchanged,
+            Impact::None,
+            Impact::None,
+            Impact::None,
+        );
+        assert_eq!(v.base_score(), 0.0);
+        assert_eq!(v.severity(), "None");
+    }
+
+    #[test]
+    fn test_calculate_cvss_base_command() {
+        let v = make(
+            AttackVector::Network,
+            AttackComplexity::Low,
+            PrivilegesRequired::None,
+            UserInteraction::None,
+            Scope::Unchanged,
+            Impact::High,
+            Impact::High,
+            Impact::High,
+        );
+        let result = calculate_cvss_base(v);
+        assert_eq!(result.base_score, 9.8);
+        assert_eq!(result.severity, "Critical");
+    }
+}

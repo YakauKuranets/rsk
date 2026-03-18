@@ -20,6 +20,7 @@ pub struct DiscoveredAsset {
     pub country: Option<String>,
     pub city: Option<String>,
     pub last_seen: Option<String>,
+    pub open_ports: Vec<u16>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -135,6 +136,7 @@ pub async fn discover_external_assets(
                             country: None,
                             city: None,
                             last_seen: None,
+                            open_ports: Vec::new(),
                         });
                     }
                 }
@@ -179,7 +181,11 @@ fn dedupe_assets(assets: &mut Vec<DiscoveredAsset>) {
     assets.retain(|item| seen.insert(format!("{}:{}:{}", item.ip, item.port, item.source)));
 }
 
-async fn query_shodan(client: &Client, target_domain: &str, api_key: &str) -> Result<Vec<DiscoveredAsset>, String> {
+async fn query_shodan(
+    client: &Client,
+    target_domain: &str,
+    api_key: &str,
+) -> Result<Vec<DiscoveredAsset>, String> {
     let query = format!("hostname:{}", target_domain);
     let url = format!(
         "https://api.shodan.io/shodan/host/search?key={}&query={}",
@@ -210,9 +216,12 @@ async fn query_shodan(client: &Client, target_domain: &str, api_key: &str) -> Re
                 os: row["os"].as_str().map(ToString::to_string),
                 banner: row["data"].as_str().unwrap_or_default().to_string(),
                 source: "shodan".into(),
-                country: row["location"]["country_name"].as_str().map(ToString::to_string),
+                country: row["location"]["country_name"]
+                    .as_str()
+                    .map(ToString::to_string),
                 city: row["location"]["city"].as_str().map(ToString::to_string),
                 last_seen: row["timestamp"].as_str().map(ToString::to_string),
+                open_ports: vec![row["port"].as_u64().unwrap_or(0) as u16],
             });
         }
     }
@@ -220,7 +229,10 @@ async fn query_shodan(client: &Client, target_domain: &str, api_key: &str) -> Re
     Ok(output)
 }
 
-async fn query_crtsh(client: &Client, target_domain: &str) -> Result<Vec<CertTransparencyEntry>, String> {
+async fn query_crtsh(
+    client: &Client,
+    target_domain: &str,
+) -> Result<Vec<CertTransparencyEntry>, String> {
     let url = format!(
         "https://crt.sh/?q={}&output=json",
         urlencoding::encode(&format!("%.{}", target_domain))
@@ -294,4 +306,59 @@ async fn query_dns_records(client: &Client, target_domain: &str) -> Result<Vec<D
     }
 
     Ok(records)
+}
+
+pub async fn discover_assets(scope: String) -> Result<AssetDiscoveryReport, String> {
+    let started = Instant::now();
+    let mut assets = Vec::new();
+    let mut seen = HashSet::new();
+    let common_ports = [80u16, 443, 554, 8000, 8080];
+
+    for host in scope
+        .split(',')
+        .map(str::trim)
+        .filter(|item| !item.is_empty())
+    {
+        let clean_host = host
+            .trim_start_matches("http://")
+            .trim_start_matches("https://")
+            .trim_end_matches('/');
+        for port in common_ports {
+            let socket = format!("{}:{}", clean_host, port);
+            let status = timeout(
+                Duration::from_millis(750),
+                tokio::net::TcpStream::connect(&socket),
+            )
+            .await;
+
+            if matches!(status, Ok(Ok(_))) {
+                let key = format!("{}:{}", clean_host, port);
+                if seen.insert(key) {
+                    assets.push(DiscoveredAsset {
+                        ip: clean_host.to_string(),
+                        port,
+                        protocol: "tcp".into(),
+                        hostname: None,
+                        org: None,
+                        os: None,
+                        banner: format!("Open TCP port {} discovered by ScanAgent", port),
+                        source: "scan_agent".into(),
+                        country: None,
+                        city: None,
+                        last_seen: None,
+                        open_ports: vec![port],
+                    });
+                }
+            }
+        }
+    }
+
+    Ok(AssetDiscoveryReport {
+        query: scope,
+        total_assets: assets.len(),
+        assets,
+        certificates: Vec::new(),
+        dns_records: Vec::new(),
+        duration_ms: started.elapsed().as_millis() as u64,
+    })
 }

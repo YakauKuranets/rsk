@@ -341,6 +341,7 @@ pub async fn nemesis_fuzz_archive_endpoint(
 ) -> Result<Vec<String>, String> {
     let client = reqwest::Client::builder()
         .user_agent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/120.0.0.0 Safari/537.36")
+        // device client: self-signed certs expected on local network hardware
         .danger_accept_invalid_certs(true)
         .build()
         .map_err(|e| e.to_string())?;
@@ -419,6 +420,7 @@ pub async fn nemesis_fuzz_post_endpoints(
 ) -> Result<Vec<String>, String> {
     let client = reqwest::Client::builder()
         .user_agent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/120.0.0.0 Safari/537.36")
+        // device client: self-signed certs expected on local network hardware
         .danger_accept_invalid_certs(true)
         .build()
         .map_err(|e| e.to_string())?;
