@@ -49,6 +49,7 @@ export function useHubRecon() {
     reconResults,
     setReconResults,
     reconRunning,
+    setReconRunning,
     addressQuery,
     setAddressQuery,
     hubSearch,

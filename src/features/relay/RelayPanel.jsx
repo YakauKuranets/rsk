@@ -1,28 +1,24 @@
 // src/features/relay/RelayPanel.jsx
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { toast } from '../../utils/toast';
 
 export default function RelayPanel() {
-  const [relayUrl, setRelayUrl] = useState(() => localStorage.getItem('relay_url') || 'http://192.168.1.100:8090');
-  const [relayToken, setRelayToken] = useState(() => localStorage.getItem('relay_token') || '');
+  const [relayUrl, setRelayUrl] = useState(() => localStorage.getItem('hyperion_relay_url') || 'http://192.168.1.100:8090');
+  const [relayToken, setRelayToken] = useState(() => localStorage.getItem('hyperion_relay_token') || '');
   const [relayStatus, setRelayStatus] = useState(null);
 
   const checkRelay = async () => {
     try {
       await invoke('relay_ping', { relayUrl: relayUrl.trim() });
       setRelayStatus('ok');
-      localStorage.setItem('relay_url', relayUrl);
-      localStorage.setItem('relay_token', relayToken);
+      localStorage.setItem('hyperion_relay_url', relayUrl);
+      localStorage.setItem('hyperion_relay_token', relayToken);
     } catch (e) {
       setRelayStatus('error');
       toast(`Relay: ${e}`);
     }
   };
-
-  useEffect(() => {
-    return () => {};
-  }, []);
 
   const S = {
     box: { border: '1px solid #2a2a6a', padding: '10px', backgroundColor: '#05050f', marginBottom: '16px' },
