@@ -944,7 +944,7 @@ export default function App() {
     }
   };
 
-  const clearDownloads = () => { // handleClearDownloads
+  const handleClearDownloads = () => {
     setDownloadTasks(p => p.filter(t => t.status === 'running'));
   };
 
@@ -1435,7 +1435,7 @@ const handleSecurityAudit = async () => {
       <ArchiveViewer fetchFtpRoot={fetchFtpRoot} goBackFtp={goBackFtp} handleDownloadFtp={handleDownloadFtp} />
 
 
-      <main style={{ flex: 1, display: 'flex', minHeight: 0, overflow: 'hidden' }}>
+      <main style={{ flex: 1, position: 'relative', overflow: 'hidden', display: 'flex', flexDirection: 'row' }}>
         <div style={{ flex: 1, position: 'relative', overflow: 'hidden' }}>
         <div style={{ position: 'absolute', inset: 0, zIndex: 0 }}>
           <StreamGrid
@@ -1514,12 +1514,12 @@ const handleSecurityAudit = async () => {
           handleDeleteTarget={handleDeleteTarget}
           handleGeocode={handleGeocode}
           onNemesis={(t) => setNemesisTarget(t)}
-          onMemoryRequest={(t) => nvr.fetchNvrDeviceInfo(t)}
-          onIsapiInfo={(t) => nvr.fetchIsapiDeviceInfo(t)}
-          onIsapiSearch={(t) => nvr.searchIsapiRecordings(t)}
-          onOnvifInfo={(t) => nvr.fetchIsapiDeviceInfo(t)}
-          onOnvifRecordings={(t) => nvr.searchOnvifRecordings(t)}
-          onArchiveEndpoints={(t) => nvr.probeArchiveEndpoints(t)}
+          onMemoryRequest={(t) => handleLocalArchive(t)}
+          onIsapiInfo={(t) => handleFetchNvrDeviceInfo(t)}
+          onIsapiSearch={(t) => handleSearchIsapiRecordings(t)}
+          onOnvifInfo={(t) => handleFetchOnvifDeviceInfo(t)}
+          onOnvifRecordings={(t) => handleSearchOnvifRecordings(t)}
+          onArchiveEndpoints={(t) => handleProbeArchiveExport(t)}
           agentScope={agentScope}
           setAgentScope={setAgentScope}
           handleRunReconAgent={handleRunReconAgent}
@@ -1539,7 +1539,7 @@ const handleSecurityAudit = async () => {
           setResumeDownloads={setResumeDownloads}
           handleCancelDownloadTask={handleCancelDownloadTask}
           handleRetryDownloadTask={handleRetryDownloadTask}
-          {...{ ['handle' + 'ClearDownloads']: clearDownloads }}
+          handleClearDownloads={handleClearDownloads}
           labels={labels}
           setLabels={setLabels}
           onLabelClick={(label) => {
