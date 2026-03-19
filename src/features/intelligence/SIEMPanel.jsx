@@ -1,42 +1,69 @@
-import { useMemo, useState } from 'react';
+import { useState } from 'react';
+import { invoke } from '@tauri-apps/api/core';
 
-const seedEvents = [
-  { ts: '00:11:52', source: 'suricata', level: 'medium', msg: 'RTSP brute-force pattern detected' },
-  { ts: '00:14:07', source: 'syslog', level: 'high', msg: 'Unexpected admin login from maintenance VLAN' },
-  { ts: '00:15:33', source: 'zeek', level: 'low', msg: 'New ONVIF endpoint fingerprinted' },
-];
+const S={
+  wrap:{border:'1px solid #1a2a4a',padding:'10px',backgroundColor:'#060a14',marginBottom:'8px'},
+  h:{color:'#4488ff',marginTop:0,fontSize:'0.85rem',letterSpacing:'0.08em'},
+  inp:{width:'100%',padding:'5px 8px',background:'#060a14',color:'#ccc',border:'1px solid #1a2a4a',marginBottom:'6px',fontSize:'12px',boxSizing:'border-box'},
+  btn:(c='#4488ff')=>({width:'100%',padding:'6px',cursor:'pointer',fontWeight:'bold',fontSize:'12px',marginBottom:'4px',background:c+'22',color:c,border:'1px solid '+c+'55'}),
+};
+const SIEMS=[{id:'splunk',label:'Splunk HEC',color:'#ff6600',cmd:'send_to_splunk_hec'},{id:'elastic',label:'Elastic ECS',color:'#00aaff',cmd:'send_to_elastic'},{id:'qradar',label:'QRadar LEEF',color:'#cc3300',cmd:'send_to_qradar'}];
 
-const colorFor = (level) => ({ low: '#6ba8ff', medium: '#ffbf47', high: '#ff667d' }[level] || '#9ba4c7');
+export default function SIEMPanel(){
+  const [sel,setSel]=useState('splunk');
+  const [host,setHost]=useState('');
+  const [port,setPort]=useState('8088');
+  const [token,setToken]=useState('');
+  const [index,setIndex]=useState('');
+  const [json,setJson]=useState('');
+  const [load,setLoad]=useState(false);
+  const [msg,setMsg]=useState('');
 
-export default function SIEMPanel() {
-  const [filter, setFilter] = useState('all');
-  const events = useMemo(() => seedEvents.filter((entry) => filter === 'all' || entry.level === filter), [filter]);
+  const siem=SIEMS.find(s=>s.id===sel);
 
-  return (
-    <section style={{ border: '1px solid #2a3247', borderRadius: '8px', padding: '12px', background: '#0a0f17', color: '#e0e7ff' }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
-        <h3 style={{ margin: 0, fontSize: '13px', color: '#95b3ff', textTransform: 'uppercase', letterSpacing: '0.08em' }}>SIEM Panel</h3>
-        <select value={filter} onChange={(e) => setFilter(e.target.value)} style={{ padding: '6px 8px', borderRadius: '4px', background: '#121a27', color: '#e0e7ff', border: '1px solid #33415d' }}>
-          <option value="all">All</option>
-          <option value="low">Low</option>
-          <option value="medium">Medium</option>
-          <option value="high">High</option>
-        </select>
+  const send=async()=>{
+    if(!host.trim())return alert('Введите адрес SIEM');
+    if(!json.trim())return alert('Вставьте JSON');
+    setLoad(true);setMsg('');
+    try{setMsg(await invoke(siem.cmd,{findingsJson:json,config:{target:sel,host:host.trim(),port:+port,token:token.trim()||null,index:index.trim()||null}}));}
+    catch(e){setMsg('Ошибка: '+e);}
+    setLoad(false);
+  };
+
+  const genReport=async()=>{
+    if(!json.trim())return alert('Вставьте JSON');
+    setLoad(true);
+    try{
+      const path=await invoke('generate_html_report',{findingsJson:json,nlpReportJson:null,config:{title:'Отчёт Hyperion PTES',clientName:'Клиент',operatorName:'Оператор',includeExecutive:true,includeTechnical:true,includeMitreHeatmap:true,classification:'КОНФИДЕНЦИАЛЬНО'}});
+      setMsg('HTML-отчёт сохранён: '+path);
+    }catch(e){setMsg('Ошибка: '+e);}
+    setLoad(false);
+  };
+
+  return(
+    <div style={S.wrap}>
+      <h3 style={S.h}>📡 SIEM / ОТЧЁТЫ</h3>
+      <div style={{display:'flex',gap:'4px',marginBottom:'8px'}}>
+        {SIEMS.map(s=>(
+          <button key={s.id} onClick={()=>setSel(s.id)}
+            style={{flex:1,padding:'5px',background:sel===s.id?s.color+'22':'transparent',
+              color:sel===s.id?s.color:'#555',border:'1px solid '+(sel===s.id?s.color:'#1a1a2a'),
+              cursor:'pointer',borderRadius:'3px',fontSize:'10px'}}>{s.label}</button>
+        ))}
       </div>
-      <div style={{ display: 'grid', gap: '8px' }}>
-        {events.map((event, idx) => {
-          const color = colorFor(event.level);
-          return (
-            <div key={`${event.ts}-${idx}`} style={{ border: `1px solid ${color}40`, borderRadius: '6px', padding: '8px', background: `${color}10` }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px', fontSize: '10px' }}>
-                <span style={{ color }}>{event.level.toUpperCase()}</span>
-                <span style={{ color: '#7c88b0' }}>{event.ts} · {event.source}</span>
-              </div>
-              <div style={{ fontSize: '11px', color: '#dce4ff' }}>{event.msg}</div>
-            </div>
-          );
-        })}
+      <div style={{display:'flex',gap:'6px',marginBottom:'6px'}}>
+        <input style={{...S.inp,marginBottom:0,flex:1}} value={host} onChange={e=>setHost(e.target.value)} placeholder='Адрес SIEM'/>
+        <input style={{...S.inp,marginBottom:0,flex:0,width:'70px'}} value={port} onChange={e=>setPort(e.target.value)} placeholder='Порт' type='number'/>
       </div>
-    </section>
+      <div style={{height:'6px'}}/>
+      {sel!=='qradar'&&<input style={S.inp} value={token} onChange={e=>setToken(e.target.value)} placeholder={sel==='splunk'?'HEC-токен Splunk':'API-ключ (необязательно)'}/>}
+      {sel!=='qradar'&&<input style={S.inp} value={index} onChange={e=>setIndex(e.target.value)} placeholder='Индекс (main, hyperion)'/>}
+      <textarea style={{...S.inp,height:'55px'}} value={json} onChange={e=>setJson(e.target.value)} placeholder='JSON findings: [{"host":"192.168.1.1","severity":"Critical",...}]'/>
+      <div style={{display:'flex',gap:'6px'}}>
+        <button style={{...S.btn(siem.color),flex:1,marginBottom:0}} onClick={send} disabled={load}>{load?'⚙...':'▶ '+siem.label}</button>
+        <button style={{...S.btn('#8888ff'),flex:1,marginBottom:0}} onClick={genReport} disabled={load}>📄 HTML-отчёт</button>
+      </div>
+      {msg&&<div style={{marginTop:'8px',background:'#060a14',border:'1px solid #1a2a4a',padding:'8px',fontSize:'11px',color:msg.includes('Ошибка')?'#ff6666':'#66aaff',fontFamily:'monospace',borderRadius:'3px'}}>{msg}</div>}
+    </div>
   );
 }
