@@ -534,17 +534,6 @@ export default function App() {
       handleStartStream(fakeTerminal, fakeChannel);
   };
 
-  const getRelayConfig = () => {
-    try {
-      return {
-        relayUrl: localStorage.getItem('hyperion_relay_url') || '',
-        relayToken: localStorage.getItem('hyperion_relay_token') || '',
-      };
-    } catch {
-      return { relayUrl: '', relayToken: '' };
-    }
-  };
-
   // --- FTP ПРОВОДНИК (с поддержкой relay) ---
   const fetchFtpRoot = async (serverAlias, path = "/") => {
     setFtpBrowserOpen(true);
@@ -552,7 +541,8 @@ export default function App() {
     setFtpPath(path);
 
     setLoading(true);
-    const { relayUrl, relayToken } = getRelayConfig();
+    const relayUrl = localStorage.getItem('hyperion_relay_url') || '';
+    const relayToken = localStorage.getItem('hyperion_relay_token') || '';
 
     // Если relay настроен — идём через него
     if (relayUrl.trim()) {
@@ -616,7 +606,8 @@ export default function App() {
     setRadarStatus(`СКАЧИВАНИЕ ФАЙЛА: ${filename}...`);
     try {
         let report;
-        const { relayUrl, relayToken } = getRelayConfig();
+        const relayUrl = localStorage.getItem('hyperion_relay_url') || '';
+        const relayToken = localStorage.getItem('hyperion_relay_token') || '';
 
         // Relay или прямой FTP
         if (relayUrl.trim()) {
