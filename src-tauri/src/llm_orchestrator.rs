@@ -182,3 +182,119 @@ pub async fn llm_health_check(
     Ok(resp.map(|r| r.status().is_success()).unwrap_or(false))
 }
 
+
+
+// ДОБАВИТЬ в конец src-tauri/src/llm_orchestrator.rs
+// (не заменять весь файл — добавить эти структуры и функции)
+
+
+// ═══════ НОВЫЕ СТРУКТУРЫ ═══════════════════════════════════════
+
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AttackHypothesis {
+    pub technique: String,
+    pub description: String,
+    pub expected_probability: f32,  // 0.0..1.0
+    pub stealth_level: u8,          // 1..5
+    pub required_conditions: Vec<String>,
+}
+
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct HypothesisRequest {
+    pub vendor: String,
+    pub firmware: String,
+    pub open_ports: Vec<u16>,
+    pub already_failed: Vec<String>,
+    pub config: LlmConfig,
+}
+
+
+// ═══ НОВАЯ TAURI КОМАНДА ════════════════════════════════════
+
+
+#[tauri::command]
+pub async fn llm_generate_hypotheses(
+    req: HypothesisRequest,
+    log_state: State<'_, crate::LogState>,
+) -> Result<Vec<AttackHypothesis>, String> {
+    let prompt = format!(
+r#"You are a cybersecurity red team AI specializing in IoT/CCTV devices.
+
+
+Target profile:
+- Vendor: {}
+- Firmware: {}
+- Open ports: {:?}
+- Already failed techniques: {}
+
+
+Generate exactly 5 attack hypotheses. Each must be specific and actionable.
+Respond ONLY with valid JSON array, no other text:
+[
+  {{
+    "technique": "short_snake_case_name",
+    "description": "what to do specifically",
+    "expected_probability": 0.0,
+    "stealth_level": 1,
+    "required_conditions": ["condition1", "condition2"]
+  }}
+]
+"#,
+        req.vendor, req.firmware, req.open_ports,
+        req.already_failed.join(", ")
+    );
+
+
+    crate::push_runtime_log(&log_state,
+        format!("LLM_HYPOTHESES|vendor={}|failed={}", req.vendor, req.already_failed.len()));
+
+
+    let raw = match query_ollama(&req.config, &prompt).await {
+        Ok(v) => v,
+        Err(_) => return Ok(default_hypotheses(&req.vendor)),
+    };
+
+
+    let clean = raw.trim()
+        .trim_start_matches("```json").trim_start_matches("```")
+        .trim_end_matches("```").trim();
+
+
+    // Парсим JSON — если LLM ответил неправильно, возвращаем дефолтные
+    let hypotheses: Vec<AttackHypothesis> = serde_json::from_str(clean)
+        .unwrap_or_else(|_| default_hypotheses(&req.vendor));
+
+
+    Ok(hypotheses)
+}
+
+
+// Дефолтные гипотезы если LLM недоступен
+fn default_hypotheses(vendor: &str) -> Vec<AttackHypothesis> {
+    let base = match vendor {
+        "Hikvision" => vec![
+            ("cve_2021_36260", "RCE через /SDK/webLanguage без авторизации", 0.7, 2),
+            ("isapi_unauth", "ISAPI /ISAPI/Security/users без токена", 0.6, 3),
+            ("rtsp_default", "RTSP rtsp://admin:12345@host/Streaming/Channels/101", 0.5, 4),
+        ],
+        "Dahua" => vec![
+            ("cve_2021_33045", "Auth bypass через /cgi-bin/snapshot.cgi", 0.65, 2),
+            ("xm_probe", "XM protocol port 37777 enumeration", 0.5, 3),
+            ("rtsp_default", "RTSP rtsp://admin:admin@host/cam/realmonitor", 0.55, 4),
+        ],
+        _ => vec![
+            ("default_creds", "admin:admin / admin:12345 / admin:", 0.4, 4),
+            ("rtsp_anon", "Anonymous RTSP stream access", 0.35, 5),
+            ("onvif_enum", "ONVIF device enumeration without auth", 0.4, 4),
+        ],
+    };
+    base.into_iter().map(|(t, d, p, s)| AttackHypothesis {
+        technique: t.to_string(), description: d.to_string(),
+        expected_probability: p, stealth_level: s,
+        required_conditions: vec![],
+    }).collect()
+}
