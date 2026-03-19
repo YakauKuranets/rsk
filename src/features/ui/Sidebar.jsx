@@ -265,10 +265,6 @@ export default function Sidebar(props){
   }=props;
 
   const [tab,setTab]=useState('targets');
-  const TabTargets = TargetsPanel;
-  const TabOps = OpsPanel;
-  const TabSystem = SystemPanel;
-
   return(
     <div style={css.panel}>
       <div style={{padding:'10px 14px 8px',borderBottom:'1px solid '+T.line,flexShrink:0,background:T.bg1}}>
@@ -289,7 +285,7 @@ export default function Sidebar(props){
       </div>
 
       <div style={css.scroll}>
-        {tab==='targets'&&<TargetsTab
+        {tab==='targets'&&<TargetsPanel
           targets={targets} filteredTargets={filteredTargets}
           targetSearch={targetSearch} setTargetSearch={setTargetSearch}
           targetTypeFilter={targetTypeFilter} setTargetTypeFilter={setTargetTypeFilter}
@@ -312,7 +308,7 @@ export default function Sidebar(props){
           handleCaptureArchive={handleCaptureArchive}
           hubConfig={hubConfig} fuzzPath={fuzzPath} formatBytes={formatBytes}
         />}
-        {tab==='ops'&&<OpsTab
+        {tab==='ops'&&<OpsPanel
           agentScope={agentScope} setAgentScope={setAgentScope}
           handleRunReconAgent={handleRunReconAgent} agentStatus={agentStatus}
           agentPacket={agentPacket} handleAgentHandoff={handleAgentHandoff}
@@ -323,7 +319,7 @@ export default function Sidebar(props){
           fuzzPath={fuzzPath} formatBytes={formatBytes} handleCaptureArchive={handleCaptureArchive}
         />}
         {tab==='intel'&&<IntelHub/>}
-        {tab==='system'&&<SystemTab
+        {tab==='system'&&<SystemPanel
           runtimeLogs={runtimeLogs} setRuntimeLogs={setRuntimeLogs}
           downloadTasks={downloadTasks} resumeDownloads={resumeDownloads}
           setResumeDownloads={setResumeDownloads}
