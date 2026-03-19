@@ -184,104 +184,117 @@ pub async fn llm_health_check(
 
 
 
+// ДОБАВИТЬ в конец src-tauri/src/llm_orchestrator.rs
+// (не заменять весь файл — добавить эти структуры и функции)
+
+
+// ═══════ НОВЫЕ СТРУКТУРЫ ═══════════════════════════════════════
+
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AttackHypothesis {
     pub technique: String,
-    pub rationale: String,
-    pub confidence: f32,
-    pub prerequisites: Vec<String>,
+    pub description: String,
+    pub expected_probability: f32,  // 0.0..1.0
+    pub stealth_level: u8,          // 1..5
+    pub required_conditions: Vec<String>,
 }
 
-fn default_hypotheses(target_profile: &str) -> Vec<AttackHypothesis> {
-    let lower = target_profile.to_lowercase();
-    let mut out = Vec::new();
 
-    if lower.contains("554") || lower.contains("rtsp") {
-        out.push(AttackHypothesis {
-            technique: "rtsp_anon".to_string(),
-            rationale: "RTSP/554 hints suggest trying anonymous or weakly protected stream access.".to_string(),
-            confidence: 0.72,
-            prerequisites: vec!["Confirm TCP/554 reachability".to_string()],
-        });
-    }
-    if lower.contains("21") || lower.contains("ftp") {
-        out.push(AttackHypothesis {
-            technique: "ftp_anon".to_string(),
-            rationale: "FTP exposure often correlates with archive export or anonymous access testing.".to_string(),
-            confidence: 0.68,
-            prerequisites: vec!["Verify TCP/21 open".to_string()],
-        });
-    }
-    if lower.contains("hik") || lower.contains("isapi") || lower.contains("80") {
-        out.push(AttackHypothesis {
-            technique: "isapi_search".to_string(),
-            rationale: "HTTP/ISAPI indicators suggest enumerating archive and device management endpoints.".to_string(),
-            confidence: 0.74,
-            prerequisites: vec!["Reach HTTP management interface".to_string()],
-        });
-    }
-    if lower.contains("onvif") || lower.contains("8000") || lower.contains("8899") {
-        out.push(AttackHypothesis {
-            technique: "onvif_probe".to_string(),
-            rationale: "ONVIF-related exposure can reveal capabilities, recordings, and media services.".to_string(),
-            confidence: 0.66,
-            prerequisites: vec!["Probe ONVIF device_service endpoint".to_string()],
-        });
-    }
-
-    if out.is_empty() {
-        out.push(AttackHypothesis {
-            technique: "default_creds".to_string(),
-            rationale: "Default credential validation is the safest general-purpose starting hypothesis when context is sparse.".to_string(),
-            confidence: 0.55,
-            prerequisites: vec!["Identify reachable management endpoint".to_string()],
-        });
-        out.push(AttackHypothesis {
-            technique: "cve_probe".to_string(),
-            rationale: "Fallback hypothesis: fingerprint exposure and compare against known vendor/firmware vulnerabilities.".to_string(),
-            confidence: 0.51,
-            prerequisites: vec!["Collect vendor and firmware clues".to_string()],
-        });
-    }
-
-    out.truncate(6);
-    out
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct HypothesisRequest {
+    pub vendor: String,
+    pub firmware: String,
+    pub open_ports: Vec<u16>,
+    pub already_failed: Vec<String>,
+    pub config: LlmConfig,
 }
+
+
+// ═══ НОВАЯ TAURI КОМАНДА ════════════════════════════════════
+
 
 #[tauri::command]
 pub async fn llm_generate_hypotheses(
-    target_profile: String,
-    config: Option<LlmConfig>,
+    req: HypothesisRequest,
     log_state: State<'_, crate::LogState>,
 ) -> Result<Vec<AttackHypothesis>, String> {
-    crate::push_runtime_log(&log_state, "LLM_HYPOTHESES|start".to_string());
+    let prompt = format!(
+r#"You are a cybersecurity red team AI specializing in IoT/CCTV devices.
 
-    let Some(config) = config else {
-        return Ok(default_hypotheses(&target_profile));
-    };
-
-    let prompt = format!(r#"You are a cybersecurity AI assistant.
-Generate up to 6 attack or reconnaissance hypotheses for the following target profile.
-Respond with JSON array only.
-Each item must be:
-{{"technique":"short_name","rationale":"why","confidence":0.0-1.0,"prerequisites":["item1"]}}
 
 Target profile:
-{}
-"#, target_profile);
+- Vendor: {}
+- Firmware: {}
+- Open ports: {:?}
+- Already failed techniques: {}
 
-    let raw = match query_ollama(&config, &prompt).await {
+
+Generate exactly 5 attack hypotheses. Each must be specific and actionable.
+Respond ONLY with valid JSON array, no other text:
+[
+  {{
+    "technique": "short_snake_case_name",
+    "description": "what to do specifically",
+    "expected_probability": 0.0,
+    "stealth_level": 1,
+    "required_conditions": ["condition1", "condition2"]
+  }}
+]
+"#,
+        req.vendor, req.firmware, req.open_ports,
+        req.already_failed.join(", ")
+    );
+
+
+    crate::push_runtime_log(&log_state,
+        format!("LLM_HYPOTHESES|vendor={}|failed={}", req.vendor, req.already_failed.len()));
+
+
+    let raw = match query_ollama(&req.config, &prompt).await {
         Ok(v) => v,
-        Err(_) => return Ok(default_hypotheses(&target_profile)),
+        Err(_) => return Ok(default_hypotheses(&req.vendor)),
     };
+
 
     let clean = raw.trim()
         .trim_start_matches("```json").trim_start_matches("```")
         .trim_end_matches("```").trim();
 
+
+    // Парсим JSON — если LLM ответил неправильно, возвращаем дефолтные
     let hypotheses: Vec<AttackHypothesis> = serde_json::from_str(clean)
-        .unwrap_or_else(|_| default_hypotheses(&target_profile));
+        .unwrap_or_else(|_| default_hypotheses(&req.vendor));
+
 
     Ok(hypotheses)
+}
+
+
+// Дефолтные гипотезы если LLM недоступен
+fn default_hypotheses(vendor: &str) -> Vec<AttackHypothesis> {
+    let base = match vendor {
+        "Hikvision" => vec![
+            ("cve_2021_36260", "RCE через /SDK/webLanguage без авторизации", 0.7, 2),
+            ("isapi_unauth", "ISAPI /ISAPI/Security/users без токена", 0.6, 3),
+            ("rtsp_default", "RTSP rtsp://admin:12345@host/Streaming/Channels/101", 0.5, 4),
+        ],
+        "Dahua" => vec![
+            ("cve_2021_33045", "Auth bypass через /cgi-bin/snapshot.cgi", 0.65, 2),
+            ("xm_probe", "XM protocol port 37777 enumeration", 0.5, 3),
+            ("rtsp_default", "RTSP rtsp://admin:admin@host/cam/realmonitor", 0.55, 4),
+        ],
+        _ => vec![
+            ("default_creds", "admin:admin / admin:12345 / admin:", 0.4, 4),
+            ("rtsp_anon", "Anonymous RTSP stream access", 0.35, 5),
+            ("onvif_enum", "ONVIF device enumeration without auth", 0.4, 4),
+        ],
+    };
+    base.into_iter().map(|(t, d, p, s)| AttackHypothesis {
+        technique: t.to_string(), description: d.to_string(),
+        expected_probability: p, stealth_level: s,
+        required_conditions: vec![],
+    }).collect()
 }
