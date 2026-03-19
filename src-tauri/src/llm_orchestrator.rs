@@ -182,3 +182,106 @@ pub async fn llm_health_check(
     Ok(resp.map(|r| r.status().is_success()).unwrap_or(false))
 }
 
+
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AttackHypothesis {
+    pub technique: String,
+    pub rationale: String,
+    pub confidence: f32,
+    pub prerequisites: Vec<String>,
+}
+
+fn default_hypotheses(target_profile: &str) -> Vec<AttackHypothesis> {
+    let lower = target_profile.to_lowercase();
+    let mut out = Vec::new();
+
+    if lower.contains("554") || lower.contains("rtsp") {
+        out.push(AttackHypothesis {
+            technique: "rtsp_anon".to_string(),
+            rationale: "RTSP/554 hints suggest trying anonymous or weakly protected stream access.".to_string(),
+            confidence: 0.72,
+            prerequisites: vec!["Confirm TCP/554 reachability".to_string()],
+        });
+    }
+    if lower.contains("21") || lower.contains("ftp") {
+        out.push(AttackHypothesis {
+            technique: "ftp_anon".to_string(),
+            rationale: "FTP exposure often correlates with archive export or anonymous access testing.".to_string(),
+            confidence: 0.68,
+            prerequisites: vec!["Verify TCP/21 open".to_string()],
+        });
+    }
+    if lower.contains("hik") || lower.contains("isapi") || lower.contains("80") {
+        out.push(AttackHypothesis {
+            technique: "isapi_search".to_string(),
+            rationale: "HTTP/ISAPI indicators suggest enumerating archive and device management endpoints.".to_string(),
+            confidence: 0.74,
+            prerequisites: vec!["Reach HTTP management interface".to_string()],
+        });
+    }
+    if lower.contains("onvif") || lower.contains("8000") || lower.contains("8899") {
+        out.push(AttackHypothesis {
+            technique: "onvif_probe".to_string(),
+            rationale: "ONVIF-related exposure can reveal capabilities, recordings, and media services.".to_string(),
+            confidence: 0.66,
+            prerequisites: vec!["Probe ONVIF device_service endpoint".to_string()],
+        });
+    }
+
+    if out.is_empty() {
+        out.push(AttackHypothesis {
+            technique: "default_creds".to_string(),
+            rationale: "Default credential validation is the safest general-purpose starting hypothesis when context is sparse.".to_string(),
+            confidence: 0.55,
+            prerequisites: vec!["Identify reachable management endpoint".to_string()],
+        });
+        out.push(AttackHypothesis {
+            technique: "cve_probe".to_string(),
+            rationale: "Fallback hypothesis: fingerprint exposure and compare against known vendor/firmware vulnerabilities.".to_string(),
+            confidence: 0.51,
+            prerequisites: vec!["Collect vendor and firmware clues".to_string()],
+        });
+    }
+
+    out.truncate(6);
+    out
+}
+
+#[tauri::command]
+pub async fn llm_generate_hypotheses(
+    target_profile: String,
+    config: Option<LlmConfig>,
+    log_state: State<'_, crate::LogState>,
+) -> Result<Vec<AttackHypothesis>, String> {
+    crate::push_runtime_log(&log_state, "LLM_HYPOTHESES|start".to_string());
+
+    let Some(config) = config else {
+        return Ok(default_hypotheses(&target_profile));
+    };
+
+    let prompt = format!(r#"You are a cybersecurity AI assistant.
+Generate up to 6 attack or reconnaissance hypotheses for the following target profile.
+Respond with JSON array only.
+Each item must be:
+{{"technique":"short_name","rationale":"why","confidence":0.0-1.0,"prerequisites":["item1"]}}
+
+Target profile:
+{}
+"#, target_profile);
+
+    let raw = match query_ollama(&config, &prompt).await {
+        Ok(v) => v,
+        Err(_) => return Ok(default_hypotheses(&target_profile)),
+    };
+
+    let clean = raw.trim()
+        .trim_start_matches("```json").trim_start_matches("```")
+        .trim_end_matches("```").trim();
+
+    let hypotheses: Vec<AttackHypothesis> = serde_json::from_str(clean)
+        .unwrap_or_else(|_| default_hypotheses(&target_profile));
+
+    Ok(hypotheses)
+}

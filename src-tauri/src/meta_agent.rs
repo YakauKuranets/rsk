@@ -4,7 +4,7 @@
 
 use crate::agents::handoff::{Finding, FindingType, Severity};
 use crate::feedback_store::{
-    DeviceProfile, FailureReason, FeedbackStore, SuccessCondition, TechniqueOutcome,
+    DeviceProfile, FailureReason, FeedbackStore, TechniqueOutcome,
 };
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
@@ -82,7 +82,8 @@ fn select_next_technique(
             .flat_map(|p| p.successful_techniques.iter().cloned())
             .collect::<std::collections::HashSet<_>>()
             .into_iter().collect();
-        knn.extend(candidates.into_iter().filter(|t| !knn.contains(t)));
+        let existing: std::collections::HashSet<String> = knn.iter().cloned().collect();
+        knn.extend(candidates.into_iter().filter(|t| !existing.contains(t)));
         candidates = knn;
     }
     let chosen = feedback.select_technique_ucb(vendor, &candidates, epsilon);
@@ -95,7 +96,7 @@ async fn measure_technique_outcome(
     technique: &str,
     scope: &str,
     known_creds: &[(String, String)],
-    log_state: &crate::LogState,
+    log_state: &State<'_, crate::LogState>,
 ) -> TechniqueOutcome {
     let t0 = std::time::Instant::now();
     let client = reqwest::Client::builder()

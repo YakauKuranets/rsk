@@ -77,6 +77,7 @@ mod msf_client;
 mod post_exploit;
 mod phishing_generator;
 mod continuous_monitor;
+mod context_learner;
 mod firmware_intelligence;
 mod anomaly_detector;
 mod telegram_osint;
@@ -6746,6 +6747,7 @@ fn main() {
     dotenv().ok();
 
     let feedback_store = Arc::new(feedback_store::FeedbackStore::new());
+    let context_store = Arc::new(context_learner::ContextStore::new());
 
     let (job_manager, job_receiver) = job_runner::JobManager::new();
     let worker_feedback_store = feedback_store.clone();
@@ -6893,6 +6895,7 @@ fn main() {
         })
         .manage(Arc::new(job_manager))
         .manage(feedback_store.clone())
+        .manage(context_store.clone())
         .manage(scope_guard::ScopeGuard {
             authorized_ranges: std::sync::RwLock::new(Vec::new()),
         })
@@ -7074,6 +7077,9 @@ fn main() {
             scout_agent::list_scout_agents,
             feedback_store::get_technique_stats,
             feedback_store::reset_campaign_memory,
+            context_learner::context_find_similar,
+            context_learner::context_get_stats,
+            llm_orchestrator::llm_generate_hypotheses,
             continuous_monitor::start_monitor_job,
             continuous_monitor::stop_monitor_job,
             continuous_monitor::list_monitor_jobs,
