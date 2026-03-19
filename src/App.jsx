@@ -22,6 +22,9 @@ import AgentReport from './features/agents/AgentReport';
 import RelayPanel from './features/relay/RelayPanel';
 import RuntimeLogs from './features/logs/RuntimeLogs';
 import TargetList from './features/targets/TargetList';
+import HubReconPanel from './features/archive/HubReconPanel';
+import CapturePanel from './features/archive/CapturePanel';
+import NvrProbePanel from './features/archive/NvrProbePanel';
 import { useNvrPanel } from './hooks/useNvrPanel';
 import { useCapturePanel } from './hooks/useCapturePanel';
 import { useHubRecon } from './hooks/useHubRecon';
@@ -155,15 +158,6 @@ export default function App() {
   const [agentStatus, setAgentStatus] = useState('');
   const capture = useCapturePanel();
   const hubRecon = useHubRecon();
-
-  // --- RELAY ---
-  const [relayUrl, setRelayUrl] = useState(() => {
-    try { return localStorage.getItem('hyperion_relay_url') || ''; } catch { return ''; }
-  });
-  const [relayToken, setRelayToken] = useState(() => {
-    try { return localStorage.getItem('hyperion_relay_token') || ''; } catch { return ''; }
-  });
-  const [relayStatus, setRelayStatus] = useState(null);
 
   const hubConfig = { cookie: '' };
 
@@ -540,6 +534,17 @@ export default function App() {
       handleStartStream(fakeTerminal, fakeChannel);
   };
 
+  const getRelayConfig = () => {
+    try {
+      return {
+        relayUrl: localStorage.getItem('hyperion_relay_url') || '',
+        relayToken: localStorage.getItem('hyperion_relay_token') || '',
+      };
+    } catch {
+      return { relayUrl: '', relayToken: '' };
+    }
+  };
+
   // --- FTP ПРОВОДНИК (с поддержкой relay) ---
   const fetchFtpRoot = async (serverAlias, path = "/") => {
     setFtpBrowserOpen(true);
@@ -547,6 +552,7 @@ export default function App() {
     setFtpPath(path);
 
     setLoading(true);
+    const { relayUrl, relayToken } = getRelayConfig();
 
     // Если relay настроен — идём через него
     if (relayUrl.trim()) {
@@ -610,6 +616,7 @@ export default function App() {
     setRadarStatus(`СКАЧИВАНИЕ ФАЙЛА: ${filename}...`);
     try {
         let report;
+        const { relayUrl, relayToken } = getRelayConfig();
 
         // Relay или прямой FTP
         if (relayUrl.trim()) {
@@ -1551,115 +1558,14 @@ const handleSecurityAudit = async () => {
 
 
         <SpiderControl handleStartNemesis={handleStartNemesis} handleAnalyzeSources={handleAnalyzeSources} handlePlayFuzzedLink={handlePlayFuzzedLink} />
-
-
-        {/* =============== РАЗВЕДКА АРХИВНЫХ МАРШРУТОВ =============== */}
-        <div style={{ border: '1px solid #00ff9c', padding: '10px', backgroundColor: '#001a0a', marginBottom: '20px', boxShadow: '0 0 10px rgba(0,255,156,0.15)' }}>
-          <h3 style={{ color: '#00ff9c', marginTop: '0', fontSize: '0.9rem' }}>🔍 РАЗВЕДКА АРХИВА (HUB)</h3>
-          <div style={{ fontSize: '10px', color: '#6b9', marginBottom: '8px' }}>
-            Прощупывает все PHP-эндпоинты stream.example.local на наличие архивного доступа для конкретной камеры.
-          </div>
-
-          <div style={{ display: 'flex', gap: '6px', marginBottom: '6px' }}>
-            <input
-              style={{ flex: 1, backgroundColor: '#000', border: '1px solid #00ff9c', color: '#00ff9c', padding: '6px', boxSizing: 'border-box', fontSize: '11px' }}
-              placeholder="User ID (напр. 1234)"
-              value={hubRecon.reconUserId}
-              onChange={e => hubRecon.setReconUserId(e.target.value)}
-            />
-            <input
-              style={{ flex: 1, backgroundColor: '#000', border: '1px solid #00ff9c', color: '#00ff9c', padding: '6px', boxSizing: 'border-box', fontSize: '11px' }}
-              placeholder="Channel (0,1,2...)"
-              value={hubRecon.reconChannelId}
-              onChange={e => hubRecon.setReconChannelId(e.target.value)}
-            />
-            <input
-              type="date"
-              style={{ flex: 1, backgroundColor: '#000', border: '1px solid #00ff9c', color: '#00ff9c', padding: '6px', boxSizing: 'border-box', fontSize: '11px' }}
-              value={hubRecon.reconDate}
-              onChange={e => hubRecon.setReconDate(e.target.value)}
-            />
-          </div>
-
-          <button
-            disabled={hubRecon.reconRunning}
-            onClick={async () => {
-              if (!hubRecon.reconUserId.trim()) return toast('Введите User ID камеры');
-              hubRecon.setReconRunning(true);
-              hubRecon.setReconResults([]);
-              try {
-                const results = await invoke('recon_hub_archive_routes', {
-                  userId: hubRecon.reconUserId,
-                  channelId: hubRecon.reconChannelId,
-                  adminHash: hubConfig.cookie.split('admin=')[1]?.split(';')[0]?.trim() || '',
-                  targetDate: hubRecon.reconDate || null,
-                  targetFtpPath: fuzzPath || null,
-                });
-                hubRecon.setReconResults(results);
-              } catch (err) {
-                toast(`Ошибка разведки: ${err}`);
-              } finally {
-                hubRecon.setReconRunning(false);
-              }
-            }}
-            style={{ width: '100%', backgroundColor: hubRecon.reconRunning ? '#333' : '#00ff9c', color: '#000', border: 'none', padding: '8px', cursor: hubRecon.reconRunning ? 'wait' : 'pointer', fontWeight: 'bold', fontSize: '11px', letterSpacing: '1px' }}
-          >
-            {hubRecon.reconRunning ? '⏳ РАЗВЕДКА...' : '🔍 ЗАПУСТИТЬ РАЗВЕДКУ МАРШРУТОВ'}
-          </button>
-
-          {hubRecon.reconResults.length > 0 && (
-            <div style={{ marginTop: '10px', border: '1px solid #00ff9c', background: '#000', maxHeight: '300px', overflowY: 'auto', padding: '6px' }}>
-              <div style={{ color: '#00ff9c', fontSize: '10px', fontWeight: 'bold', marginBottom: '6px' }}>
-                РЕЗУЛЬТАТЫ: {hubRecon.reconResults.length} маршрутов | {hubRecon.reconResults.filter(r => r.isVideo).length} видео | {hubRecon.reconResults.filter(r => r.isRedirect).length} редиректов
-              </div>
-              {hubRecon.reconResults.map((r, idx) => (
-                <div key={idx} style={{
-                  borderBottom: '1px solid #112',
-                  padding: '6px 0',
-                  opacity: r.verdict.includes('НЕ НАЙДЕНО') || r.verdict.includes('ПУСТО') ? 0.4 : 1
-                }}>
-                  <div style={{ fontSize: '10px', color: r.isVideo ? '#00ff9c' : r.isRedirect ? '#ffcc00' : '#888', fontWeight: r.isVideo ? 'bold' : 'normal' }}>
-                    {r.verdict}
-                  </div>
-                  <div style={{ fontSize: '9px', color: '#666', wordBreak: 'break-all' }}>
-                    {r.method} {r.url}
-                  </div>
-                  <div style={{ fontSize: '9px', color: '#555' }}>
-                    HTTP {r.statusCode} | {r.contentType || 'n/a'} | {r.contentLength > 0 ? formatBytes(r.contentLength) : '0'}
-                  </div>
-                  {r.bodyPreview && r.bodyPreview.length > 10 && !r.bodyPreview.startsWith('[') && (
-                    <div style={{ fontSize: '9px', color: '#444', marginTop: '2px', maxHeight: '30px', overflow: 'hidden' }}>
-                      {r.bodyPreview.substring(0, 150)}
-                    </div>
-                  )}
-                  {/* Кнопка: захватить найденное видео */}
-                  {r.isVideo && (
-                    <button
-                      onClick={() => {
-                        capture.setCaptureUrl(r.url);
-                        handleCaptureArchive(r.url, `recon_${hubRecon.reconUserId}_ch${hubRecon.reconChannelId}_${hubRecon.reconDate}.mp4`, capture.captureDuration, `Cookie: ${hubConfig.cookie}\r\nReferer: https://stream.example.local/stream/admin.php\r\n`);
-                      }}
-                      style={{ marginTop: '4px', background: '#1a4a1a', color: '#00ff9c', border: '1px solid #00ff9c', padding: '3px 8px', cursor: 'pointer', fontSize: '9px', fontWeight: 'bold' }}
-                    >
-                      🎬 ЗАХВАТИТЬ ЭТОТ ПОТОК
-                    </button>
-                  )}
-                  {r.isRedirect && r.redirectTo && (
-                    <button
-                      onClick={() => {
-                        const fullUrl = r.redirectTo.startsWith('http') ? r.redirectTo : `https://stream.example.local${r.redirectTo}`;
-                        capture.setCaptureUrl(fullUrl);
-                      }}
-                      style={{ marginTop: '4px', background: '#4a4a1a', color: '#ffcc00', border: '1px solid #ffcc00', padding: '3px 8px', cursor: 'pointer', fontSize: '9px' }}
-                    >
-                      ↗️ СЛЕДОВАТЬ ЗА РЕДИРЕКТОМ
-                    </button>
-                  )}
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
+        <HubReconPanel
+          hubRecon={hubRecon}
+          capture={capture}
+          hubConfig={hubConfig}
+          fuzzPath={fuzzPath}
+          formatBytes={formatBytes}
+          handleCaptureArchive={handleCaptureArchive}
+        />
 
         <AssetDiscovery />
         <AttackGraph targets={filteredTargets} />
@@ -1699,214 +1605,27 @@ const handleSecurityAudit = async () => {
 
         <hr style={{ borderColor: '#222' }} />
 
-        {/* =============== ЗАХВАТ АРХИВА (УНИВЕРСАЛЬНЫЙ) =============== */}
-        <div style={{ marginTop: '20px', border: '1px solid #ff9900', padding: '10px', backgroundColor: '#1a1100', marginBottom: '20px' }}>
-          <h3 style={{ color: '#ff9900', marginTop: '0', fontSize: '0.9rem' }}>📦 ЗАХВАТ АРХИВА (FFmpeg / HTTP)</h3>
-          <div style={{ fontSize: '10px', color: '#aa8833', marginBottom: '8px' }}>
-            Введите RTSP, HTTP или MJPEG URL источника. FFmpeg захватит видео в MP4.
-          </div>
+        <CapturePanel
+          capture={capture}
+          handleCaptureArchive={handleCaptureArchive}
+          handleDownloadHttp={handleDownloadHttp}
+          activeTargetId={activeTargetId}
+          streamRtspUrl={streamRtspUrl}
+          activeCameraName={activeCameraName}
+        />
 
-          <input
-            style={{ width: '100%', backgroundColor: '#000', border: '1px solid #ff9900', color: '#ff9900', padding: '8px', marginBottom: '6px', boxSizing: 'border-box', fontSize: '11px' }}
-            placeholder="rtsp://admin:pass@192.168.1.100/Streaming/tracks/101"
-            value={capture.captureUrl}
-            onChange={e => capture.setCaptureUrl(e.target.value)}
-          />
-
-          <div style={{ display: 'flex', gap: '6px', marginBottom: '6px' }}>
-            <input
-              style={{ flex: 2, backgroundColor: '#000', border: '1px solid #ff9900', color: '#ff9900', padding: '6px', boxSizing: 'border-box', fontSize: '11px' }}
-              placeholder="Имя файла (авто)"
-              value={capture.captureFilename}
-              onChange={e => capture.setCaptureFilename(e.target.value)}
-            />
-            <input
-              type="number"
-              style={{ flex: 1, backgroundColor: '#000', border: '1px solid #ff9900', color: '#ff9900', padding: '6px', boxSizing: 'border-box', fontSize: '11px' }}
-              placeholder="Сек"
-              value={capture.captureDuration}
-              onChange={e => capture.setCaptureDuration(parseInt(e.target.value) || 60)}
-            />
-          </div>
-
-          <div style={{ display: 'flex', gap: '6px' }}>
-            <button
-              onClick={() => {
-                if (!capture.captureUrl.trim()) return toast('Введите URL источника');
-                handleCaptureArchive(capture.captureUrl, capture.captureFilename || null, capture.captureDuration);
-              }}
-              style={{ flex: 1, backgroundColor: '#ff9900', color: '#000', border: 'none', padding: '8px', cursor: 'pointer', fontWeight: 'bold', fontSize: '11px' }}
-            >
-              🎬 ЗАХВАТ (FFmpeg)
-            </button>
-            <button
-              onClick={() => {
-                if (!capture.captureUrl.trim()) return toast('Введите URL для скачивания');
-                handleDownloadHttp(capture.captureUrl, { filenameHint: capture.captureFilename || null });
-              }}
-              style={{ flex: 1, backgroundColor: '#1a4a1a', color: '#9f9', border: '1px solid #4a4', padding: '8px', cursor: 'pointer', fontWeight: 'bold', fontSize: '11px' }}
-            >
-              ⬇ HTTP ПРЯМАЯ
-            </button>
-          </div>
-
-          {/* Быстрые кнопки для текущего стрима */}
-          {activeTargetId && streamRtspUrl && streamRtspUrl !== 'hub' && (
-            <button
-              onClick={() => handleCaptureArchive(streamRtspUrl, `${activeCameraName.replace(/[^a-zA-Zа-яА-Я0-9]/g, '_')}_${Date.now()}.mp4`, capture.captureDuration)}
-              style={{ width: '100%', marginTop: '6px', backgroundColor: '#4a3a1a', color: '#ffd27a', border: '1px solid #ff9900', padding: '8px', cursor: 'pointer', fontWeight: 'bold', fontSize: '11px' }}
-            >
-              📹 ЗАПИСАТЬ ТЕКУЩИЙ СТРИМ ({capture.captureDuration}с)
-            </button>
-          )}
-        </div>
-
-        <div style={{ marginTop: '20px' }}>
-          <h3 style={{ color: '#00f0ff', fontSize: '0.9rem', marginBottom: '10px' }}>АНАЛИЗАТОР УЗЛА (ПОРТЫ И ЗАЩИТА)</h3>
-          <div style={{ display: 'flex', gap: '6px', marginBottom: '10px' }}>
-            <input
-              style={{ flex: 1, backgroundColor: '#000', border: '1px solid #333', color: '#00f0ff', padding: '10px', boxSizing: 'border-box' }}
-              placeholder='IP/Host (пример: 192.168.1.100)'
-              value={capture.portScanHost}
-              onChange={e => capture.setPortScanHost(e.target.value)}
-            />
-            <button onClick={handlePortScan} style={{ backgroundColor: '#1a4a4a', color: '#00f0ff', border: '1px solid #00f0ff', cursor: 'pointer', padding: '0 12px', fontWeight: 'bold' }}>ПОРТЫ</button>
-            <button onClick={handleSecurityAudit} style={{ backgroundColor: '#4a1a4a', color: '#ff00ff', border: '1px solid #ff00ff', cursor: 'pointer', padding: '0 12px', fontWeight: 'bold' }}>АУДИТ</button>
-          </div>
-
-          {capture.portScanResult.length > 0 && (
-            <div style={{ border: '1px solid #222', background: '#050505', marginBottom: '10px' }}>
-              {capture.portScanResult.map((item) => (
-                <div key={item.port} style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 10px', borderBottom: '1px solid #111', fontSize: '11px' }}>
-                  <span style={{ color: '#aaa' }}>{item.port} / {item.service}</span>
-                  <span style={{ color: item.open ? '#00ff9c' : '#ff5555', fontWeight: 'bold' }}>{item.open ? 'OPEN' : 'CLOSED'}</span>
-                </div>
-              ))}
-            </div>
-          )}
-
-          {auditResults.length > 0 && (
-            <div style={{ border: '1px solid #ff00ff', background: '#1a001a', padding: '8px' }}>
-              <div style={{ color: '#ff00ff', fontSize: '10px', marginBottom: '6px', fontWeight: 'bold' }}>РЕЗУЛЬТАТЫ ГЛУБОКОГО АУДИТА:</div>
-              {auditResults.map((line, idx) => (
-                <div key={idx} style={{ fontSize: '11px', color: line.includes('🔴') ? '#ff5555' : line.includes('🟢') ? '#00ff9c' : '#aaa', marginBottom: '4px' }}>
-                  {line}
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
-
-        <hr style={{ borderColor: '#222' }} />
-
-        <div style={{ marginTop: '20px' }}>
-          <h3 style={{ color: '#00f0ff', fontSize: '0.9rem', marginBottom: '10px' }}>NVR PROBE (ISAPI/ONVIF)</h3>
-          <div style={{ border: '1px solid #222', background: '#050505', maxHeight: '180px', overflowY: 'auto', padding: '8px' }}>
-            {nvr.nvrProbeResults.length === 0 && (
-              <div style={{ color: '#666', fontSize: '11px' }}>Нет данных. Нажми «⏳ ЗАПРОС ПАМЯТИ» у локальной цели.</div>
-            )}
-            {nvr.nvrProbeResults.map((r, idx) => (
-              <div key={`${r.protocol}_${r.endpoint}_${idx}`} style={{ borderBottom: '1px solid #111', padding: '6px 0' }}>
-                <div style={{ fontSize: '10px', color: '#bbb' }}>{r.protocol}</div>
-                <div style={{ fontSize: '10px', color: '#777', wordBreak: 'break-all' }}>{r.endpoint}</div>
-                <div style={{ fontSize: '10px', color: r.status === 'detected' ? '#00ff9c' : r.status === 'not_detected' ? '#ffcc66' : '#ff5555' }}>{r.status}</div>
-              </div>
-            ))}
-          </div>
-        </div>
-
-        <div style={{ marginTop: '14px' }}>
-          <h3 style={{ color: '#00f0ff', fontSize: '0.85rem', marginBottom: '8px' }}>ISAPI DEVICE INFO</h3>
-          <div style={{ border: '1px solid #222', background: '#050505', maxHeight: '160px', overflowY: 'auto', padding: '8px' }}>
-            {!nvr.nvrDeviceInfo && <div style={{ color: '#666', fontSize: '11px' }}>Нет данных. Нажми «ℹ ISAPI DEVICE INFO» у локальной цели.</div>}
-            {nvr.nvrDeviceInfo && (
-              <>
-                <div style={{ color: '#aaa', fontSize: '10px', marginBottom: '6px', wordBreak: 'break-all' }}>{nvr.nvrDeviceInfo.endpoint} [{nvr.nvrDeviceInfo.status}]</div>
-                <pre style={{ margin: 0, color: '#9fc2ff', fontSize: '10px', whiteSpace: 'pre-wrap' }}>{nvr.nvrDeviceInfo.bodyPreview || 'empty'}</pre>
-              </>
-            )}
-          </div>
-        </div>
-
-        <div style={{ marginTop: '14px' }}>
-          <h3 style={{ color: '#9fd7ff', fontSize: '0.85rem', marginBottom: '8px' }}>ISAPI SEARCH RESULTS</h3>
-          <div style={{ display: 'flex', gap: '6px', marginBottom: '6px' }}>
-            <input value={nvr.isapiFrom} onChange={(e) => nvr.setIsapiFrom(e.target.value)} style={{ flex: 1, background: '#000', color: '#9fd7ff', border: '1px solid #1f2d4a', padding: '4px', fontSize: '10px' }} placeholder='from' />
-            <input value={nvr.isapiTo} onChange={(e) => nvr.setIsapiTo(e.target.value)} style={{ flex: 1, background: '#000', color: '#9fd7ff', border: '1px solid #1f2d4a', padding: '4px', fontSize: '10px' }} placeholder='to' />
-          </div>
-          <div style={{ border: '1px solid #1f2d4a', background: '#05070b', maxHeight: '160px', overflowY: 'auto', padding: '8px' }}>
-            {nvr.isapiSearchResults.length === 0 && <div style={{ color: '#666', fontSize: '11px' }}>Нет данных. Нажми «🔎 ISAPI SEARCH RECORDS» у локальной цели.</div>}
-            {nvr.isapiSearchResults.map((item, idx) => (
-              <div key={`${item.endpoint}_${idx}`} style={{ borderBottom: '1px solid #111', padding: '6px 0', fontSize: '10px' }}>
-                <div style={{ color: '#90b8d8', wordBreak: 'break-all' }}>{item.endpoint}</div>
-                <div style={{ color: '#7fa9cb' }}>track: {item.trackId || '-'}</div>
-                <div style={{ color: '#7fa9cb' }}>start: {item.startTime || '-'}</div>
-                <div style={{ color: '#7fa9cb' }}>end: {item.endTime || '-'}</div>
-                <div style={{ color: '#7fa9cb' }}>
-                  probe: transport={item.transport || '-'} | playable={String(isPlayableRecord(item))} | downloadable={String(isDownloadableRecord(item))} | conf={item.confidence ?? 0}
-                </div>
-                <div style={{ color: '#9fd7ff', wordBreak: 'break-all' }}>uri: {item.playbackUri || '-'}</div>
-                {item.playbackUri && (
-                  <div style={{ display: 'flex', gap: '6px', marginTop: '6px' }}>
-                    <button onClick={() => handleDownloadIsapiPlayback(item)} disabled={!isDownloadableRecord(item)} style={{ background: isDownloadableRecord(item) ? '#1f3a2a' : '#1a1a1a', color: isDownloadableRecord(item) ? '#9fffc5' : '#666', border: isDownloadableRecord(item) ? '1px solid #38a169' : '1px solid #333', padding: '3px 6px', cursor: isDownloadableRecord(item) ? 'pointer' : 'not-allowed', fontSize: '10px', opacity: isDownloadableRecord(item) ? 1 : 0.7 }}>
-                      {isDownloadableRecord(item) ? '⬇ DOWNLOAD BY URI' : 'NO-DL (probe)'}
-                    </button>
-                    <button onClick={() => handleCaptureIsapiPlayback(item)} style={{ background: '#12263d', color: '#9fd7ff', border: '1px solid #2f6aa3', padding: '3px 6px', cursor: 'pointer', fontSize: '10px' }}>
-                      ◉ CAPTURE FALLBACK
-                    </button>
-                  </div>
-                )}
-              </div>
-            ))}
-          </div>
-        </div>
-
-        <div style={{ marginTop: '14px' }}>
-          <h3 style={{ color: '#00f0ff', fontSize: '0.85rem', marginBottom: '8px' }}>ONVIF DEVICE INFO</h3>
-          <div style={{ border: '1px solid #222', background: '#050505', maxHeight: '160px', overflowY: 'auto', padding: '8px' }}>
-            {!nvr.onvifDeviceInfo && <div style={{ color: '#666', fontSize: '11px' }}>Нет данных. Нажми «ℹ ONVIF DEVICE INFO» у локальной цели.</div>}
-            {nvr.onvifDeviceInfo && (
-              <>
-                <div style={{ color: '#aaa', fontSize: '10px', marginBottom: '6px', wordBreak: 'break-all' }}>{nvr.onvifDeviceInfo.endpoint} [{nvr.onvifDeviceInfo.status}]</div>
-                <pre style={{ margin: 0, color: '#a8ffb0', fontSize: '10px', whiteSpace: 'pre-wrap' }}>{nvr.onvifDeviceInfo.bodyPreview || 'empty'}</pre>
-              </>
-            )}
-          </div>
-        </div>
-
-        <div style={{ marginTop: '14px' }}>
-          <h3 style={{ color: '#b9ffcf', fontSize: '0.85rem', marginBottom: '8px' }}>ONVIF RECORDING TOKENS</h3>
-          <div style={{ border: '1px solid #2a5a36', background: '#050b06', maxHeight: '130px', overflowY: 'auto', padding: '8px' }}>
-            {nvr.onvifRecordingTokens.length === 0 && <div style={{ color: '#666', fontSize: '11px' }}>Нет данных. Нажми «🔎 ONVIF RECORDINGS» у локальной цели.</div>}
-            {nvr.onvifRecordingTokens.map((item, idx) => (
-              <div key={`${item.endpoint}_${item.token}_${idx}`} style={{ borderBottom: '1px solid #132418', padding: '6px 0' }}>
-                <div style={{ color: '#88c89b', fontSize: '10px', wordBreak: 'break-all' }}>{item.endpoint}</div>
-                <div style={{ color: '#b9ffcf', fontSize: '10px' }}>token: {item.token}</div>
-                <button onClick={() => handleDownloadOnvifToken(item)} style={{ marginTop: '6px', background: '#1f3a2a', color: '#b9ffcf', border: '1px solid #38a169', padding: '3px 6px', cursor: 'pointer', fontSize: '10px' }}>
-                  ⬇ DOWNLOAD TOKEN
-                </button>
-              </div>
-            ))}
-          </div>
-        </div>
-
-        <div style={{ marginTop: '14px' }}>
-          <h3 style={{ color: '#ffd27a', fontSize: '0.85rem', marginBottom: '8px' }}>ARCHIVE EXPORT ENDPOINTS</h3>
-          <div style={{ border: '1px solid #3a2a1a', background: '#0b0805', maxHeight: '160px', overflowY: 'auto', padding: '8px' }}>
-            {nvr.archiveProbeResults.length === 0 && <div style={{ color: '#666', fontSize: '11px' }}>Нет данных. Нажми «📦 PROBE EXPORT ENDPOINTS» у локальной цели.</div>}
-            {nvr.archiveProbeResults.map((item, idx) => (
-              <div key={`${item.endpoint}_${idx}`} style={{ borderBottom: '1px solid #22180f', padding: '6px 0' }}>
-                <div style={{ fontSize: '10px', color: '#e9cda1' }}>{item.protocol} · {item.method}</div>
-                <div style={{ fontSize: '10px', color: '#777', wordBreak: 'break-all' }}>{item.endpoint}</div>
-                <div style={{ fontSize: '10px', color: item.status === 'detected' ? '#7dff9c' : item.status === 'not_detected' ? '#ffcc66' : '#ff5555' }}>
-                  {item.status}{item.statusCode ? ` (HTTP ${item.statusCode})` : ''}
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-
-        <hr style={{ borderColor: '#222' }} />
+        <NvrProbePanel
+          capture={capture}
+          auditResults={auditResults}
+          nvr={nvr}
+          handlePortScan={handlePortScan}
+          handleSecurityAudit={handleSecurityAudit}
+          isPlayableRecord={isPlayableRecord}
+          isDownloadableRecord={isDownloadableRecord}
+          handleDownloadIsapiPlayback={handleDownloadIsapiPlayback}
+          handleCaptureIsapiPlayback={handleCaptureIsapiPlayback}
+          handleDownloadOnvifToken={handleDownloadOnvifToken}
+        />
 
         <div style={{ marginTop: '20px' }}>
           <h3 style={{ color: '#00f0ff', fontSize: '0.9rem', marginBottom: '10px' }}>РЕГИСТРАЦИЯ ЛОКАЛЬНОГО УЗЛА</h3>
