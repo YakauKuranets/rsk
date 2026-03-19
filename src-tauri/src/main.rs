@@ -88,6 +88,7 @@ mod cve_predictor;
 mod rest_api;
 mod html_report;
 mod ioc_sharing;
+mod llm_orchestrator;
 use scout_agent::ScoutState;
 use suppaftp::FtpStream;
 use tauri::State;
