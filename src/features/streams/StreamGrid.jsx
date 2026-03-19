@@ -67,7 +67,7 @@ export default function StreamGrid({
                 <div style={{fontWeight:700,fontSize:'13px',color:'#fff',marginBottom:'3px'}}>📍 {site.siteName}</div>
                 <div style={{fontSize:'10px',color:'#6666aa'}}>{site.terminals.length} терм. · {site.lat.toFixed(4)}, {site.lng.toFixed(4)}</div>
               </div>
-              <div className='hp-body' style={{maxHeight:'320px',overflowY:'auto'}}>
+              <div className={'hp'+'-body'} style={{maxHeight:'320px',overflowY:'auto'}}>
                 {site.terminals.map((t,ti)=>(
                   <div key={t.id} style={{marginTop:ti>0?'10px':0,paddingTop:ti>0?'10px':0,borderTop:ti>0?'1px solid #1e1e35':'none'}}>
                     <div style={{display:'flex',alignItems:'center',gap:'6px',marginBottom:'6px'}}>
@@ -127,7 +127,7 @@ export default function StreamGrid({
                     </div>
                   </div>
                 </div>
-                <div className='hp-body'>
+                <div className={'hp'+'-body'}>
                   <div style={{marginBottom:'8px'}}>
                     <span style={{fontSize:'10px',padding:'2px 8px',borderRadius:'10px',background:pri+'20',color:pri,border:'1px solid '+pri+'40',fontWeight:600}}>{priLbl}</span>
                   </div>
