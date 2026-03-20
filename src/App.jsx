@@ -89,6 +89,7 @@ export default function App() {
   const setAttackType = useAppStore((s) => s.setAttackType);
   const fuzzResults = useAppStore((s) => s.fuzzResults);
   const setFuzzResults = useAppStore((s) => s.setFuzzResults);
+  const sourceAnalysis = useAppStore((s) => s.sourceAnalysis);
   const spiderMaxDepth = useAppStore((s) => s.spiderMaxDepth);
   const spiderMaxPages = useAppStore((s) => s.spiderMaxPages);
   const spiderDirBrute = useAppStore((s) => s.spiderDirBrute);
@@ -1515,6 +1516,16 @@ const handleSecurityAudit = async () => {
           setTargetInput={setTargetInput}
           attackType={attackType}
           setAttackType={setAttackType}
+          fuzzLogin={fuzzLogin}
+          setFuzzLogin={setFuzzLogin}
+          fuzzPassword={fuzzPassword}
+          setFuzzPassword={setFuzzPassword}
+          fuzzPath={fuzzPath}
+          setFuzzPath={setFuzzPath}
+          fuzzResults={fuzzResults}
+          sourceAnalysis={sourceAnalysis}
+          handleAnalyzeSources={handleAnalyzeSources}
+          handlePlayFuzzedLink={handlePlayFuzzedLink}
           isSniffing={isSniffing}
           handleStartSniffer={handleStartSniffer}
           interceptLogs={interceptLogs}
@@ -1549,7 +1560,6 @@ const handleSecurityAudit = async () => {
           streamRtspUrl={streamRtspUrl}
           activeCameraName={activeCameraName}
           hubConfig={hubConfig}
-          fuzzPath={fuzzPath}
           formatBytes={formatBytes}
         />
       </main>
