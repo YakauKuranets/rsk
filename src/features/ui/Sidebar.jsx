@@ -275,6 +275,11 @@ export default function Sidebar(props){
   }=props;
 
   const [tab,setTab]=useState('targets');
+
+  useEffect(() => {
+    if (labelEditRequest?.label) setTab('targets');
+  }, [labelEditRequest]);
+
   return(
     <div style={css.panel}>
       <div style={{padding:'10px 14px 8px',borderBottom:'1px solid '+T.line,flexShrink:0,background:T.bg1}}>
