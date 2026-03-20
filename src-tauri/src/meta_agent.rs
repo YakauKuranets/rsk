@@ -136,7 +136,7 @@ async fn measure_technique_outcome(
             let paths = ["/Streaming/Channels/101","/stream1","/cam/realmonitor","/video1"];
             let mut ok = false;
             for path in paths {
-                let url = format!("rtsp://{}:{}{}", host, 554, path);
+                let _url = format!("rtsp://{}:{}{}", host, 554, path);
                 let probe = client.head(&format!("http://{}:554", host)).send().await;
                 if probe.is_ok() { ok = true; break; }
             }

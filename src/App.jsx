@@ -9,28 +9,13 @@ import ArchiveViewer from './features/archive/ArchiveViewer';
 import StreamGrid from './features/streams/StreamGrid';
 import MultiStreamGrid from './features/streams/MultiStreamGrid';
 import StreamPlayer from './StreamPlayer';
-import SpiderControl from './features/spider/SpiderControl';
-import MassAudit from './features/mass-audit/MassAudit';
-import AssetDiscovery from './features/discovery/AssetDiscovery';
-import AttackGraph from './features/attack-graph/AttackGraph';
-import PlaybookRunner from './features/playbook/PlaybookRunner';
-import CampaignList from './features/campaign/CampaignList';
-import CampaignDashboard from './features/campaign/CampaignDashboard';
-import PassiveScanner from './features/passive-scan/PassiveScanner';
-import CameraScanPanel from './features/scan/CameraScanPanel';
-import AgentReport from './features/agents/AgentReport';
-import RelayPanel from './features/relay/RelayPanel';
-import RuntimeLogs from './features/logs/RuntimeLogs';
-import TargetList from './features/targets/TargetList';
-import HubReconPanel from './features/archive/HubReconPanel';
-import CapturePanel from './features/archive/CapturePanel';
-import NvrProbePanel from './features/archive/NvrProbePanel';
 import { useNvrPanel } from './hooks/useNvrPanel';
 import { useCapturePanel } from './hooks/useCapturePanel';
 import { useHubRecon } from './hooks/useHubRecon';
 import { useAppStore } from './store/appStore';
 import ToastHost from './components/ToastHost';
 import { toast } from './utils/toast';
+import Sidebar from './features/ui/Sidebar';
 
 function normalizeTargetRecords(rawTargets) {
   const normalized = [];
@@ -80,12 +65,6 @@ export default function App() {
   const [singleStreamCamera, setSingleStreamCamera] = useState(null);
   const [singleStreamSession, setSingleStreamSession] = useState(null);
   const [selectedTerminal, setSelectedTerminal] = useState(null);
-  const [showPlaybooks, setShowPlaybooks] = useState(false);
-  const [showCampaigns, setShowCampaigns] = useState(false);
-  const [showIotAudit, setShowIotAudit] = useState(false);
-  const [showCameraRadar, setShowCameraRadar] = useState(false);
-  const [activeCampaignId, setActiveCampaignId] = useState(null);
-
   const [mapCenter, setMapCenter] = useState([53.9, 27.56]);
   const [form, setForm] = useState({ name: '', host: '', login: 'admin', password: '', lat: 53.9, lng: 27.56, channelCount: 4 });
 
@@ -110,6 +89,7 @@ export default function App() {
   const setAttackType = useAppStore((s) => s.setAttackType);
   const fuzzResults = useAppStore((s) => s.fuzzResults);
   const setFuzzResults = useAppStore((s) => s.setFuzzResults);
+  const sourceAnalysis = useAppStore((s) => s.sourceAnalysis);
   const spiderMaxDepth = useAppStore((s) => s.spiderMaxDepth);
   const spiderMaxPages = useAppStore((s) => s.spiderMaxPages);
   const spiderDirBrute = useAppStore((s) => s.spiderDirBrute);
@@ -131,6 +111,10 @@ export default function App() {
   const [targetSearch, setTargetSearch] = useState('');
   const [targetTypeFilter, setTargetTypeFilter] = useState('all');
   const [archiveOnly, setArchiveOnly] = useState(false);
+  const [labels, setLabels] = useState(() => {
+    try { return JSON.parse(localStorage.getItem('hyperion_labels') || '[]'); }
+    catch { return []; }
+  });
   const [nemesisTarget, setNemesisTarget] = useState(null);
   const [downloadTasks, setDownloadTasks] = useState(() => {
     try {
@@ -148,6 +132,7 @@ export default function App() {
       return true;
     }
   });
+  const [labelEditRequest, setLabelEditRequest] = useState(null);
   const nvr = useNvrPanel();
   const [implementationStatus, setImplementationStatus] = useState(null);
   const [auditResults, setAuditResults] = useState([]);
@@ -180,6 +165,11 @@ export default function App() {
   useEffect(() => {
     setHubCookie(hubConfig.cookie || '');
   }, [setHubCookie]);
+
+  // Сохранять метки при каждом изменении
+  useEffect(() => {
+    localStorage.setItem('hyperion_labels', JSON.stringify(labels));
+  }, [labels]);
 
   useEffect(() => {
     invoke('get_implementation_status')
@@ -934,6 +924,10 @@ export default function App() {
     }
   };
 
+  const handleClearDownloads = () => {
+    setDownloadTasks(p => p.filter(t => t.status === 'running'));
+  };
+
   const handleCancelDownloadTask = async (task) => {
     if (!task?.id || task.status !== 'running') return;
     try {
@@ -1407,6 +1401,15 @@ const handleSecurityAudit = async () => {
     }
   };
 
+  const handleFocusLabel = (label) => {
+    if (label?.lat != null && label?.lng != null) setMapCenter([label.lat, label.lng]);
+  };
+
+  const handleOpenLabelEditor = (label) => {
+    handleFocusLabel(label);
+    setLabelEditRequest({ requestId: Date.now(), label });
+  };
+
   return (
     <div style={{ display: 'flex', height: '100vh', width: '100vw', backgroundColor: '#0a0a0c', color: '#fff', fontFamily: 'monospace' }}>
       <ToastHost />
@@ -1421,7 +1424,8 @@ const handleSecurityAudit = async () => {
       <ArchiveViewer fetchFtpRoot={fetchFtpRoot} goBackFtp={goBackFtp} handleDownloadFtp={handleDownloadFtp} />
 
 
-      <main style={{ flex: 1, position: 'relative', overflow: 'hidden' }}>
+      <main style={{ flex: 1, position: 'relative', overflow: 'hidden', display: 'flex', flexDirection: 'row' }}>
+        <div style={{ flex: 1, position: 'relative', overflow: 'hidden' }}>
         <div style={{ position: 'absolute', inset: 0, zIndex: 0 }}>
           <StreamGrid
             mapCenter={mapCenter}
@@ -1432,6 +1436,8 @@ const handleSecurityAudit = async () => {
             handleFetchNvrDeviceInfo={handleFetchNvrDeviceInfo}
             handleFetchOnvifDeviceInfo={handleFetchOnvifDeviceInfo}
             onCameraPlayClick={(cam) => setPendingCameraStream(cam)}
+            labels={labels}
+            onLabelClick={handleOpenLabelEditor}
           />
         </div>
 
@@ -1474,277 +1480,88 @@ const handleSecurityAudit = async () => {
             </div>
           )}
 
-          <div style={{ position: 'absolute', top: 16, right: 16, width: '400px', backgroundColor: '#111115', borderLeft: '2px solid #ff003c', padding: '20px', maxHeight: 'calc(100% - 32px)', overflowY: 'auto', pointerEvents: 'auto' }}>
-
-        <h2 style={{ color: '#ff003c', fontSize: '1.2rem', marginBottom: '20px' }}>HYPERION NODE</h2>
-
-        <div style={{ border: '1px solid #222', padding: '8px', marginBottom: '12px' }}>
-          <button style={{ width: '100%', marginBottom: '6px' }} onClick={() => setShowPlaybooks(v => !v)}>PLAYBOOKS</button>
-          {showPlaybooks && <PlaybookRunner />}
-          <button style={{ width: '100%', marginBottom: '6px' }} onClick={() => setShowCampaigns(v => !v)}>КАМПАНИИ</button>
-          {showCampaigns && (
-            <>
-              <CampaignList onOpen={setActiveCampaignId} />
-              <CampaignDashboard campaignId={activeCampaignId} />
-            </>
-          )}
-          <button style={{ width: '100%' }} onClick={() => setShowIotAudit(v => !v)}>IoT АУДИТ</button>
-          {showIotAudit && <PassiveScanner />}
-
-          <button style={{ width: '100%', marginTop: '6px', marginBottom: '6px', backgroundColor: showCameraRadar ? '#00f0ff' : '#111', color: showCameraRadar ? '#000' : '#fff' }} onClick={() => setShowCameraRadar(v => !v)}>
-            УЛЬТИМАТИВНЫЙ РАДАР КАМЕР
-          </button>
-          {showCameraRadar && <CameraScanPanel onPlayCamera={(cam) => setPendingCameraStream(cam)} />}
-
-          <div style={{ border: '1px solid #222', padding: '10px', marginTop: '12px', display: 'grid', gap: '8px' }}>
-            <h3 style={{ color: '#00f0ff', margin: 0 }}>Agent Pipeline</h3>
-            <input value={agentScope} onChange={(e) => setAgentScope(e.target.value)} placeholder="scope / host" />
-            <button onClick={handleRunReconAgent}>Запустить ReconAgent</button>
-            {agentStatus && <div style={{ fontSize: '12px', color: '#7f8a99' }}>{agentStatus}</div>}
-            {agentPacket && (
-              <AgentReport packet={agentPacket} nextAgent="ExploitVerifyAgent" onHandoff={handleAgentHandoff} />
-            )}
-          </div>
-
-
-          <button
-            onClick={handleStartSniffer}
-            disabled={isSniffing}
-            style={{ width: '100%', padding: '8px', background: isSniffing ? '#003300' : '#00ffcc', color: '#000', fontWeight: 'bold', marginTop: '6px', marginBottom: '6px', cursor: isSniffing ? 'default' : 'pointer' }}
-          >
-            {isSniffing ? '🎧 СЛУШАЮ ЭФИР (СНИФФЕР)...' : '🎧 ЗАПУСТИТЬ ПАССИВНЫЙ ПЕРЕХВАТ'}
-          </button>
-
-          {interceptLogs.length > 0 && (
-            <div style={{ background: '#111', padding: '10px', border: '1px solid #00ffcc', marginBottom: '10px', fontSize: '11px', color: '#00ffcc' }}>
-              <div>УЯЗВИМЫЙ ТРАФИК В СЕТИ:</div>
-              {interceptLogs.map((log, i) => (
-                <div key={`intercept_${i}`}>[{log.protocol}] {log.details}</div>
-              ))}
-            </div>
-          )}
+        </div>
         </div>
 
-        <div style={{ border: '1px solid #2f9a4f', padding: '10px', backgroundColor: '#07130b', marginBottom: '20px' }}>
-          <h3 style={{ color: '#7dff9c', marginTop: '0', fontSize: '0.9rem' }}>📌 СТАТУС РЕАЛИЗАЦИИ</h3>
-          {implementationStatus ? (
-            <>
-              <div style={{ color: '#c9ffd6', fontSize: '12px', marginBottom: '8px' }}>
-                Выполнено: <b>{implementationStatus.completed}/{implementationStatus.total}</b> · В работе: <b>{implementationStatus.in_progress}</b> · Осталось: <b>{implementationStatus.left}</b>
-              </div>
-              <div style={{ maxHeight: '120px', overflowY: 'auto', border: '1px solid #15361f', padding: '6px', background: '#020a05' }}>
-                {(implementationStatus.items || []).map((item, idx) => (
-                  <div key={`${item.name}_${idx}`} style={{ color: '#8ed9a2', fontSize: '11px', marginBottom: '4px' }}>
-                    {item.status === 'completed' ? '✅' : item.status === 'in_progress' ? '🛠️' : '⏳'} {item.name}
-                  </div>
-                ))}
-              </div>
-            </>
-          ) : (
-            <div style={{ color: '#7aa887', fontSize: '11px' }}>Загрузка статуса...</div>
-          )}
-        </div>
-
-        <MassAudit />
-
-
-        <SpiderControl handleStartNemesis={handleStartNemesis} handleAnalyzeSources={handleAnalyzeSources} handlePlayFuzzedLink={handlePlayFuzzedLink} />
-        <HubReconPanel
-          hubRecon={hubRecon}
-          capture={capture}
-          hubConfig={hubConfig}
-          fuzzPath={fuzzPath}
-          formatBytes={formatBytes}
-          handleCaptureArchive={handleCaptureArchive}
-        />
-
-        <AssetDiscovery />
-        <AttackGraph targets={filteredTargets} />
-
-        <div style={{ border: '1px solid #ff003c', padding: '10px', backgroundColor: '#1a0505', marginBottom: '20px' }}>
-          <h3 style={{ color: '#ff003c', marginTop: '0', fontSize: '0.9rem' }}>GLOBAL HUB: MVD LINK</h3>
-          <div style={{ display: 'flex', marginBottom: '10px' }}>
-              <input style={{ flex: 1, backgroundColor: '#000', border: '1px solid #ff003c', color: '#ff003c', padding: '8px' }} placeholder="Улица, дом..." value={hubRecon.hubSearch} onChange={e => hubRecon.setHubSearch(e.target.value)} />
-              <button style={{ backgroundColor: '#ff003c', color: '#fff', border: 'none', padding: '8px', cursor: 'pointer', fontWeight: 'bold' }} onClick={handleHubSearch}>СКАН</button>
-          </div>
-
-          {hubRecon.hubResults.map(cam => (
-              <div key={cam.id} style={{ border: '1px solid #444', padding: '10px', marginBottom: '8px', backgroundColor: '#050505' }}>
-                  <div style={{ color: '#fff', fontWeight: 'bold', fontSize: '12px', marginBottom: '5px' }}>{cam.ip}</div>
-                  <div style={{ fontSize: '10px', color: '#888', marginBottom: '8px' }}>USER ID: {cam.id} | Камер: {cam.channels.length}</div>
-
-                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: '5px', marginBottom: '8px' }}>
-                      {cam.channels.map(ch => (
-                          <button key={ch} onClick={() => handleHubStream(cam.id, ch, cam.ip)} style={{ backgroundColor: '#00f0ff', color: '#000', border: 'none', padding: '5px', cursor: 'pointer', fontSize: '10px', fontWeight: 'bold' }}>
-                            LIVE: К-{parseInt(ch) + 1}
-                          </button>
-                      ))}
-                  </div>
-
-                  <div style={{ display: 'flex', gap: '5px' }}>
-                      <button onClick={() => fetchFtpRoot('video1')} style={{ flex: 1, backgroundColor: '#1a4a4a', color: '#00f0ff', border: 'none', padding: '5px', cursor: 'pointer', fontSize: '11px', fontWeight: 'bold' }}>
-                        📁 АРХИВ (FTP)
-                      </button>
-
-                      <button onClick={() => handleSaveHubToLocal(cam)} style={{ flex: 1, backgroundColor: '#4a1a4a', color: '#ff00ff', border: 'none', padding: '5px', cursor: 'pointer', fontSize: '11px', fontWeight: 'bold' }}>
-                        📌 В БАЗУ
-                      </button>
-                  </div>
-              </div>
-          ))}
-        </div>
-
-        <hr style={{ borderColor: '#222' }} />
-
-        <CapturePanel
-          capture={capture}
-          handleCaptureArchive={handleCaptureArchive}
-          handleDownloadHttp={handleDownloadHttp}
-          activeTargetId={activeTargetId}
-          streamRtspUrl={streamRtspUrl}
-          activeCameraName={activeCameraName}
-        />
-
-        <NvrProbePanel
-          capture={capture}
-          auditResults={auditResults}
-          nvr={nvr}
-          handlePortScan={handlePortScan}
-          handleSecurityAudit={handleSecurityAudit}
-          isPlayableRecord={isPlayableRecord}
-          isDownloadableRecord={isDownloadableRecord}
-          handleDownloadIsapiPlayback={handleDownloadIsapiPlayback}
-          handleCaptureIsapiPlayback={handleCaptureIsapiPlayback}
-          handleDownloadOnvifToken={handleDownloadOnvifToken}
-        />
-
-        <div style={{ marginTop: '20px' }}>
-          <h3 style={{ color: '#00f0ff', fontSize: '0.9rem', marginBottom: '10px' }}>РЕГИСТРАЦИЯ ЛОКАЛЬНОГО УЗЛА</h3>
-          <input style={{ width: '100%', backgroundColor: '#000', border: '1px solid #333', color: '#00f0ff', padding: '10px', marginBottom: '8px', boxSizing: 'border-box' }} placeholder="Имя узла" value={form.name} onChange={e => setForm({ ...form, name: e.target.value })} />
-          <input style={{ width: '100%', backgroundColor: '#000', border: '1px solid #333', color: '#00f0ff', padding: '10px', marginBottom: '8px', boxSizing: 'border-box' }} placeholder="IP (напр. 93.125.3.58:554)" value={form.host} onChange={e => setForm({ ...form, host: e.target.value })} />
-          <input style={{ width: '100%', backgroundColor: '#000', border: '1px solid #333', color: '#00f0ff', padding: '10px', marginBottom: '8px', boxSizing: 'border-box' }} placeholder="Логин" value={form.login} onChange={e => setForm({ ...form, login: e.target.value })} />
-          <input style={{ width: '100%', backgroundColor: '#000', border: '1px solid #333', color: '#00f0ff', padding: '10px', marginBottom: '8px', boxSizing: 'border-box' }} type="password" placeholder="Пароль" value={form.password} onChange={e => setForm({ ...form, password: e.target.value })} />
-          <input style={{ width: '100%', backgroundColor: '#000', border: '1px solid #333', color: '#00f0ff', padding: '10px', marginBottom: '15px', boxSizing: 'border-box' }} type="number" placeholder="Каналы" value={form.channelCount} onChange={e => setForm({ ...form, channelCount: e.target.value })} />
-
-          <div style={{ display: 'flex', gap: '5px', marginBottom: '15px' }}>
-            <input style={{ flex: 1, backgroundColor: '#000', border: '1px solid #333', color: '#00f0ff', padding: '10px', boxSizing: 'border-box' }} placeholder="Координаты" value={hubRecon.addressQuery} onChange={e => hubRecon.setAddressQuery(e.target.value)} />
-            <button style={{ backgroundColor: '#1a4a4a', color: '#00f0ff', border: '1px solid #00f0ff', cursor: 'pointer', padding: '0 15px' }} onClick={handleGeocode}>GEO</button>
-          </div>
-
-          <button style={{ width: '100%', padding: '12px', backgroundColor: '#00f0ff', color: '#000', fontWeight: 'bold', cursor: 'pointer', border: 'none', boxSizing: 'border-box' }} onClick={handleSmartSave}>ENCRYPT DATA</button>
-        </div>
-
-        <TargetList
-          targets={filteredTargets}
+        <Sidebar
+          targets={targets}
+          filteredTargets={filteredTargets}
           targetSearch={targetSearch}
           setTargetSearch={setTargetSearch}
           targetTypeFilter={targetTypeFilter}
           setTargetTypeFilter={setTargetTypeFilter}
           archiveOnly={archiveOnly}
           setArchiveOnly={setArchiveOnly}
+          form={form}
+          setForm={setForm}
+          hubRecon={hubRecon}
+          handleSmartSave={handleSmartSave}
+          handleDeleteTarget={handleDeleteTarget}
+          handleGeocode={handleGeocode}
           onNemesis={(t) => setNemesisTarget(t)}
-          onDelete={handleDeleteTarget}
-          onMemoryRequest={(t) => nvr.fetchNvrDeviceInfo(t)}
-          onIsapiInfo={(t) => nvr.fetchIsapiDeviceInfo(t)}
-          onIsapiSearch={(t) => nvr.searchIsapiRecordings(t)}
-          onOnvifInfo={(t) => nvr.fetchIsapiDeviceInfo(t)}
-          onOnvifRecordings={(t) => nvr.searchOnvifRecordings(t)}
-          onArchiveEndpoints={(t) => nvr.probeArchiveEndpoints(t)}
+          onMemoryRequest={(t) => handleLocalArchive(t)}
+          onIsapiInfo={(t) => handleFetchNvrDeviceInfo(t)}
+          onIsapiSearch={(t) => handleSearchIsapiRecordings(t)}
+          onOnvifInfo={(t) => handleFetchOnvifDeviceInfo(t)}
+          onOnvifRecordings={(t) => handleSearchOnvifRecordings(t)}
+          onArchiveEndpoints={(t) => handleProbeArchiveExport(t)}
+          onOpenHubArchive={() => fetchFtpRoot('video1')}
+          agentScope={agentScope}
+          setAgentScope={setAgentScope}
+          handleRunReconAgent={handleRunReconAgent}
+          agentStatus={agentStatus}
+          agentPacket={agentPacket}
+          handleAgentHandoff={handleAgentHandoff}
+          targetInput={targetInput}
+          setTargetInput={setTargetInput}
+          attackType={attackType}
+          setAttackType={setAttackType}
+          fuzzLogin={fuzzLogin}
+          setFuzzLogin={setFuzzLogin}
+          fuzzPassword={fuzzPassword}
+          setFuzzPassword={setFuzzPassword}
+          fuzzPath={fuzzPath}
+          setFuzzPath={setFuzzPath}
+          fuzzResults={fuzzResults}
+          sourceAnalysis={sourceAnalysis}
+          handleAnalyzeSources={handleAnalyzeSources}
+          handlePlayFuzzedLink={handlePlayFuzzedLink}
+          isSniffing={isSniffing}
+          handleStartSniffer={handleStartSniffer}
+          interceptLogs={interceptLogs}
+          implementationStatus={implementationStatus}
+          onPlayCamera={(cam) => setPendingCameraStream(cam)}
+          handleStartNemesis={handleStartNemesis}
+          runtimeLogs={runtimeLogs}
+          setRuntimeLogs={setRuntimeLogs}
+          downloadTasks={downloadTasks}
+          resumeDownloads={resumeDownloads}
+          setResumeDownloads={setResumeDownloads}
+          handleCancelDownloadTask={handleCancelDownloadTask}
+          handleRetryDownloadTask={handleRetryDownloadTask}
+          handleClearDownloads={handleClearDownloads}
+          labels={labels}
+          setLabels={setLabels}
+          onLabelClick={handleFocusLabel}
+          labelEditRequest={labelEditRequest}
+          nvr={nvr}
+          capture={capture}
+          auditResults={auditResults}
+          handlePortScan={handlePortScan}
+          handleSecurityAudit={handleSecurityAudit}
+          handleDownloadIsapiPlayback={handleDownloadIsapiPlayback}
+          handleCaptureIsapiPlayback={handleCaptureIsapiPlayback}
+          handleDownloadOnvifToken={handleDownloadOnvifToken}
+          isPlayableRecord={isPlayableRecord}
+          isDownloadableRecord={isDownloadableRecord}
+          handleCaptureArchive={handleCaptureArchive}
+          handleDownloadHttp={handleDownloadHttp}
+          activeTargetId={activeTargetId}
+          streamRtspUrl={streamRtspUrl}
+          activeCameraName={activeCameraName}
+          hubConfig={hubConfig}
+          formatBytes={formatBytes}
         />
-
-        <RuntimeLogs runtimeLogs={runtimeLogs} setRuntimeLogs={setRuntimeLogs} />
-
-        <RelayPanel />
-
-        <h3 style={{ color: '#00f0ff', marginTop: '30px', fontSize: '0.9rem' }}>МЕНЕДЖЕР ЗАГРУЗОК</h3>
-        <label style={{ fontSize: '11px', color: '#bbb', display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '6px' }}>
-          <input type='checkbox' checked={resumeDownloads} onChange={e => setResumeDownloads(e.target.checked)} />
-          Включить докачку (resume)
-        </label>
-        <button
-          onClick={clearFinishedDownloads}
-          style={{ width: '100%', marginBottom: '6px', background: '#111', color: '#aaa', border: '1px solid #333', padding: '6px', cursor: 'pointer', fontSize: '11px' }}
-        >
-          ОЧИСТИТЬ ЗАВЕРШЕННЫЕ/ОШИБКИ
-        </button>
-        <div style={{ border: '1px solid #222', background: '#050505', maxHeight: '220px', overflowY: 'auto', padding: '8px' }}>
-          {downloadTasks.length === 0 && (
-            <div style={{ color: '#666', fontSize: '11px' }}>Загрузок пока нет</div>
-          )}
-          {downloadTasks.map((task) => (
-            <div key={task.id} style={{ border: '1px solid #111', padding: '6px', marginBottom: '6px' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '11px' }}>
-                <span style={{ color: '#ddd' }}>{task.filename}</span>
-                <span style={{ color: task.status === 'done' ? '#00ff9c' : task.status === 'error' ? '#ff5555' : task.status === 'cancelled' ? '#caa0ff' : '#ffcc66' }}>
-                  {task.status === 'running' ? 'В ПРОЦЕССЕ' : task.status === 'done' ? 'ГОТОВО' : task.status === 'cancelled' ? 'ОТМЕНЕНО' : 'ОШИБКА'}
-                </span>
-              </div>
-              <div style={{ fontSize: '10px', color: '#888', marginTop: '4px' }}>
-                {task.serverAlias}
-                {task.protocol ? `/${task.protocol}` : ''} • {formatBytes(task.bytesWritten)}
-                {task.speedBytesSec > 0 ? ` • ${formatBytes(task.speedBytesSec)}/s` : ''}
-                {task.resumed ? ' • RESUME' : ''}
-                {task.skipped ? ' • SKIPPED' : ''}
-              </div>
-              {task.stageSummary && (
-                <div style={{ fontSize: '10px', color: '#6da8ff', marginTop: '4px' }}>
-                  {task.stageSummary}
-                </div>
-              )}
-              {(task.finalStatus || Number.isFinite(task.retryCount) || Number.isFinite(task.stageCount)) && (
-                <div style={{ fontSize: '10px', color: '#9ca8bd', marginTop: '3px' }}>
-                  status={task.finalStatus || task.status} • retries={task.retryCount ?? 0} • stages={task.stageCount ?? (task.stageDetails?.length || 0)}{task.fallbackDurationSeconds ? ` • ffmpegT=${task.fallbackDurationSeconds}s` : ''}
-                </div>
-              )}
-              {Array.isArray(task.stageDetails) && task.stageDetails.length > 0 && (
-                <div style={{ marginTop: '4px', border: '1px solid #1a2238', background: '#070b14', padding: '4px 6px' }}>
-                  {task.stageDetails.map((s, idx) => (
-                    <div key={`${task.id}_${s.stage}_${idx}`} style={{ fontSize: '10px', color: s.success ? '#73ffb0' : '#ffb6b6', marginBottom: '2px' }}>
-                      {s.success ? '✅' : '❌'} {s.stage}
-                      {s.reason ? ` — ${s.reason}` : ''}
-                    </div>
-                  ))}
-                </div>
-              )}
-              {task.error && (
-                <div style={{ fontSize: '10px', color: '#ff9b9b', marginTop: '4px', wordBreak: 'break-word' }}>
-                  {task.error}
-                </div>
-              )}
-              <div style={{ height: '4px', background: '#111', marginTop: '6px' }}>
-                <div
-                  style={{
-                    width: `${task.percent ?? (task.status === 'running' ? 10 : 0)}%`,
-                    height: '100%',
-                    background: task.status === 'error' ? '#ff5555' : '#00f0ff',
-                    transition: 'width 0.3s ease',
-                  }}
-                />
-              </div>
-
-              {task.status === 'running' && (
-                <button
-                  onClick={() => handleCancelDownloadTask(task)}
-                  style={{ marginTop: '6px', marginRight: '6px', background: '#2d1a4a', color: '#d8b0ff', border: '1px solid #b36bff', padding: '4px 8px', cursor: 'pointer', fontSize: '10px' }}
-                >
-                  ОТМЕНИТЬ
-                </button>
-              )}
-
-
-              {task.status === 'error' && (
-                <button
-                  onClick={() => handleRetryDownloadTask(task)}
-                  style={{ marginTop: '6px', background: '#4a1a1a', color: '#ffaaaa', border: '1px solid #ff5555', padding: '4px 8px', cursor: 'pointer', fontSize: '10px' }}
-                >
-                  ПОВТОРИТЬ ЗАГРУЗКУ
-                </button>
-              )}
-            </div>
-          ))}
-        </div>
-          </div>
-        </div>
       </main>
 
       {pendingCameraStream && (
