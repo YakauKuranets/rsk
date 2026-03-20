@@ -56,7 +56,7 @@ export default function TargetCard({
   const type = String(t?.type || (cameraCount > 0 ? 'camera-hub' : 'host')).toLowerCase();
   const icon = type.includes('cam') || type.includes('nvr') || type.includes('dvr') ? '📹' : '🖥️';
   const danger = t?.riskScore >= 80 || t?.severity === 'critical';
-  const isHub = type === 'hub' || type.includes('hub');
+  const isHub = type === 'hub';
 
   return (
     <div style={{
