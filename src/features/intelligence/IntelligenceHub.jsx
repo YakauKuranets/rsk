@@ -78,6 +78,7 @@ function SharedContextBar(){
         <input value={ollamaUrl} onChange={(e)=>setOllamaUrl(e.target.value)} placeholder='Ollama URL' style={{flex:2,padding:'7px 8px',background:'#09111b',color:'#d7e7ff',border:'1px solid #233247',borderRadius:'4px'}} />
         <select value={ollamaModel} onChange={(e)=>setOllamaModel(e.target.value)} style={{flex:1,padding:'7px 8px',background:'#09111b',color:'#d7e7ff',border:'1px solid #233247',borderRadius:'4px'}}>
           <option value='llama3'>llama3</option>
+          <option value='deepseek-r1'>deepseek-r1</option>
           <option value='mistral'>mistral</option>
           <option value='phi3'>phi3</option>
           <option value='qwen2.5'>qwen2.5</option>
