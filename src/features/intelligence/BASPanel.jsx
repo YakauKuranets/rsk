@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { invoke } from '@tauri-apps/api/core';
+import { useAppStore } from '../../store/appStore';
 
 const wrapStyle = {
   border: '1px solid #4a3b1d',
@@ -32,8 +33,10 @@ const buttonStyle = {
 };
 
 export default function BASPanel() {
-  const [target, setTarget] = useState('demo.local');
-  const [permitToken, setPermitToken] = useState('');
+  const intelligenceTarget = useAppStore((s) => s.intelligenceTarget);
+  const setIntelligenceTarget = useAppStore((s) => s.setIntelligenceTarget);
+  const permitToken = useAppStore((s) => s.permitToken);
+  const setPermitToken = useAppStore((s) => s.setPermitToken);
   const [scenarios, setScenarios] = useState([]);
   const [selectedIds, setSelectedIds] = useState([]);
   const [report, setReport] = useState(null);
@@ -77,7 +80,7 @@ export default function BASPanel() {
   };
 
   const runSimulation = async () => {
-    const normalizedTarget = target.trim();
+    const normalizedTarget = intelligenceTarget.trim();
     if (!normalizedTarget) {
       setStatus('Укажите хост/IP для BAS-проверки.');
       return;
@@ -113,8 +116,8 @@ export default function BASPanel() {
         BAS Panel
       </h3>
       <input
-        value={target}
-        onChange={(e) => setTarget(e.target.value)}
+        value={intelligenceTarget}
+        onChange={(e) => setIntelligenceTarget(e.target.value)}
         placeholder="Simulation target"
         style={inputStyle}
       />

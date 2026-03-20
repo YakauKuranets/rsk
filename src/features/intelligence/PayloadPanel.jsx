@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { invoke } from '@tauri-apps/api/core';
+import { useAppStore } from '../../store/appStore';
 
 const fieldStyle = {
   width: '100%',
@@ -13,10 +14,11 @@ const fieldStyle = {
 };
 
 export default function PayloadPanel() {
+  const permitToken = useAppStore((s) => s.permitToken);
+  const setPermitToken = useAppStore((s) => s.setPermitToken);
   const [type, setType] = useState('hta');
   const [title, setTitle] = useState('Monthly camera maintenance notice');
   const [callbackUrl, setCallbackUrl] = useState('https://callback.local/collect');
-  const [permitToken, setPermitToken] = useState('');
   const [output, setOutput] = useState(null);
   const [status, setStatus] = useState('Готово к генерации.');
 

@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { invoke } from '@tauri-apps/api/core';
+import { useAppStore } from '../../store/appStore';
 
 const S={
   wrap:{border:'1px solid #2a2a2a',padding:'10px',backgroundColor:'#0a0a0a',marginBottom:'8px'},
@@ -12,20 +13,22 @@ const TOOLS=['nmap','nikto','nuclei','hydra','sqlmap','amass','gobuster','massca
 const PRESETS={nmap:'-sV -sC -p 80,443,554',nikto:'-h',nuclei:'-t cves/',hydra:'-l admin -P wordlist.txt http-get',sqlmap:'-u',amass:'enum -passive -d',masscan:'-p 80,443,554 --rate 1000'};
 
 export default function ToolExecutorPanel(){
+  const intelligenceTarget = useAppStore((s)=>s.intelligenceTarget);
+  const setIntelligenceTarget = useAppStore((s)=>s.setIntelligenceTarget);
+  const permit = useAppStore((s)=>s.permitToken);
+  const setPerm = useAppStore((s)=>s.setPermitToken);
   const [tool,setTool]=useState('nmap');
-  const [target,setTarget]=useState('');
   const [args,setArgs]=useState('-sV -sC -p 80,443,554');
-  const [permit,setPerm]=useState('');
   const [timeout,setTo]=useState(120);
   const [load,setLoad]=useState(false);
   const [result,setResult]=useState(null);
   const [avail,setAvail]=useState([]);
 
   const run=async()=>{
-    if(!target.trim())return alert('Введите цель');
+    if(!intelligenceTarget.trim())return alert('Введите цель');
     if(permit.trim().length<8)return alert('Нужен токен');
     setLoad(true);setResult(null);
-    try{setResult(await invoke('execute_tool',{req:{tool,target:target.trim(),args:args.trim().split(/\s+/).filter(Boolean),timeoutSecs:+timeout,permitToken:permit.trim()}}));}
+    try{setResult(await invoke('execute_tool',{req:{tool,target:intelligenceTarget.trim(),args:args.trim().split(/\s+/).filter(Boolean),timeoutSecs:+timeout,permitToken:permit.trim()}}));}
     catch(e){alert('Ошибка: '+e);}
     setLoad(false);
   };
@@ -41,7 +44,7 @@ export default function ToolExecutorPanel(){
               cursor:'pointer',fontSize:'10px',borderRadius:'3px'}}>{t}</button>
         ))}
       </div>
-      <input style={S.inp} value={target} onChange={e=>setTarget(e.target.value)} placeholder='192.168.1.0/24 или example.com'/>
+      <input style={S.inp} value={intelligenceTarget} onChange={e=>setIntelligenceTarget(e.target.value)} placeholder='192.168.1.0/24 или example.com'/>
       <input style={S.inp} value={args} onChange={e=>setArgs(e.target.value)} placeholder='Аргументы: -sV -sC -p 80,443'/>
       <input style={S.inp} value={permit} onChange={e=>setPerm(e.target.value)} placeholder='Разрешительный токен' type='password'/>
       <div style={{display:'flex',gap:'6px',marginBottom:'6px'}}>
