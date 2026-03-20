@@ -1486,8 +1486,6 @@ const handleSecurityAudit = async () => {
           form={form}
           setForm={setForm}
           hubRecon={hubRecon}
-          mapCenter={mapCenter}
-          setMapCenter={setMapCenter}
           handleSmartSave={handleSmartSave}
           handleDeleteTarget={handleDeleteTarget}
           handleGeocode={handleGeocode}
@@ -1534,6 +1532,10 @@ const handleSecurityAudit = async () => {
           isPlayableRecord={isPlayableRecord}
           isDownloadableRecord={isDownloadableRecord}
           handleCaptureArchive={handleCaptureArchive}
+          handleDownloadHttp={handleDownloadHttp}
+          activeTargetId={activeTargetId}
+          streamRtspUrl={streamRtspUrl}
+          activeCameraName={activeCameraName}
           hubConfig={hubConfig}
           fuzzPath={fuzzPath}
           formatBytes={formatBytes}

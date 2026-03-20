@@ -60,7 +60,7 @@ function Section({icon,title,color,children,defaultOpen=true}){
 function TargetsPanel({
   targets,filteredTargets,targetSearch,setTargetSearch,
   targetTypeFilter,setTargetTypeFilter,archiveOnly,setArchiveOnly,
-  form,setForm,hubRecon,mapCenter,setMapCenter,
+  form,setForm,hubRecon,
   handleSmartSave,handleDeleteTarget,handleGeocode,
   onNemesis,onMemoryRequest,onIsapiInfo,onIsapiSearch,
   onOnvifInfo,onOnvifRecordings,onArchiveEndpoints,
@@ -68,7 +68,7 @@ function TargetsPanel({
   capture,nvr,auditResults,handlePortScan,handleSecurityAudit,
   handleDownloadIsapiPlayback,handleCaptureIsapiPlayback,handleDownloadOnvifToken,
   isPlayableRecord,isDownloadableRecord,
-  handleCaptureArchive,hubConfig,fuzzPath,formatBytes,
+  handleCaptureArchive,handleDownloadHttp,activeTargetId,streamRtspUrl,activeCameraName,
 }){
   const [tab2,setTab2]=useState('targets');
 
@@ -132,8 +132,14 @@ function TargetsPanel({
         ))}
 
         <Section icon='📦' title='Захват архива' color={T.amb} defaultOpen={false}>
-          <CapturePanel capture={capture} handleCaptureArchive={handleCaptureArchive}
-            handleDownloadHttp={()=>{}} activeTargetId={null} streamRtspUrl='' activeCameraName=''/>
+          <CapturePanel
+            capture={capture}
+            handleCaptureArchive={handleCaptureArchive}
+            handleDownloadHttp={handleDownloadHttp}
+            activeTargetId={activeTargetId}
+            streamRtspUrl={streamRtspUrl}
+            activeCameraName={activeCameraName}
+          />
         </Section>
 
         <NvrProbePanel nvr={nvr} capture={capture} auditResults={auditResults||[]}
@@ -248,7 +254,7 @@ export default function Sidebar(props){
   const {
     targets,filteredTargets,targetSearch,setTargetSearch,
     targetTypeFilter,setTargetTypeFilter,archiveOnly,setArchiveOnly,
-    form,setForm,hubRecon,mapCenter,setMapCenter,
+    form,setForm,hubRecon,
     handleSmartSave,handleDeleteTarget,handleGeocode,
     onNemesis,onMemoryRequest,onIsapiInfo,onIsapiSearch,
     onOnvifInfo,onOnvifRecordings,onArchiveEndpoints,
@@ -261,7 +267,7 @@ export default function Sidebar(props){
     nvr,capture,auditResults,handlePortScan,handleSecurityAudit,
     handleDownloadIsapiPlayback,handleCaptureIsapiPlayback,handleDownloadOnvifToken,
     isPlayableRecord,isDownloadableRecord,handleCaptureArchive,
-    hubConfig,fuzzPath,formatBytes,
+    handleDownloadHttp,activeTargetId,streamRtspUrl,activeCameraName,hubConfig,fuzzPath,formatBytes,
   }=props;
 
   const [tab,setTab]=useState('targets');
@@ -291,7 +297,6 @@ export default function Sidebar(props){
           targetTypeFilter={targetTypeFilter} setTargetTypeFilter={setTargetTypeFilter}
           archiveOnly={archiveOnly} setArchiveOnly={setArchiveOnly}
           form={form} setForm={setForm} hubRecon={hubRecon}
-          mapCenter={mapCenter} setMapCenter={setMapCenter}
           handleSmartSave={handleSmartSave} handleDeleteTarget={handleDeleteTarget}
           handleGeocode={handleGeocode}
           onNemesis={onNemesis} onMemoryRequest={onMemoryRequest}
@@ -306,7 +311,10 @@ export default function Sidebar(props){
           handleDownloadOnvifToken={handleDownloadOnvifToken}
           isPlayableRecord={isPlayableRecord} isDownloadableRecord={isDownloadableRecord}
           handleCaptureArchive={handleCaptureArchive}
-          hubConfig={hubConfig} fuzzPath={fuzzPath} formatBytes={formatBytes}
+          handleDownloadHttp={handleDownloadHttp}
+          activeTargetId={activeTargetId}
+          streamRtspUrl={streamRtspUrl}
+          activeCameraName={activeCameraName}
         />}
         {tab==='ops'&&<OpsPanel
           agentScope={agentScope} setAgentScope={setAgentScope}
