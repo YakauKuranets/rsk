@@ -23,6 +23,9 @@ export default function MetaAgentPanel() {
   const [scope, setScope]     = useState('');
   const [permit, setPermit]   = useState('');
   const [iters, setIters]     = useState(3);
+  const [ollamaUrl, setOllamaUrl] = useState('http://localhost:11434');
+  const [llmModel, setLlmModel] = useState('llama3');
+  const [llmTemp, setLlmTemp] = useState(0.4);
   const [running, setRunning] = useState(false);
   const [result, setResult]   = useState(null);
   const [stats, setStats]     = useState([]);
@@ -94,7 +97,7 @@ export default function MetaAgentPanel() {
           firmware: 'unknown',
           openPorts: [80, 443, 554],
           alreadyFailed: stats.filter(s => s.failCount > s.successCount).map(s => s.technique),
-          config: { ollamaUrl: 'http://localhost:11434', model: 'llama3', temperature: 0.4 },
+          config: { ollamaUrl, model: llmModel, temperature: Number(llmTemp) },
         }
       });
       setHyps(res);
@@ -128,6 +131,20 @@ export default function MetaAgentPanel() {
             border: '1px solid '+(tab===id?'#1a6a6a':'#1a1a2a'),
           }}>{label}</button>
         ))}
+      </div>
+
+      <div style={{ background:'#0a0818', border:'1px solid #2a1a4a', padding:'8px', marginBottom:'8px' }}>
+        <div style={{ fontSize:'10px', color:'#7777aa', marginBottom:'4px' }}>LLM-конфигурация для гипотез</div>
+        <input style={S.input} value={ollamaUrl} onChange={e=>setOllamaUrl(e.target.value)} placeholder='Ollama URL' />
+        <div style={{ display:'flex', gap:'6px' }}>
+          <select style={{ ...S.input, flex:1, marginBottom:0 }} value={llmModel} onChange={e=>setLlmModel(e.target.value)}>
+            <option value='llama3'>llama3</option>
+            <option value='mistral'>mistral</option>
+            <option value='phi3'>phi3</option>
+            <option value='qwen2.5'>qwen2.5</option>
+          </select>
+          <input style={{ ...S.input, flex:1, marginBottom:0 }} type='number' min='0' max='1' step='0.1' value={llmTemp} onChange={e=>setLlmTemp(e.target.value)} placeholder='Temp' />
+        </div>
       </div>
 
 

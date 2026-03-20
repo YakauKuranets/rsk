@@ -1511,6 +1511,10 @@ const handleSecurityAudit = async () => {
           agentStatus={agentStatus}
           agentPacket={agentPacket}
           handleAgentHandoff={handleAgentHandoff}
+          targetInput={targetInput}
+          setTargetInput={setTargetInput}
+          attackType={attackType}
+          setAttackType={setAttackType}
           isSniffing={isSniffing}
           handleStartSniffer={handleStartSniffer}
           interceptLogs={interceptLogs}

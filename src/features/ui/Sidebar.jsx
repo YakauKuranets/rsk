@@ -162,7 +162,8 @@ function TargetsPanel({
 function OpsPanel({
   agentScope,setAgentScope,handleRunReconAgent,agentStatus,agentPacket,handleAgentHandoff,
   isSniffing,handleStartSniffer,interceptLogs,implementationStatus,onPlayCamera,
-  handleStartNemesis,hubRecon,capture,hubConfig,fuzzPath,formatBytes,handleCaptureArchive,
+  handleStartNemesis,targetInput,setTargetInput,attackType,setAttackType,
+  hubRecon,capture,hubConfig,fuzzPath,formatBytes,handleCaptureArchive,
 }){
   const [showPb,setShowPb]=useState(false);
   const [showCamp,setShowCamp]=useState(false);
@@ -185,7 +186,26 @@ function OpsPanel({
           {isSniffing?'🎧 Перехват активен...':'🎧 Пассивный перехват'}</button>
         {interceptLogs.length>0&&<div style={{background:T.bg0,border:'1px solid '+T.grn+'30',padding:'8px',fontSize:'10px',color:T.grn,maxHeight:'80px',overflowY:'auto',borderRadius:'4px',marginBottom:'6px'}}>
           {interceptLogs.map((l,i)=><div key={i}>[{l.protocol}] {l.details}</div>)}</div>}
-        <button style={css.btnFull(T.red)} onClick={handleStartNemesis}>☢ Nemesis — взлом архива</button>
+        <div style={{background:T.bg0,border:'1px solid '+T.red+'30',borderRadius:'4px',padding:'8px',marginBottom:'6px'}}>
+          <div style={{fontSize:'10px',color:T.muted,marginBottom:'4px'}}>Цель Nemesis (IP, домен или URL)</div>
+          <input
+            style={css.input}
+            value={targetInput}
+            onChange={e=>setTargetInput(e.target.value)}
+            placeholder='192.168.1.10 или https://target.local'
+          />
+          <div style={{fontSize:'10px',color:T.muted,marginBottom:'4px'}}>Режим</div>
+          <div style={{display:'flex',gap:'4px',marginBottom:'6px'}}>
+            {[['RTSP_BRUTE','RTSP',T.red],['CGI_EXPLOIT','CGI',T.amb],['CUSTOM_INJECT','Spider',T.purp]].map(([id,label,col])=>(
+              <button key={id} onClick={()=>setAttackType(id)} style={{
+                flex:1,padding:'5px',fontSize:'10px',cursor:'pointer',fontFamily:'inherit',
+                background:attackType===id?col+'20':'transparent',color:attackType===id?col:T.dim,
+                border:'1px solid '+(attackType===id?col+'60':T.line),borderRadius:'4px',fontWeight:600,
+              }}>{label}</button>
+            ))}
+          </div>
+          <button style={{...css.btnFull(T.red),marginBottom:0}} onClick={handleStartNemesis}>☢ Nemesis — взлом архива</button>
+        </div>
         <button style={css.btnFull(T.purp)} onClick={()=>setShowPb(v=>!v)}>📋 {showPb?'Скрыть плейбуки':'Плейбуки'}</button>
         {showPb&&<PlaybookRunner/>}
         <button style={css.btnFull(T.amb)} onClick={()=>setShowCamp(v=>!v)}>📁 {showCamp?'Скрыть кампании':'Кампании'}</button>
@@ -263,6 +283,7 @@ export default function Sidebar(props){
     onNemesis,onMemoryRequest,onIsapiInfo,onIsapiSearch,
     onOnvifInfo,onOnvifRecordings,onArchiveEndpoints,onOpenHubArchive,
     agentScope,setAgentScope,handleRunReconAgent,agentStatus,agentPacket,handleAgentHandoff,
+    targetInput,setTargetInput,attackType,setAttackType,
     isSniffing,handleStartSniffer,interceptLogs,implementationStatus,onPlayCamera,
     handleStartNemesis,
     runtimeLogs,setRuntimeLogs,downloadTasks,resumeDownloads,setResumeDownloads,
@@ -329,6 +350,8 @@ export default function Sidebar(props){
           agentScope={agentScope} setAgentScope={setAgentScope}
           handleRunReconAgent={handleRunReconAgent} agentStatus={agentStatus}
           agentPacket={agentPacket} handleAgentHandoff={handleAgentHandoff}
+          targetInput={targetInput} setTargetInput={setTargetInput}
+          attackType={attackType} setAttackType={setAttackType}
           isSniffing={isSniffing} handleStartSniffer={handleStartSniffer}
           interceptLogs={interceptLogs} implementationStatus={implementationStatus}
           onPlayCamera={onPlayCamera} handleStartNemesis={handleStartNemesis}
