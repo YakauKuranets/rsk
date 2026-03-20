@@ -9,22 +9,6 @@ import ArchiveViewer from './features/archive/ArchiveViewer';
 import StreamGrid from './features/streams/StreamGrid';
 import MultiStreamGrid from './features/streams/MultiStreamGrid';
 import StreamPlayer from './StreamPlayer';
-import SpiderControl from './features/spider/SpiderControl';
-import MassAudit from './features/mass-audit/MassAudit';
-import AssetDiscovery from './features/discovery/AssetDiscovery';
-import AttackGraph from './features/attack-graph/AttackGraph';
-import PlaybookRunner from './features/playbook/PlaybookRunner';
-import CampaignList from './features/campaign/CampaignList';
-import CampaignDashboard from './features/campaign/CampaignDashboard';
-import PassiveScanner from './features/passive-scan/PassiveScanner';
-import CameraScanPanel from './features/scan/CameraScanPanel';
-import AgentReport from './features/agents/AgentReport';
-import RelayPanel from './features/relay/RelayPanel';
-import RuntimeLogs from './features/logs/RuntimeLogs';
-import TargetList from './features/targets/TargetList';
-import HubReconPanel from './features/archive/HubReconPanel';
-import CapturePanel from './features/archive/CapturePanel';
-import NvrProbePanel from './features/archive/NvrProbePanel';
 import { useNvrPanel } from './hooks/useNvrPanel';
 import { useCapturePanel } from './hooks/useCapturePanel';
 import { useHubRecon } from './hooks/useHubRecon';
@@ -81,12 +65,6 @@ export default function App() {
   const [singleStreamCamera, setSingleStreamCamera] = useState(null);
   const [singleStreamSession, setSingleStreamSession] = useState(null);
   const [selectedTerminal, setSelectedTerminal] = useState(null);
-  const [showPlaybooks, setShowPlaybooks] = useState(false);
-  const [showCampaigns, setShowCampaigns] = useState(false);
-  const [showIotAudit, setShowIotAudit] = useState(false);
-  const [showCameraRadar, setShowCameraRadar] = useState(false);
-  const [activeCampaignId, setActiveCampaignId] = useState(null);
-
   const [mapCenter, setMapCenter] = useState([53.9, 27.56]);
   const [form, setForm] = useState({ name: '', host: '', login: 'admin', password: '', lat: 53.9, lng: 27.56, channelCount: 4 });
 
