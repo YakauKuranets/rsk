@@ -131,6 +131,7 @@ export default function App() {
       return true;
     }
   });
+  const [labelEditRequest, setLabelEditRequest] = useState(null);
   const nvr = useNvrPanel();
   const [implementationStatus, setImplementationStatus] = useState(null);
   const [auditResults, setAuditResults] = useState([]);
@@ -1399,6 +1400,15 @@ const handleSecurityAudit = async () => {
     }
   };
 
+  const handleFocusLabel = (label) => {
+    if (label?.lat != null && label?.lng != null) setMapCenter([label.lat, label.lng]);
+  };
+
+  const handleOpenLabelEditor = (label) => {
+    handleFocusLabel(label);
+    setLabelEditRequest({ requestId: Date.now(), label });
+  };
+
   return (
     <div style={{ display: 'flex', height: '100vh', width: '100vw', backgroundColor: '#0a0a0c', color: '#fff', fontFamily: 'monospace' }}>
       <ToastHost />
@@ -1426,9 +1436,7 @@ const handleSecurityAudit = async () => {
             handleFetchOnvifDeviceInfo={handleFetchOnvifDeviceInfo}
             onCameraPlayClick={(cam) => setPendingCameraStream(cam)}
             labels={labels}
-            onLabelClick={(label) => {
-              if (label?.lat && label?.lng) setMapCenter([label.lat, label.lng]);
-            }}
+            onLabelClick={handleOpenLabelEditor}
           />
         </div>
 
@@ -1518,9 +1526,8 @@ const handleSecurityAudit = async () => {
           handleClearDownloads={handleClearDownloads}
           labels={labels}
           setLabels={setLabels}
-          onLabelClick={(label) => {
-            if (label?.lat && label?.lng) setMapCenter([label.lat, label.lng]);
-          }}
+          onLabelClick={handleFocusLabel}
+          labelEditRequest={labelEditRequest}
           nvr={nvr}
           capture={capture}
           auditResults={auditResults}

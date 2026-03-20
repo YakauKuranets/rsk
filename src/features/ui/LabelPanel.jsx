@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 
 const T={
   bg0:'#07070f',bg1:'#0c0c1a',bg2:'#111122',line:'#1e1e35',
@@ -48,7 +48,7 @@ const btnFull=(color)=>({width:'100%',padding:'7px',background:color+'18',color,
 const DFORM={name:'',description:'',address:'',lat:'',lng:'',
   color:'red',icon:'camera',priority:'medium',tags:'',notes:''};
 
-export default function LabelPanel({labels=[],setLabels,onLabelClick}){
+export default function LabelPanel({labels=[],setLabels,onLabelClick,requestedEditRequest}){
   const [creating,setCreating]=useState(false);
   const [filter,setFilter]=useState('all');
   const [search,setSearch]=useState('');
@@ -76,6 +76,11 @@ export default function LabelPanel({labels=[],setLabels,onLabelClick}){
     setForm({...label,tags:label.tags?.join(', ')||'',lat:label.lat??'',lng:label.lng??''});
     setEditId(label.id);setCreating(true);
   };
+
+  useEffect(()=>{
+    if(!requestedEditRequest?.label)return;
+    startEdit(requestedEditRequest.label);
+  },[requestedEditRequest]);
 
   const colorDef=(id)=>C.find(c=>c.id===id)||C[0];
   const iconDef=(id)=>I.find(c=>c.id===id)||I[0];

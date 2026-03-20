@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import TargetCard from './TargetCard';
 import LabelPanel from './LabelPanel';
 import IntelHub from '../intelligence/IntelligenceHub';
@@ -64,13 +64,17 @@ function TargetsPanel({
   handleSmartSave,handleDeleteTarget,handleGeocode,
   onNemesis,onMemoryRequest,onIsapiInfo,onIsapiSearch,
   onOnvifInfo,onOnvifRecordings,onArchiveEndpoints,
-  labels,setLabels,onLabelClick,
+  labels,setLabels,onLabelClick,labelEditRequest,
   capture,nvr,auditResults,handlePortScan,handleSecurityAudit,
   handleDownloadIsapiPlayback,handleCaptureIsapiPlayback,handleDownloadOnvifToken,
   isPlayableRecord,isDownloadableRecord,
   handleCaptureArchive,handleDownloadHttp,activeTargetId,streamRtspUrl,activeCameraName,
 }){
   const [tab2,setTab2]=useState('targets');
+
+  useEffect(() => {
+    if (labelEditRequest?.label) setTab2('labels');
+  }, [labelEditRequest]);
 
   return(
     <>
@@ -150,7 +154,7 @@ function TargetsPanel({
           handleDownloadOnvifToken={handleDownloadOnvifToken}/>
       </>}
 
-      {tab2==='labels'&&<LabelPanel labels={labels} setLabels={setLabels} onLabelClick={onLabelClick}/>}
+      {tab2==='labels'&&<LabelPanel labels={labels} setLabels={setLabels} onLabelClick={onLabelClick} requestedEditRequest={labelEditRequest}/>}
     </>
   );
 }
@@ -263,7 +267,7 @@ export default function Sidebar(props){
     handleStartNemesis,
     runtimeLogs,setRuntimeLogs,downloadTasks,resumeDownloads,setResumeDownloads,
     handleCancelDownloadTask,handleRetryDownloadTask,handleClearDownloads,
-    labels,setLabels,onLabelClick,
+    labels,setLabels,onLabelClick,labelEditRequest,
     nvr,capture,auditResults,handlePortScan,handleSecurityAudit,
     handleDownloadIsapiPlayback,handleCaptureIsapiPlayback,handleDownloadOnvifToken,
     isPlayableRecord,isDownloadableRecord,handleCaptureArchive,
@@ -303,7 +307,7 @@ export default function Sidebar(props){
           onIsapiInfo={onIsapiInfo} onIsapiSearch={onIsapiSearch}
           onOnvifInfo={onOnvifInfo} onOnvifRecordings={onOnvifRecordings}
           onArchiveEndpoints={onArchiveEndpoints}
-          labels={labels} setLabels={setLabels} onLabelClick={onLabelClick}
+          labels={labels} setLabels={setLabels} onLabelClick={onLabelClick} labelEditRequest={labelEditRequest}
           capture={capture} nvr={nvr} auditResults={auditResults}
           handlePortScan={handlePortScan} handleSecurityAudit={handleSecurityAudit}
           handleDownloadIsapiPlayback={handleDownloadIsapiPlayback}
