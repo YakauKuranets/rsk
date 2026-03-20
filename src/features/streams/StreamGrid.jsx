@@ -109,7 +109,7 @@ export default function StreamGrid({
         </Marker>
       ))}
 
-      {labels.filter(l=>l.lat&&l.lng).map(label=>{
+      {labels.filter(l=>l.lat!=null&&l.lng!=null).map(label=>{
         const color=C[label.color]||'#9966ff';
         const iconCh=LABEL_ICONS_MAP[label.icon]||'📍';
         const pri=PRI_COLORS[label.priority]||'#4488ff';
