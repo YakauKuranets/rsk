@@ -45,6 +45,7 @@ export default function TargetCard({
   onOnvifInfo,
   onOnvifRecordings,
   onArchiveEndpoints,
+  onOpenHubArchive,
   onDelete,
 }) {
   const [open, setOpen] = useState(false);
@@ -55,6 +56,7 @@ export default function TargetCard({
   const type = String(t?.type || (cameraCount > 0 ? 'camera-hub' : 'host')).toLowerCase();
   const icon = type.includes('cam') || type.includes('nvr') || type.includes('dvr') ? '📹' : '🖥️';
   const danger = t?.riskScore >= 80 || t?.severity === 'critical';
+  const isHub = type === 'hub' || type.includes('hub');
 
   return (
     <div style={{
@@ -122,15 +124,19 @@ export default function TargetCard({
             </div>
           </div>
 
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: '4px' }}>
-            <button type="button" style={btn(T.red)} onClick={() => onNemesis?.(t)}>☠ Nemesis</button>
-            <button type="button" style={btn(T.purp)} onClick={() => onMemoryRequest?.(t)}>🧠 Memory</button>
-            <button type="button" style={btn(T.cyan)} onClick={() => onIsapiInfo?.(t)}>ℹ ISAPI Info</button>
-            <button type="button" style={btn(T.amb)} onClick={() => onIsapiSearch?.(t)}>🔎 ISAPI Search</button>
-            <button type="button" style={btn(T.grn)} onClick={() => onOnvifInfo?.(t)}>📡 ONVIF Info</button>
-            <button type="button" style={btn(T.blue)} onClick={() => onOnvifRecordings?.(t)}>🎞 Recordings</button>
-            <button type="button" style={btn(T.purp)} onClick={() => onArchiveEndpoints?.(t)}>🗄 Archive</button>
-          </div>
+          {isHub ? (
+            <button type="button" style={{ ...btn(T.cyan), marginBottom: 0 }} onClick={() => onOpenHubArchive?.(t)}>📁 Hub archive</button>
+          ) : (
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: '4px' }}>
+              <button type="button" style={btn(T.red)} onClick={() => onNemesis?.(t)}>☠ Nemesis</button>
+              <button type="button" style={btn(T.purp)} onClick={() => onMemoryRequest?.(t)}>🧠 Memory</button>
+              <button type="button" style={btn(T.cyan)} onClick={() => onIsapiInfo?.(t)}>ℹ ISAPI Info</button>
+              <button type="button" style={btn(T.amb)} onClick={() => onIsapiSearch?.(t)}>🔎 ISAPI Search</button>
+              <button type="button" style={btn(T.grn)} onClick={() => onOnvifInfo?.(t)}>📡 ONVIF Info</button>
+              <button type="button" style={btn(T.blue)} onClick={() => onOnvifRecordings?.(t)}>🎞 Recordings</button>
+              <button type="button" style={btn(T.purp)} onClick={() => onArchiveEndpoints?.(t)}>🗄 Archive</button>
+            </div>
+          )}
 
           <button
             type="button"

@@ -1504,6 +1504,7 @@ const handleSecurityAudit = async () => {
           onOnvifInfo={(t) => handleFetchOnvifDeviceInfo(t)}
           onOnvifRecordings={(t) => handleSearchOnvifRecordings(t)}
           onArchiveEndpoints={(t) => handleProbeArchiveExport(t)}
+          onOpenHubArchive={() => fetchFtpRoot('video1')}
           agentScope={agentScope}
           setAgentScope={setAgentScope}
           handleRunReconAgent={handleRunReconAgent}

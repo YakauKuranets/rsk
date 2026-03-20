@@ -63,7 +63,7 @@ function TargetsPanel({
   form,setForm,hubRecon,
   handleSmartSave,handleDeleteTarget,handleGeocode,
   onNemesis,onMemoryRequest,onIsapiInfo,onIsapiSearch,
-  onOnvifInfo,onOnvifRecordings,onArchiveEndpoints,
+  onOnvifInfo,onOnvifRecordings,onArchiveEndpoints,onOpenHubArchive,
   labels,setLabels,onLabelClick,labelEditRequest,
   capture,nvr,auditResults,handlePortScan,handleSecurityAudit,
   handleDownloadIsapiPlayback,handleCaptureIsapiPlayback,handleDownloadOnvifToken,
@@ -132,7 +132,7 @@ function TargetsPanel({
             onNemesis={onNemesis} onMemoryRequest={onMemoryRequest}
             onIsapiInfo={onIsapiInfo} onIsapiSearch={onIsapiSearch}
             onOnvifInfo={onOnvifInfo} onOnvifRecordings={onOnvifRecordings}
-            onArchiveEndpoints={onArchiveEndpoints} onDelete={handleDeleteTarget}/>
+            onArchiveEndpoints={onArchiveEndpoints} onOpenHubArchive={onOpenHubArchive} onDelete={handleDeleteTarget}/>
         ))}
 
         <Section icon='📦' title='Захват архива' color={T.amb} defaultOpen={false}>
@@ -261,7 +261,7 @@ export default function Sidebar(props){
     form,setForm,hubRecon,
     handleSmartSave,handleDeleteTarget,handleGeocode,
     onNemesis,onMemoryRequest,onIsapiInfo,onIsapiSearch,
-    onOnvifInfo,onOnvifRecordings,onArchiveEndpoints,
+    onOnvifInfo,onOnvifRecordings,onArchiveEndpoints,onOpenHubArchive,
     agentScope,setAgentScope,handleRunReconAgent,agentStatus,agentPacket,handleAgentHandoff,
     isSniffing,handleStartSniffer,interceptLogs,implementationStatus,onPlayCamera,
     handleStartNemesis,
@@ -311,7 +311,7 @@ export default function Sidebar(props){
           onNemesis={onNemesis} onMemoryRequest={onMemoryRequest}
           onIsapiInfo={onIsapiInfo} onIsapiSearch={onIsapiSearch}
           onOnvifInfo={onOnvifInfo} onOnvifRecordings={onOnvifRecordings}
-          onArchiveEndpoints={onArchiveEndpoints}
+          onArchiveEndpoints={onArchiveEndpoints} onOpenHubArchive={onOpenHubArchive}
           labels={labels} setLabels={setLabels} onLabelClick={onLabelClick} labelEditRequest={labelEditRequest}
           capture={capture} nvr={nvr} auditResults={auditResults}
           handlePortScan={handlePortScan} handleSecurityAudit={handleSecurityAudit}
