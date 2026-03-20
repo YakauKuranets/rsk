@@ -14,6 +14,7 @@ import AgentReport from '../agents/AgentReport';
 import HubReconPanel from '../archive/HubReconPanel';
 import CapturePanel from '../archive/CapturePanel';
 import NvrProbePanel from '../archive/NvrProbePanel';
+import SpiderControl from '../spider/SpiderControl';
 
 const T={
   bg0:'#07070f',bg1:'#0c0c1a',bg2:'#111122',bg3:'#171730',
@@ -162,10 +163,8 @@ function TargetsPanel({
 function OpsPanel({
   agentScope,setAgentScope,handleRunReconAgent,agentStatus,agentPacket,handleAgentHandoff,
   isSniffing,handleStartSniffer,interceptLogs,implementationStatus,onPlayCamera,
-  handleStartNemesis,targetInput,setTargetInput,attackType,setAttackType,
-  fuzzLogin,setFuzzLogin,fuzzPassword,setFuzzPassword,fuzzPath,setFuzzPath,
-  fuzzResults,sourceAnalysis,handleAnalyzeSources,handlePlayFuzzedLink,
-  hubRecon,capture,hubConfig,formatBytes,handleCaptureArchive,
+  handleStartNemesis,handleAnalyzeSources,handlePlayFuzzedLink,
+  hubRecon,capture,hubConfig,fuzzPath,formatBytes,handleCaptureArchive,
 }){
   const [showPb,setShowPb]=useState(false);
   const [showCamp,setShowCamp]=useState(false);
@@ -188,52 +187,11 @@ function OpsPanel({
           {isSniffing?'🎧 Перехват активен...':'🎧 Пассивный перехват'}</button>
         {interceptLogs.length>0&&<div style={{background:T.bg0,border:'1px solid '+T.grn+'30',padding:'8px',fontSize:'10px',color:T.grn,maxHeight:'80px',overflowY:'auto',borderRadius:'4px',marginBottom:'6px'}}>
           {interceptLogs.map((l,i)=><div key={i}>[{l.protocol}] {l.details}</div>)}</div>}
-        <div style={{background:T.bg0,border:'1px solid '+T.red+'30',borderRadius:'4px',padding:'8px',marginBottom:'6px'}}>
-          <div style={{fontSize:'10px',color:T.muted,marginBottom:'4px'}}>Цель Nemesis (IP, домен или URL)</div>
-          <input
-            style={css.input}
-            value={targetInput}
-            onChange={e=>setTargetInput(e.target.value)}
-            placeholder='192.168.1.10 или https://target.local'
-          />
-          <div style={{fontSize:'10px',color:T.muted,marginBottom:'4px'}}>Режим</div>
-          <div style={{display:'flex',gap:'4px',marginBottom:'6px'}}>
-            {[['RTSP_BRUTE','RTSP',T.red],['CGI_EXPLOIT','CGI',T.amb],['CUSTOM_INJECT','Spider',T.purp]].map(([id,label,col])=>(
-              <button key={id} onClick={()=>setAttackType(id)} style={{
-                flex:1,padding:'5px',fontSize:'10px',cursor:'pointer',fontFamily:'inherit',
-                background:attackType===id?col+'20':'transparent',color:attackType===id?col:T.dim,
-                border:'1px solid '+(attackType===id?col+'60':T.line),borderRadius:'4px',fontWeight:600,
-              }}>{label}</button>
-            ))}
-          </div>
-          <div style={{display:'flex',gap:'6px',marginBottom:'6px'}}>
-            <input style={{...css.input,flex:1,marginBottom:0}} value={fuzzLogin} onChange={e=>setFuzzLogin(e.target.value)} placeholder='Логин' />
-            <input style={{...css.input,flex:1,marginBottom:0}} type='password' value={fuzzPassword} onChange={e=>setFuzzPassword(e.target.value)} placeholder='Пароль' />
-          </div>
-          <input style={css.input} value={fuzzPath} onChange={e=>setFuzzPath(e.target.value)} placeholder='Целевой путь / archive/path/file.mkv' />
-          <button style={{...css.btnFull(T.red),marginBottom:0}} onClick={handleStartNemesis}>☢ Nemesis — взлом архива</button>
-        </div>
-        {fuzzResults.length>0&&<div style={{background:T.bg0,border:'1px solid '+T.amb+'30',padding:'8px',fontSize:'10px',color:T.amb,maxHeight:'160px',overflowY:'auto',borderRadius:'4px',marginBottom:'6px'}}>
-          {fuzzResults.map((res,idx)=>{
-            const isPlayable=res.includes('[200]')||res.includes('[401]')||res.includes('УСПЕХ')||res.includes('НАЙДЕНО');
-            const hasUrl=/(http|rtsp):\/\/[^\s]+/.test(res);
-            return(
-              <div key={idx} style={{display:'flex',gap:'8px',alignItems:'flex-start',marginBottom:'4px'}}>
-                <span style={{flex:1,wordBreak:'break-all'}}>{res}</span>
-                {isPlayable&&hasUrl&&<button style={css.btn(T.cyan)} onClick={()=>handlePlayFuzzedLink(res)}>▶ Плей</button>}
-              </div>
-            );
-          })}
-        </div>}
-        <button style={css.btnFull(T.cyan)} onClick={handleAnalyzeSources}>🕷️ Прочитать исходный код / API</button>
-        {sourceAnalysis&&<div style={{background:T.bg0,border:'1px solid '+T.cyan+'30',padding:'8px',fontSize:'10px',color:T.cyan,maxHeight:'180px',overflowY:'auto',borderRadius:'4px',marginBottom:'6px'}}>
-          <div style={{color:T.amb,fontWeight:700,marginBottom:'4px'}}>Формы:</div>
-          {(sourceAnalysis.forms||[]).map((item,i)=><div key={`f${i}`}>➡ {item}</div>)}
-          <div style={{color:T.amb,fontWeight:700,margin:'6px 0 4px'}}>API / AJAX:</div>
-          {(sourceAnalysis.apiEndpoints||[]).map((item,i)=><div key={`a${i}`} style={{color:T.red}}>⚡ {item}</div>)}
-          <div style={{color:T.amb,fontWeight:700,margin:'6px 0 4px'}}>Inputs:</div>
-          <div style={{color:T.text}}>{(sourceAnalysis.inputs||[]).join(', ') || 'нет'}</div>
-        </div>}
+        <SpiderControl
+          handleStartNemesis={handleStartNemesis}
+          handleAnalyzeSources={handleAnalyzeSources}
+          handlePlayFuzzedLink={handlePlayFuzzedLink}
+        />
         <button style={css.btnFull(T.purp)} onClick={()=>setShowPb(v=>!v)}>📋 {showPb?'Скрыть плейбуки':'Плейбуки'}</button>
         {showPb&&<PlaybookRunner/>}
         <button style={css.btnFull(T.amb)} onClick={()=>setShowCamp(v=>!v)}>📁 {showCamp?'Скрыть кампании':'Кампании'}</button>
@@ -311,9 +269,7 @@ export default function Sidebar(props){
     onNemesis,onMemoryRequest,onIsapiInfo,onIsapiSearch,
     onOnvifInfo,onOnvifRecordings,onArchiveEndpoints,onOpenHubArchive,
     agentScope,setAgentScope,handleRunReconAgent,agentStatus,agentPacket,handleAgentHandoff,
-    targetInput,setTargetInput,attackType,setAttackType,
-    fuzzLogin,setFuzzLogin,fuzzPassword,setFuzzPassword,fuzzPath,setFuzzPath,
-    fuzzResults,sourceAnalysis,handleAnalyzeSources,handlePlayFuzzedLink,
+    fuzzPath,handleAnalyzeSources,handlePlayFuzzedLink,
     isSniffing,handleStartSniffer,interceptLogs,implementationStatus,onPlayCamera,
     handleStartNemesis,
     runtimeLogs,setRuntimeLogs,downloadTasks,resumeDownloads,setResumeDownloads,
@@ -380,18 +336,12 @@ export default function Sidebar(props){
           agentScope={agentScope} setAgentScope={setAgentScope}
           handleRunReconAgent={handleRunReconAgent} agentStatus={agentStatus}
           agentPacket={agentPacket} handleAgentHandoff={handleAgentHandoff}
-          targetInput={targetInput} setTargetInput={setTargetInput}
-          attackType={attackType} setAttackType={setAttackType}
-          fuzzLogin={fuzzLogin} setFuzzLogin={setFuzzLogin}
-          fuzzPassword={fuzzPassword} setFuzzPassword={setFuzzPassword}
-          fuzzPath={fuzzPath} setFuzzPath={setFuzzPath}
-          fuzzResults={fuzzResults} sourceAnalysis={sourceAnalysis}
           handleAnalyzeSources={handleAnalyzeSources} handlePlayFuzzedLink={handlePlayFuzzedLink}
           isSniffing={isSniffing} handleStartSniffer={handleStartSniffer}
           interceptLogs={interceptLogs} implementationStatus={implementationStatus}
           onPlayCamera={onPlayCamera} handleStartNemesis={handleStartNemesis}
           hubRecon={hubRecon} capture={capture} hubConfig={hubConfig}
-          formatBytes={formatBytes} handleCaptureArchive={handleCaptureArchive}
+          fuzzPath={fuzzPath} formatBytes={formatBytes} handleCaptureArchive={handleCaptureArchive}
         />}
         {tab==='intel'&&<IntelHub/>}
         {tab==='system'&&<SystemPanel
