@@ -58,11 +58,12 @@ export default function LabelPanel({labels=[],setLabels,onLabelClick}){
 
   const save=()=>{
     if(!form.name.trim())return alert('Введите название');
+    const existing=editId?labels.find(l=>l.id===editId):null;
     const label={
       id:editId||'lbl_'+Date.now(),...form,
-      lat:parseFloat(form.lat)||null,lng:parseFloat(form.lng)||null,
+      lat:form.lat===''?null:parseFloat(form.lat),lng:form.lng===''?null:parseFloat(form.lng),
       tags:form.tags.split(',').map(s=>s.trim()).filter(Boolean),
-      createdAt:new Date().toISOString(),updatedAt:new Date().toISOString(),
+      createdAt:existing?.createdAt||new Date().toISOString(),updatedAt:new Date().toISOString(),
     };
     if(editId){setLabels(p=>p.map(l=>l.id===editId?label:l));setEditId(null);}
     else setLabels(p=>[...p,label]);
@@ -88,7 +89,7 @@ export default function LabelPanel({labels=[],setLabels,onLabelClick}){
     <div style={{background:T.bg2,border:'1px solid '+T.line,borderRadius:'6px',padding:'12px'}}>
       <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'12px'}}>
         <span style={{fontSize:'12px',fontWeight:700,color:T.text}}>{editId?'✏ Редактировать':'+ Новая метка'}</span>
-        <button onClick={()=>{setCreating(false);setEditId(null);}}
+        <button onClick={()=>{setCreating(false);setEditId(null);setForm(DFORM);}}
           style={{background:'none',border:'none',color:T.red,cursor:'pointer',fontSize:'14px'}}>×</button>
       </div>
       <div style={{fontSize:'10px',color:T.muted,marginBottom:'3px'}}>Название *</div>
@@ -147,7 +148,7 @@ export default function LabelPanel({labels=[],setLabels,onLabelClick}){
       <textarea style={{...inp,height:'60px',resize:'vertical'}} value={form.notes} onChange={e=>upd('notes',e.target.value)} placeholder='Дополнительная информация...' />
       <div style={{display:'flex',gap:'6px'}}>
         <button style={{...btnFull(T.amb),flex:2,marginBottom:0}} onClick={save}>{editId?'💾 Сохранить':'+ Создать метку'}</button>
-        <button style={{...btnFull(T.muted),flex:1,marginBottom:0}} onClick={()=>{setCreating(false);setEditId(null);}}>Отмена</button>
+        <button style={{...btnFull(T.muted),flex:1,marginBottom:0}} onClick={()=>{setCreating(false);setEditId(null);setForm(DFORM);}}>Отмена</button>
       </div>
     </div>
   );
@@ -204,7 +205,7 @@ export function LabelCard({label,colorDef,iconDef,priDef,onEdit,onDelete,onClick
       {open&&(
         <div style={{padding:'0 10px 10px',borderTop:'1px solid #1e1e35'}}>
           {label.description&&<div style={{fontSize:'11px',color:'#8888aa',margin:'8px 0'}}>{label.description}</div>}
-          {label.lat&&label.lng&&(
+          {label.lat!=null&&label.lng!=null&&(
             <div style={{fontSize:'10px',color:'#6666aa',marginBottom:'6px'}}>
               🌐 {Number(label.lat).toFixed(5)}, {Number(label.lng).toFixed(5)}{' '}
               <button onClick={()=>onClick?.(label)} style={{background:'none',border:'none',color:col.color,cursor:'pointer',fontSize:'10px',padding:0}}>→ на карте</button>
@@ -226,7 +227,7 @@ export function LabelCard({label,colorDef,iconDef,priDef,onEdit,onDelete,onClick
           <div style={{display:'flex',gap:'6px'}}>
             <button onClick={onEdit} style={{flex:1,padding:'5px',background:'#111122',color:'#9966ff',border:'1px solid #9966ff40',borderRadius:'4px',fontSize:'10px',cursor:'pointer',fontFamily:'inherit'}}>✏ Изменить</button>
             <button onClick={onDelete} style={{flex:1,padding:'5px',background:'#120808',color:'#ff3355',border:'1px solid #ff335540',borderRadius:'4px',fontSize:'10px',cursor:'pointer',fontFamily:'inherit'}}>🗑 Удалить</button>
-            {label.lat&&label.lng&&(
+            {label.lat!=null&&label.lng!=null&&(
               <button onClick={()=>onClick?.(label)} style={{flex:1,padding:'5px',background:'#0a1520',color:col.color,border:'1px solid '+col.color+'40',borderRadius:'4px',fontSize:'10px',cursor:'pointer',fontFamily:'inherit'}}>📍 Карта</button>
             )}
           </div>
