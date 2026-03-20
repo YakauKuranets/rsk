@@ -77,6 +77,7 @@ mod msf_client;
 mod post_exploit;
 mod phishing_generator;
 mod continuous_monitor;
+mod tool_executor;
 mod firmware_intelligence;
 mod anomaly_detector;
 mod telegram_osint;
@@ -7071,6 +7072,8 @@ fn main() {
             post_exploit::cleanup_session,
             phishing_generator::generate_hta_payload,
             phishing_generator::generate_macro_lure,
+            tool_executor::execute_tool,
+            tool_executor::check_tools_available,
             meta_agent::run_meta_campaign,
             meta_agent::get_meta_recommendations,
             scout_agent::start_scout_agent,
