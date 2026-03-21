@@ -190,6 +190,7 @@ Compact report includes:
 - Baseline inputs should stay controlled/stable; comparison is meaningful only for comparable inputs.
 - `inconclusive` is not equal to `regressed` (it usually means mixed/noisy or insufficiently comparable signals).
 - For cookie baseline, keep `secureTarget/issuesTarget/unreachableTarget` stable across runs to reduce environment noise.
+- Runtime consumer boundary for cookie checks: `verifySessionCookieFlagsCapability(...)` now prefers minimal-agent path and falls back to legacy capability/session checker path for compatibility.
 
 ## Controlled cookie baseline profiles
 
