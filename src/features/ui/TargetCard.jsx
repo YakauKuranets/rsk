@@ -1,4 +1,13 @@
 import { useMemo, useState } from 'react';
+import {
+  canRunArchiveExport,
+  canRunDiscoveryActions,
+  canRunPromotionActions,
+  canRunStreamVerification,
+  canRunVerifiedActions,
+  deriveCardKind,
+  isCardKindGatingEnabled,
+} from '../targets/cardKindAdapter';
 
 const T = {
   bg0: '#07070f',
@@ -57,6 +66,11 @@ export default function TargetCard({
   const icon = type.includes('cam') || type.includes('nvr') || type.includes('dvr') ? '📹' : '🖥️';
   const danger = t?.riskScore >= 80 || t?.severity === 'critical';
   const isHub = type === 'hub';
+  const canDiscovery = canRunDiscoveryActions(t);
+  const canVerified = canRunVerifiedActions(t);
+  const canStreamCheck = canRunStreamVerification(t);
+  const canArchive = canRunArchiveExport(t);
+  const canPromotion = canRunPromotionActions(t);
 
   return (
     <div style={{
@@ -128,13 +142,16 @@ export default function TargetCard({
             <button type="button" style={{ ...btn(T.cyan), marginBottom: 0 }} onClick={() => onOpenHubArchive?.(t)}>📁 Hub archive</button>
           ) : (
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: '4px' }}>
-              <button type="button" style={btn(T.red)} onClick={() => onNemesis?.(t)}>☠ Nemesis</button>
-              <button type="button" style={btn(T.purp)} onClick={() => onMemoryRequest?.(t)}>🧠 Memory</button>
-              <button type="button" style={btn(T.cyan)} onClick={() => onIsapiInfo?.(t)}>ℹ ISAPI Info</button>
-              <button type="button" style={btn(T.amb)} onClick={() => onIsapiSearch?.(t)}>🔎 ISAPI Search</button>
-              <button type="button" style={btn(T.grn)} onClick={() => onOnvifInfo?.(t)}>📡 ONVIF Info</button>
-              <button type="button" style={btn(T.blue)} onClick={() => onOnvifRecordings?.(t)}>🎞 Recordings</button>
-              <button type="button" style={btn(T.purp)} onClick={() => onArchiveEndpoints?.(t)}>🗄 Archive</button>
+              {canVerified && <button type="button" style={btn(T.red)} onClick={() => onNemesis?.(t)}>☠ Nemesis</button>}
+              {canDiscovery && <button type="button" style={btn(T.purp)} onClick={() => onMemoryRequest?.(t)}>🧠 Memory</button>}
+              {canStreamCheck && <button type="button" style={btn(T.cyan)} onClick={() => onIsapiInfo?.(t)}>ℹ ISAPI Info</button>}
+              {canVerified && <button type="button" style={btn(T.amb)} onClick={() => onIsapiSearch?.(t)}>🔎 ISAPI Search</button>}
+              {canStreamCheck && <button type="button" style={btn(T.grn)} onClick={() => onOnvifInfo?.(t)}>📡 ONVIF Info</button>}
+              {canVerified && <button type="button" style={btn(T.blue)} onClick={() => onOnvifRecordings?.(t)}>🎞 Recordings</button>}
+              {canArchive && <button type="button" style={btn(T.purp)} onClick={() => onArchiveEndpoints?.(t)}>🗄 Archive</button>}
+              {isCardKindGatingEnabled() && canPromotion && (
+                <span style={{ ...btn(T.dim), display: 'block' }}>↗ Promotion available ({deriveCardKind(t)})</span>
+              )}
             </div>
           )}
 

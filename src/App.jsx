@@ -16,6 +16,13 @@ import { useAppStore } from './store/appStore';
 import ToastHost from './components/ToastHost';
 import { toast } from './utils/toast';
 import Sidebar from './features/ui/Sidebar';
+import {
+  canRunArchiveExport,
+  canRunDiscoveryActions,
+  canRunStreamVerification,
+  canRunVerifiedActions,
+  deriveCardKind,
+} from './features/targets/cardKindAdapter';
 
 function normalizeTargetRecords(rawTargets) {
   const normalized = [];
@@ -365,6 +372,9 @@ export default function App() {
 
   const handleStartStream = async (terminal, channel) => {
     try {
+      if (terminal?.type !== 'hub' && !canRunStreamVerification(terminal)) {
+        return toast(`Stream action gated for kind=${deriveCardKind(terminal)}`);
+      }
       if (activeTargetId) {
         await invoke('stop_stream', { targetId: activeTargetId });
       }
@@ -474,6 +484,9 @@ export default function App() {
 
   const handlePlayArchive = async (playbackUri) => {
     if (!activeTargetId) return;
+    if (streamTerminal && !canRunArchiveExport(streamTerminal)) {
+      return toast(`Archive playback gated for kind=${deriveCardKind(streamTerminal)}`);
+    }
     setLoading(true);
     setRadarStatus('ПОДКЛЮЧЕНИЕ К АРХИВУ...');
     try {
@@ -957,6 +970,9 @@ export default function App() {
   };
 
   const handleLocalArchive = async (terminal) => {
+    if (!canRunDiscoveryActions(terminal)) {
+      return toast(`Discovery action gated for kind=${deriveCardKind(terminal)}`);
+    }
     setLoading(true);
     setRadarStatus(`ПРОВЕРКА ПРОТОКОЛОВ NVR: ${terminal.host}`);
     try {
@@ -977,6 +993,9 @@ export default function App() {
   };
 
   const handleFetchNvrDeviceInfo = async (terminal) => {
+    if (!canRunStreamVerification(terminal)) {
+      return toast(`Stream verification gated for kind=${deriveCardKind(terminal)}`);
+    }
     setLoading(true);
     setRadarStatus(`ISAPI DEVICE INFO: ${terminal.host}`);
     try {
@@ -994,6 +1013,9 @@ export default function App() {
   };
 
   const handleSearchIsapiRecordings = async (terminal) => {
+    if (!canRunVerifiedActions(terminal)) {
+      return toast(`Verified action gated for kind=${deriveCardKind(terminal)}`);
+    }
     setLoading(true);
     setRadarStatus(`ISAPI SEARCH: ${terminal.host}`);
     try {
@@ -1026,6 +1048,9 @@ confidence(avg/max): ${avgConfidence}/${maxConfidence}`);
   };
 
   const handleFetchOnvifDeviceInfo = async (terminal) => {
+    if (!canRunStreamVerification(terminal)) {
+      return toast(`Stream verification gated for kind=${deriveCardKind(terminal)}`);
+    }
     setLoading(true);
     setRadarStatus(`ONVIF DEVICE INFO: ${terminal.host}`);
     try {
@@ -1094,6 +1119,9 @@ confidence(avg/max): ${avgConfidence}/${maxConfidence}`);
   };
 
   const handleDownloadIsapiPlayback = async (item) => {
+    if (!canRunArchiveExport(streamTerminal || {})) {
+      return toast(`Archive export gated for kind=${deriveCardKind(streamTerminal || {})}`);
+    }
     if (!item?.playbackUri) {
       return toast('Для этой записи отсутствует playback URI');
     }
@@ -1189,6 +1217,9 @@ confidence(avg/max): ${avgConfidence}/${maxConfidence}`);
   };
 
   const handleSearchOnvifRecordings = async (terminal) => {
+    if (!canRunVerifiedActions(terminal)) {
+      return toast(`Verified action gated for kind=${deriveCardKind(terminal)}`);
+    }
     setLoading(true);
     setRadarStatus(`ONVIF RECORDINGS SEARCH: ${terminal.host}`);
     try {
@@ -1211,6 +1242,9 @@ confidence(avg/max): ${avgConfidence}/${maxConfidence}`);
   };
 
   const handleDownloadOnvifToken = async (item) => {
+    if (!canRunArchiveExport(streamTerminal || {})) {
+      return toast(`Archive export gated for kind=${deriveCardKind(streamTerminal || {})}`);
+    }
     if (!item?.token || !item?.endpoint) return;
 
     const taskId = `onvif_${Date.now()}`;
@@ -1258,6 +1292,9 @@ confidence(avg/max): ${avgConfidence}/${maxConfidence}`);
   };
 
   const handleProbeArchiveExport = async (terminal) => {
+    if (!canRunArchiveExport(terminal)) {
+      return toast(`Archive export probe gated for kind=${deriveCardKind(terminal)}`);
+    }
     setLoading(true);
     setRadarStatus(`ARCHIVE EXPORT PROBE: ${terminal.host}`);
     try {
@@ -1298,6 +1335,9 @@ confidence(avg/max): ${avgConfidence}/${maxConfidence}`);
 
   const startSingleStream = async (camera) => {
     if (!camera?.terminal || !camera?.channel) return;
+    if (camera.terminal.type !== 'hub' && !canRunStreamVerification(camera.terminal)) {
+      return toast(`Single stream gated for kind=${deriveCardKind(camera.terminal)}`);
+    }
     try {
       if (singleStreamSession?.targetId) {
         await invoke('stop_stream', { targetId: singleStreamSession.targetId });
