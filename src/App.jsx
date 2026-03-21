@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { scanHostPorts } from './api/tauri';
 import { listen } from '@tauri-apps/api/event';
@@ -140,6 +140,7 @@ export default function App() {
     }
   });
   const [labelEditRequest, setLabelEditRequest] = useState(null);
+  const [archiveTargetContext, setArchiveTargetContext] = useState(null);
   const nvr = useNvrPanel();
   const [implementationStatus, setImplementationStatus] = useState(null);
   const [auditResults, setAuditResults] = useState([]);
@@ -428,6 +429,18 @@ export default function App() {
       setStreamRtspUrl(rtspUrlForRecovery);
       setStreamTerminal(terminal);
       setStreamChannel(channel);
+      setArchiveTargetContext({
+        source: 'handleStartStream',
+        sourceTargetId: terminal?.id || null,
+        targetSnapshot: terminal || null,
+        cardKind: deriveCardKind(terminal || {}),
+        eligibility: {
+          discovery: canRunDiscoveryActions(terminal || {}),
+          verified: canRunVerifiedActions(terminal || {}),
+          streamVerification: canRunStreamVerification(terminal || {}),
+          archiveExport: canRunArchiveExport(terminal || {}),
+        },
+      });
 
       setStreamType('ws-flv');
       setActiveTargetId(streamSessionId);
@@ -482,11 +495,45 @@ export default function App() {
     setLoading(false);
   };
 
+  const buildArchiveTargetContext = useCallback((target, source) => {
+    const snapshot = target && typeof target === 'object' ? target : {};
+    return {
+      source,
+      sourceTargetId: snapshot.id || snapshot.targetId || null,
+      targetSnapshot: snapshot,
+      cardKind: deriveCardKind(snapshot),
+      eligibility: {
+        discovery: canRunDiscoveryActions(snapshot),
+        verified: canRunVerifiedActions(snapshot),
+        streamVerification: canRunStreamVerification(snapshot),
+        archiveExport: canRunArchiveExport(snapshot),
+      },
+    };
+  }, []);
+
+  const setArchiveContextFromTarget = useCallback((target, source) => {
+    const next = buildArchiveTargetContext(target, source);
+    setArchiveTargetContext(next);
+    return next;
+  }, [buildArchiveTargetContext]);
+
+  const resolveArchiveContext = useCallback((source, fallbackTarget = null) => {
+    if (fallbackTarget) return setArchiveContextFromTarget(fallbackTarget, source);
+    if (archiveTargetContext) return archiveTargetContext;
+    if (streamTerminal) return setArchiveContextFromTarget(streamTerminal, `${source}:stream_terminal_fallback`);
+    return buildArchiveTargetContext({}, `${source}:legacy_unknown`);
+  }, [archiveTargetContext, buildArchiveTargetContext, setArchiveContextFromTarget, streamTerminal]);
+
+  const ensureArchiveEligibility = useCallback((ctx, key, actionLabel) => {
+    if (ctx?.eligibility?.[key]) return true;
+    toast(`${actionLabel} gated for kind=${ctx?.cardKind || 'legacy'}`);
+    return false;
+  }, []);
+
   const handlePlayArchive = async (playbackUri) => {
     if (!activeTargetId) return;
-    if (streamTerminal && !canRunArchiveExport(streamTerminal)) {
-      return toast(`Archive playback gated for kind=${deriveCardKind(streamTerminal)}`);
-    }
+    const ctx = resolveArchiveContext('handlePlayArchive', streamTerminal);
+    if (!ensureArchiveEligibility(ctx, 'archiveExport', 'Archive playback')) return;
     setLoading(true);
     setRadarStatus('ПОДКЛЮЧЕНИЕ К АРХИВУ...');
     try {
@@ -970,9 +1017,8 @@ export default function App() {
   };
 
   const handleLocalArchive = async (terminal) => {
-    if (!canRunDiscoveryActions(terminal)) {
-      return toast(`Discovery action gated for kind=${deriveCardKind(terminal)}`);
-    }
+    const ctx = setArchiveContextFromTarget(terminal, 'handleLocalArchive');
+    if (!ensureArchiveEligibility(ctx, 'discovery', 'Discovery action')) return;
     setLoading(true);
     setRadarStatus(`ПРОВЕРКА ПРОТОКОЛОВ NVR: ${terminal.host}`);
     try {
@@ -993,9 +1039,8 @@ export default function App() {
   };
 
   const handleFetchNvrDeviceInfo = async (terminal) => {
-    if (!canRunStreamVerification(terminal)) {
-      return toast(`Stream verification gated for kind=${deriveCardKind(terminal)}`);
-    }
+    const ctx = setArchiveContextFromTarget(terminal, 'handleFetchNvrDeviceInfo');
+    if (!ensureArchiveEligibility(ctx, 'streamVerification', 'Stream verification')) return;
     setLoading(true);
     setRadarStatus(`ISAPI DEVICE INFO: ${terminal.host}`);
     try {
@@ -1013,9 +1058,8 @@ export default function App() {
   };
 
   const handleSearchIsapiRecordings = async (terminal) => {
-    if (!canRunVerifiedActions(terminal)) {
-      return toast(`Verified action gated for kind=${deriveCardKind(terminal)}`);
-    }
+    const ctx = setArchiveContextFromTarget(terminal, 'handleSearchIsapiRecordings');
+    if (!ensureArchiveEligibility(ctx, 'verified', 'Verified action')) return;
     setLoading(true);
     setRadarStatus(`ISAPI SEARCH: ${terminal.host}`);
     try {
@@ -1048,9 +1092,8 @@ confidence(avg/max): ${avgConfidence}/${maxConfidence}`);
   };
 
   const handleFetchOnvifDeviceInfo = async (terminal) => {
-    if (!canRunStreamVerification(terminal)) {
-      return toast(`Stream verification gated for kind=${deriveCardKind(terminal)}`);
-    }
+    const ctx = setArchiveContextFromTarget(terminal, 'handleFetchOnvifDeviceInfo');
+    if (!ensureArchiveEligibility(ctx, 'streamVerification', 'Stream verification')) return;
     setLoading(true);
     setRadarStatus(`ONVIF DEVICE INFO: ${terminal.host}`);
     try {
@@ -1107,6 +1150,8 @@ confidence(avg/max): ${avgConfidence}/${maxConfidence}`);
   };
 
   const handleCaptureIsapiPlayback = async (item) => {
+    const ctx = resolveArchiveContext('handleCaptureIsapiPlayback');
+    if (!ensureArchiveEligibility(ctx, 'archiveExport', 'Archive capture')) return;
     if (!item?.playbackUri) {
       return toast('Для этой записи отсутствует playback URI');
     }
@@ -1119,9 +1164,8 @@ confidence(avg/max): ${avgConfidence}/${maxConfidence}`);
   };
 
   const handleDownloadIsapiPlayback = async (item) => {
-    if (!canRunArchiveExport(streamTerminal || {})) {
-      return toast(`Archive export gated for kind=${deriveCardKind(streamTerminal || {})}`);
-    }
+    const ctx = resolveArchiveContext('handleDownloadIsapiPlayback');
+    if (!ensureArchiveEligibility(ctx, 'archiveExport', 'Archive export')) return;
     if (!item?.playbackUri) {
       return toast('Для этой записи отсутствует playback URI');
     }
@@ -1156,7 +1200,7 @@ confidence(avg/max): ${avgConfidence}/${maxConfidence}`);
         playbackUri: normalizedUri,
         login: nvr.isapiSearchAuth.login || 'admin',
         pass: nvr.isapiSearchAuth.pass || '',
-        sourceHost: terminal.host || '',
+        sourceHost: ctx?.targetSnapshot?.host || streamTerminal?.host || '',
         filenameHint,
         taskId,
       });
@@ -1217,9 +1261,8 @@ confidence(avg/max): ${avgConfidence}/${maxConfidence}`);
   };
 
   const handleSearchOnvifRecordings = async (terminal) => {
-    if (!canRunVerifiedActions(terminal)) {
-      return toast(`Verified action gated for kind=${deriveCardKind(terminal)}`);
-    }
+    const ctx = setArchiveContextFromTarget(terminal, 'handleSearchOnvifRecordings');
+    if (!ensureArchiveEligibility(ctx, 'verified', 'Verified action')) return;
     setLoading(true);
     setRadarStatus(`ONVIF RECORDINGS SEARCH: ${terminal.host}`);
     try {
@@ -1242,9 +1285,8 @@ confidence(avg/max): ${avgConfidence}/${maxConfidence}`);
   };
 
   const handleDownloadOnvifToken = async (item) => {
-    if (!canRunArchiveExport(streamTerminal || {})) {
-      return toast(`Archive export gated for kind=${deriveCardKind(streamTerminal || {})}`);
-    }
+    const ctx = resolveArchiveContext('handleDownloadOnvifToken');
+    if (!ensureArchiveEligibility(ctx, 'archiveExport', 'Archive export')) return;
     if (!item?.token || !item?.endpoint) return;
 
     const taskId = `onvif_${Date.now()}`;
@@ -1292,9 +1334,8 @@ confidence(avg/max): ${avgConfidence}/${maxConfidence}`);
   };
 
   const handleProbeArchiveExport = async (terminal) => {
-    if (!canRunArchiveExport(terminal)) {
-      return toast(`Archive export probe gated for kind=${deriveCardKind(terminal)}`);
-    }
+    const ctx = setArchiveContextFromTarget(terminal, 'handleProbeArchiveExport');
+    if (!ensureArchiveEligibility(ctx, 'archiveExport', 'Archive export probe')) return;
     setLoading(true);
     setRadarStatus(`ARCHIVE EXPORT PROBE: ${terminal.host}`);
     try {
