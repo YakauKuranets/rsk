@@ -27,7 +27,7 @@ function buildRtspUrlFromPath(activePath, terminal, channelIndex, cleanHost) {
     .replace('{password}', encodedPass);
 }
 
-export default function MultiStreamGrid({ terminalId, targets, hubCookie, onClose }) {
+export default function MultiStreamGrid({ terminalId, targets, hubCookie, onClose, onArchiveContext }) {
   const [gridSize, setGridSize] = useState(4);
   const [slots, setSlots] = useState(Array(9).fill(null));
   const [pickerSlot, setPickerSlot] = useState(null);
@@ -170,6 +170,7 @@ export default function MultiStreamGrid({ terminalId, targets, hubCookie, onClos
                   terminal={slot.terminal}
                   channel={slot.channel}
                   hubCookie={slot.hubCookie}
+                  onArchiveContext={onArchiveContext}
                   onClose={() => stopSlot(i)}
                 />
               </div>

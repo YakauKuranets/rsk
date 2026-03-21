@@ -3,6 +3,13 @@ import { MapContainer, TileLayer, Marker, Popup, useMap } from 'react-leaflet';
 import { useEffect } from 'react';
 import icon from 'leaflet/dist/images/marker-icon.png';
 import iconShadow from 'leaflet/dist/images/marker-shadow.png';
+import {
+  canRunDiscoveryActions,
+  canRunStreamVerification,
+  canRunVerifiedActions,
+  deriveCardKind,
+  isCardKindGatingEnabled,
+} from '../targets/cardKindAdapter';
 
 const DefaultIcon=L.icon({iconUrl:icon,shadowUrl:iconShadow,iconSize:[25,41],iconAnchor:[12,41]});
 L.Marker.prototype.options.icon=DefaultIcon;
@@ -70,17 +77,25 @@ export default function StreamGrid({
               <div className={'hp'+'-body'} style={{maxHeight:'320px',overflowY:'auto'}}>
                 {site.terminals.map((t,ti)=>(
                   <div key={t.id} style={{marginTop:ti>0?'10px':0,paddingTop:ti>0?'10px':0,borderTop:ti>0?'1px solid #1e1e35':'none'}}>
+                    {(() => {
+                      const canDiscovery = canRunDiscoveryActions(t);
+                      const canStreamCheck = canRunStreamVerification(t);
+                      const canVerified = canRunVerifiedActions(t);
+                      return (
+                        <>
                     <div style={{display:'flex',alignItems:'center',gap:'6px',marginBottom:'6px'}}>
                       <span style={{fontSize:'13px'}}>{t.type==='hub'?'🌐':'📷'}</span>
                       <div>
                         <div style={{fontSize:'12px',fontWeight:700,color:'#e0e0ff'}}>{t.name}</div>
                         <div style={{fontSize:'10px',color:'#6666aa',fontFamily:'monospace'}}>{t.host}</div>
+                        {isCardKindGatingEnabled() && <div style={{fontSize:'9px',color:'#555'}}>kind: {deriveCardKind(t)}</div>}
                       </div>
                     </div>
                     {t.channels?.length>0&&(
                       <div style={{display:'flex',flexWrap:'wrap',gap:'4px',marginBottom:'8px'}}>
                         {t.channels.map(ch=>(
                           <button key={ch.id} onClick={()=>onCameraPlayClick?.({ip:t.host,terminalId:t.id,terminal:t,channel:ch})}
+                            disabled={t.type!=='hub' && !canStreamCheck}
                             style={{padding:'4px 8px',cursor:'pointer',background:'#00ccff18',color:'#00ccff',border:'1px solid #00ccff40',borderRadius:'4px',fontSize:'10px',fontWeight:600,fontFamily:'inherit'}}>
                             ▶ {ch.name||`К-${(ch.index??0)+1}`}</button>
                         ))}
@@ -91,16 +106,23 @@ export default function StreamGrid({
                         style={{background:'#00ccff18',color:'#00ccff',border:'1px solid #00ccff40'}}>📁 Архив хаба (FTP)</button>
                     ):(
                       <>
-                        <button className='hp-btn' onClick={()=>setNemesisTarget?.({host:t.host,login:t.login||'admin',password:t.password||'',name:t.name,channels:t.channels})}
-                          style={{background:'#ff335518',color:'#ff3355',border:'1px solid #ff335540',letterSpacing:'.04em'}}>☢ Nemesis — взлом архива</button>
-                        <button className='hp-btn' onClick={()=>handleLocalArchive?.(t)}
-                          style={{background:'#ffaa0018',color:'#ffaa00',border:'1px solid #ffaa0040'}}>⏳ Запрос памяти NVR</button>
+                        {canVerified && (
+                          <button className='hp-btn' onClick={()=>setNemesisTarget?.({...t,host:t.host,login:t.login||'admin',password:t.password||'',name:t.name,channels:t.channels})}
+                            style={{background:'#ff335518',color:'#ff3355',border:'1px solid #ff335540',letterSpacing:'.04em'}}>☢ Nemesis — взлом архива</button>
+                        )}
+                        {canDiscovery && (
+                          <button className='hp-btn' onClick={()=>handleLocalArchive?.(t)}
+                            style={{background:'#ffaa0018',color:'#ffaa00',border:'1px solid #ffaa0040'}}>⏳ Запрос памяти NVR</button>
+                        )}
                         <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'4px'}}>
-                          <button className='hp-btn' onClick={()=>handleFetchNvrDeviceInfo?.(t)} style={{background:'#4488ff18',color:'#4488ff',border:'1px solid #4488ff40',marginBottom:0}}>ℹ ISAPI</button>
-                          <button className='hp-btn' onClick={()=>handleFetchOnvifDeviceInfo?.(t)} style={{background:'#00dd8818',color:'#00dd88',border:'1px solid #00dd8840',marginBottom:0}}>ℹ ONVIF</button>
+                          {canStreamCheck && <button className='hp-btn' onClick={()=>handleFetchNvrDeviceInfo?.(t)} style={{background:'#4488ff18',color:'#4488ff',border:'1px solid #4488ff40',marginBottom:0}}>ℹ ISAPI</button>}
+                          {canStreamCheck && <button className='hp-btn' onClick={()=>handleFetchOnvifDeviceInfo?.(t)} style={{background:'#00dd8818',color:'#00dd88',border:'1px solid #00dd8840',marginBottom:0}}>ℹ ONVIF</button>}
                         </div>
                       </>
                     )}
+                        </>
+                      );
+                    })()}
                   </div>
                 ))}
               </div>

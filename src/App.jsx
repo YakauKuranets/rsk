@@ -1494,6 +1494,7 @@ const handleSecurityAudit = async () => {
                 terminal={singleStreamSession.terminal}
                 channel={singleStreamSession.channel}
                 hubCookie={hubConfig.cookie}
+                onArchiveContext={setArchiveContextFromTarget}
                 onClose={async () => {
                   if (singleStreamSession?.targetId) {
                     try {
@@ -1516,6 +1517,7 @@ const handleSecurityAudit = async () => {
                 terminalId={selectedTerminal}
                 targets={filteredTargets}
                 hubCookie={hubConfig.cookie}
+                onArchiveContext={setArchiveContextFromTarget}
                 onClose={() => {
                   setStreamViewMode('none');
                   setSelectedTerminal(null);
