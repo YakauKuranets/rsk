@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { scanHostPorts } from './api/tauri';
 import { listen } from '@tauri-apps/api/event';
@@ -23,6 +23,7 @@ import {
   canRunVerifiedActions,
   deriveCardKind,
 } from './features/targets/cardKindAdapter';
+import { useArchiveTargetContext } from './hooks/useArchiveTargetContext';
 
 function normalizeTargetRecords(rawTargets) {
   const normalized = [];
@@ -140,7 +141,6 @@ export default function App() {
     }
   });
   const [labelEditRequest, setLabelEditRequest] = useState(null);
-  const [archiveTargetContext, setArchiveTargetContext] = useState(null);
   const nvr = useNvrPanel();
   const [implementationStatus, setImplementationStatus] = useState(null);
   const [auditResults, setAuditResults] = useState([]);
@@ -151,6 +151,15 @@ export default function App() {
   const [agentStatus, setAgentStatus] = useState('');
   const capture = useCapturePanel();
   const hubRecon = useHubRecon();
+  const {
+    setArchiveContextFromTarget,
+    resolveArchiveContext,
+    ensureArchiveEligibility,
+  } = useArchiveTargetContext({
+    targets,
+    streamTerminal,
+    onDenied: toast,
+  });
 
   const hubConfig = { cookie: '' };
 
@@ -429,18 +438,7 @@ export default function App() {
       setStreamRtspUrl(rtspUrlForRecovery);
       setStreamTerminal(terminal);
       setStreamChannel(channel);
-      setArchiveTargetContext({
-        source: 'handleStartStream',
-        sourceTargetId: terminal?.id || null,
-        targetSnapshot: terminal || null,
-        cardKind: deriveCardKind(terminal || {}),
-        eligibility: {
-          discovery: canRunDiscoveryActions(terminal || {}),
-          verified: canRunVerifiedActions(terminal || {}),
-          streamVerification: canRunStreamVerification(terminal || {}),
-          archiveExport: canRunArchiveExport(terminal || {}),
-        },
-      });
+      setArchiveContextFromTarget(terminal, 'handleStartStream');
 
       setStreamType('ws-flv');
       setActiveTargetId(streamSessionId);
@@ -494,41 +492,6 @@ export default function App() {
     }
     setLoading(false);
   };
-
-  const buildArchiveTargetContext = useCallback((target, source) => {
-    const snapshot = target && typeof target === 'object' ? target : {};
-    return {
-      source,
-      sourceTargetId: snapshot.id || snapshot.targetId || null,
-      targetSnapshot: snapshot,
-      cardKind: deriveCardKind(snapshot),
-      eligibility: {
-        discovery: canRunDiscoveryActions(snapshot),
-        verified: canRunVerifiedActions(snapshot),
-        streamVerification: canRunStreamVerification(snapshot),
-        archiveExport: canRunArchiveExport(snapshot),
-      },
-    };
-  }, []);
-
-  const setArchiveContextFromTarget = useCallback((target, source) => {
-    const next = buildArchiveTargetContext(target, source);
-    setArchiveTargetContext(next);
-    return next;
-  }, [buildArchiveTargetContext]);
-
-  const resolveArchiveContext = useCallback((source, fallbackTarget = null) => {
-    if (fallbackTarget) return setArchiveContextFromTarget(fallbackTarget, source);
-    if (archiveTargetContext) return archiveTargetContext;
-    if (streamTerminal) return setArchiveContextFromTarget(streamTerminal, `${source}:stream_terminal_fallback`);
-    return buildArchiveTargetContext({}, `${source}:legacy_unknown`);
-  }, [archiveTargetContext, buildArchiveTargetContext, setArchiveContextFromTarget, streamTerminal]);
-
-  const ensureArchiveEligibility = useCallback((ctx, key, actionLabel) => {
-    if (ctx?.eligibility?.[key]) return true;
-    toast(`${actionLabel} gated for kind=${ctx?.cardKind || 'legacy'}`);
-    return false;
-  }, []);
 
   const handlePlayArchive = async (playbackUri) => {
     if (!activeTargetId) return;
