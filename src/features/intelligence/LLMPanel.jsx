@@ -9,11 +9,14 @@ export default function LLMPanel() {
   const ollamaUrl = useAppStore((s) => s.ollamaUrl);
   const ollamaModel = useAppStore((s) => s.ollamaModel);
   const ollamaTemperature = useAppStore((s) => s.ollamaTemperature);
+  const [startupPrompt, setStartupPrompt] = useState('Ответь коротко: модель запущена и готова к работе.');
   const [prompt, setPrompt] = useState('Summarize target posture and recommend the next safest verification step.');
   const [response, setResponse] = useState('');
+  const [startupResponse, setStartupResponse] = useState('');
   const [health, setHealth] = useState('Unknown');
   const [deepThinking, setDeepThinking] = useState(false);
   const [showStartupPrompt, setShowStartupPrompt] = useState(false);
+  const [testingPrompt, setTestingPrompt] = useState(false);
 
   const checkHealth = async () => {
     try {
@@ -30,6 +33,7 @@ export default function LLMPanel() {
     try {
       const finalPrompt = [
         intelligenceTarget,
+        `Primary request: ${startupPrompt}`,
         prompt,
         deepThinking
           ? 'Use deep, step-by-step strategic reasoning and provide a structured plan with assumptions, risks, and validation checkpoints.'
@@ -48,10 +52,34 @@ export default function LLMPanel() {
     }
   };
 
+  const runStartupPrompt = async () => {
+    try {
+      setTestingPrompt(true);
+      const res = await invoke('llm_test_prompt', {
+        prompt: startupPrompt,
+        config: { ollamaUrl, model: ollamaModel, temperature: Number(ollamaTemperature) || 0.3 },
+      });
+      setStartupResponse(String(res || ''));
+      setShowStartupPrompt(true);
+      setHealth('Primary prompt test passed');
+    } catch (error) {
+      setStartupResponse(`Primary prompt test failed: ${error}`);
+      setShowStartupPrompt(false);
+    } finally {
+      setTestingPrompt(false);
+    }
+  };
+
   return (
     <section style={{ border: '1px solid #24404e', borderRadius: '8px', padding: '12px', background: '#071217', color: '#d6faff' }}>
       <h3 style={{ margin: '0 0 10px', fontSize: '13px', color: '#79e4ff', textTransform: 'uppercase', letterSpacing: '0.08em' }}>LLM Panel</h3>
       <div style={{ marginBottom: '8px', fontSize: '11px', color: '#9fc6d5' }}>Target context: {intelligenceTarget || 'не задан'}</div>
+      <div style={{ marginBottom: '6px', fontSize: '11px', color: '#9fc6d5' }}>Primary prompt for startup check</div>
+      <textarea rows={2} style={{ ...box, resize: 'vertical' }} value={startupPrompt} onChange={(e) => setStartupPrompt(e.target.value)} />
+      <button type="button" disabled={testingPrompt} style={{ ...box, marginTop: '8px', cursor: 'pointer', fontWeight: 700, background: '#173119', color: '#8ef5ab' }} onClick={runStartupPrompt}>
+        {testingPrompt ? '⏳ Testing primary prompt...' : '✅ Test primary prompt'}
+      </button>
+      <pre style={{ marginTop: '8px', ...box, whiteSpace: 'pre-wrap', fontFamily: 'monospace', fontSize: '11px' }}>{startupResponse || 'No primary prompt output yet.'}</pre>
       <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '11px', color: '#a9d8e8', marginBottom: '8px' }}>
         <input type="checkbox" checked={deepThinking} onChange={(e) => setDeepThinking(e.target.checked)} />
         Deep thinking mode (рекомендуется для DeepSeek)

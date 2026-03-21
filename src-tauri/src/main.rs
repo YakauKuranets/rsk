@@ -7086,6 +7086,7 @@ fn main() {
             llm_orchestrator::llm_analyze_findings,
             llm_orchestrator::llm_generate_attack_plan,
             llm_orchestrator::llm_health_check,
+            llm_orchestrator::llm_test_prompt,
             llm_orchestrator::llm_generate_hypotheses,
             continuous_monitor::start_monitor_job,
             continuous_monitor::stop_monitor_job,

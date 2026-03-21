@@ -60,11 +60,17 @@ async fn query_ollama(config: &LlmConfig, prompt: &str) -> Result<String, String
     };
 
 
-    let resp: OllamaResponse = client.post(&url)
+    let raw_json: serde_json::Value = client.post(&url)
         .json(&body)
         .send().await.map_err(|e| format!("Ollama not running: {}. Install: curl https://ollama.ai/install.sh | sh && ollama serve", e))?
         .json().await.map_err(|e| e.to_string())?;
 
+    if let Some(err) = raw_json.get("error").and_then(|v| v.as_str()) {
+        return Err(format!("Ollama error: {}", err));
+    }
+
+    let resp: OllamaResponse = serde_json::from_value(raw_json)
+        .map_err(|e| format!("Invalid Ollama response format: {}", e))?;
 
     Ok(resp.response)
 }
@@ -180,6 +186,20 @@ pub async fn llm_health_check(
     let resp = client.get(&format!("{}/api/tags", ollama_url.trim_end_matches('/')))
         .send().await;
     Ok(resp.map(|r| r.status().is_success()).unwrap_or(false))
+}
+
+#[tauri::command]
+pub async fn llm_test_prompt(
+    prompt: String,
+    config: LlmConfig,
+    log_state: State<'_, crate::LogState>,
+) -> Result<String, String> {
+    let test_prompt = format!(
+        "You are a concise assistant. Answer in 3-5 short lines.\n\nUser prompt:\n{}",
+        prompt
+    );
+    crate::push_runtime_log(&log_state, format!("LLM_TEST_PROMPT|model={}", config.model));
+    query_ollama(&config, &test_prompt).await
 }
 
 
