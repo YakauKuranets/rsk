@@ -145,6 +145,30 @@ struct FfmpegLimiterState {
     semaphore: Arc<Semaphore>,
 }
 
+struct TargetEnvelopeAdoptionCounters {
+    total_ops: AtomicU64,
+    envelope_read: AtomicU64,
+    legacy_wrapped_on_read: AtomicU64,
+    legacy_wrapped_on_save: AtomicU64,
+    non_json_passthrough_on_read: AtomicU64,
+    non_json_passthrough_on_save: AtomicU64,
+    envelope_write_passthrough: AtomicU64,
+}
+
+impl TargetEnvelopeAdoptionCounters {
+    fn new() -> Self {
+        Self {
+            total_ops: AtomicU64::new(0),
+            envelope_read: AtomicU64::new(0),
+            legacy_wrapped_on_read: AtomicU64::new(0),
+            legacy_wrapped_on_save: AtomicU64::new(0),
+            non_json_passthrough_on_read: AtomicU64::new(0),
+            non_json_passthrough_on_save: AtomicU64::new(0),
+            envelope_write_passthrough: AtomicU64::new(0),
+        }
+    }
+}
+
 // 🔥 СТЕЙТ ДЛЯ ПУЛЬТА ГИПЕРИОНА (nexus)
 struct HyperionState {
     master_tx: TokioMutex<tokio::sync::mpsc::Sender<nexus::HyperionEvent>>,
@@ -165,6 +189,80 @@ fn make_unique_task_key(base: Option<String>, prefix: &str) -> String {
     let n = SEQ.fetch_add(1, Ordering::Relaxed);
     let raw = base.unwrap_or_else(|| format!("{}_{}", prefix, Utc::now().timestamp_millis()));
     format!("{}_{}", raw, n)
+}
+
+fn target_envelope_adoption_counters() -> &'static TargetEnvelopeAdoptionCounters {
+    static COUNTERS: OnceLock<TargetEnvelopeAdoptionCounters> = OnceLock::new();
+    COUNTERS.get_or_init(TargetEnvelopeAdoptionCounters::new)
+}
+
+fn record_target_envelope_marker(state: &State<'_, LogState>, marker: &str, target_id: &str) {
+    const SUMMARY_EVERY_N_OPS: u64 = 25;
+    let counters = target_envelope_adoption_counters();
+
+    match marker {
+        "envelope_read" => {
+            counters.envelope_read.fetch_add(1, Ordering::Relaxed);
+        }
+        "legacy_wrapped_on_read" => {
+            counters
+                .legacy_wrapped_on_read
+                .fetch_add(1, Ordering::Relaxed);
+        }
+        "legacy_wrapped_on_save" => {
+            counters
+                .legacy_wrapped_on_save
+                .fetch_add(1, Ordering::Relaxed);
+        }
+        "non_json_passthrough_on_read" => {
+            counters
+                .non_json_passthrough_on_read
+                .fetch_add(1, Ordering::Relaxed);
+        }
+        "non_json_passthrough_on_save" => {
+            counters
+                .non_json_passthrough_on_save
+                .fetch_add(1, Ordering::Relaxed);
+        }
+        "envelope_write_passthrough" => {
+            counters
+                .envelope_write_passthrough
+                .fetch_add(1, Ordering::Relaxed);
+        }
+        _ => {}
+    }
+
+    let total = counters.total_ops.fetch_add(1, Ordering::Relaxed) + 1;
+    push_runtime_log(
+        state,
+        format!(
+            "TARGET_ENVELOPE_ADOPTION|marker={}|targetId={}|op={}",
+            marker, target_id, total
+        ),
+    );
+
+    if total % SUMMARY_EVERY_N_OPS == 0 {
+        let envelope_read = counters.envelope_read.load(Ordering::Relaxed);
+        let legacy_wrapped_on_read = counters.legacy_wrapped_on_read.load(Ordering::Relaxed);
+        let legacy_wrapped_on_save = counters.legacy_wrapped_on_save.load(Ordering::Relaxed);
+        let non_json_passthrough_on_read = counters.non_json_passthrough_on_read.load(Ordering::Relaxed);
+        let non_json_passthrough_on_save = counters.non_json_passthrough_on_save.load(Ordering::Relaxed);
+        let envelope_write_passthrough = counters.envelope_write_passthrough.load(Ordering::Relaxed);
+
+        push_runtime_log(
+            state,
+            format!(
+                "TARGET_ENVELOPE_ADOPTION_SUMMARY|ops={}|envelope_read={}|legacy_wrapped_on_read={}|legacy_wrapped_on_save={}|non_json_passthrough_on_read={}|non_json_passthrough_on_save={}|envelope_write_passthrough={}",
+                total,
+                envelope_read,
+                legacy_wrapped_on_read,
+                legacy_wrapped_on_save,
+                non_json_passthrough_on_read,
+                non_json_passthrough_on_save,
+                envelope_write_passthrough
+            ),
+        );
+    }
 }
 
 pub fn push_runtime_log(state: &State<'_, LogState>, message: impl Into<String>) {
@@ -990,13 +1088,7 @@ fn save_target(
 ) -> Result<String, String> {
     let (normalized_payload, normalization_marker) =
         normalize_target_payload_for_storage(&payload, Some(&target_id));
-    push_runtime_log(
-        &log_state,
-        format!(
-            "TARGET_ENVELOPE_ADOPTION|marker={}|targetId={}",
-            normalization_marker, target_id
-        ),
-    );
+    record_target_envelope_marker(&log_state, normalization_marker, &target_id);
     let key = current_vault_key(&vault_state)?;
     let cipher = Aes256Gcm::new(&key.into());
 
@@ -1242,13 +1334,7 @@ fn read_target(
             .map_err(|_| "Access denied".to_string())?;
         let raw = String::from_utf8(decrypted).map_err(|_| "UTF-8 error".to_string())?;
         let (normalized, marker) = normalize_target_payload_for_read(&raw, Some(&target_id));
-        push_runtime_log(
-            &log_state,
-            format!(
-                "TARGET_ENVELOPE_ADOPTION|marker={}|targetId={}",
-                marker, target_id
-            ),
-        );
+        record_target_envelope_marker(&log_state, marker, &target_id);
         Ok(normalized)
     } else {
         Err("Not found".to_string())
