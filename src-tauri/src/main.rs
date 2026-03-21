@@ -90,6 +90,7 @@ mod rest_api;
 mod html_report;
 mod ioc_sharing;
 mod llm_orchestrator;
+pub mod core_types;
 use scout_agent::ScoutState;
 use suppaftp::FtpStream;
 use tauri::State;

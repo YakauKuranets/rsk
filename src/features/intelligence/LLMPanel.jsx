@@ -17,6 +17,7 @@ export default function LLMPanel() {
   const [deepThinking, setDeepThinking] = useState(false);
   const [showStartupPrompt, setShowStartupPrompt] = useState(false);
   const [testingPrompt, setTestingPrompt] = useState(false);
+  const [startupValidated, setStartupValidated] = useState(false);
 
   const checkHealth = async () => {
     try {
@@ -62,9 +63,11 @@ export default function LLMPanel() {
       setStartupResponse(String(res || ''));
       setShowStartupPrompt(true);
       setHealth('Primary prompt test passed');
+      setStartupValidated(true);
     } catch (error) {
       setStartupResponse(`Primary prompt test failed: ${error}`);
       setShowStartupPrompt(false);
+      setStartupValidated(false);
     } finally {
       setTestingPrompt(false);
     }
@@ -75,7 +78,10 @@ export default function LLMPanel() {
       <h3 style={{ margin: '0 0 10px', fontSize: '13px', color: '#79e4ff', textTransform: 'uppercase', letterSpacing: '0.08em' }}>LLM Panel</h3>
       <div style={{ marginBottom: '8px', fontSize: '11px', color: '#9fc6d5' }}>Target context: {intelligenceTarget || 'не задан'}</div>
       <div style={{ marginBottom: '6px', fontSize: '11px', color: '#9fc6d5' }}>Primary prompt for startup check</div>
-      <textarea rows={2} style={{ ...box, resize: 'vertical' }} value={startupPrompt} onChange={(e) => setStartupPrompt(e.target.value)} />
+      <textarea rows={2} style={{ ...box, resize: 'vertical' }} value={startupPrompt} onChange={(e) => {
+        setStartupPrompt(e.target.value);
+        setStartupValidated(false);
+      }} />
       <button type="button" disabled={testingPrompt} style={{ ...box, marginTop: '8px', cursor: 'pointer', fontWeight: 700, background: '#173119', color: '#8ef5ab' }} onClick={runStartupPrompt}>
         {testingPrompt ? '⏳ Testing primary prompt...' : '✅ Test primary prompt'}
       </button>
@@ -87,12 +93,12 @@ export default function LLMPanel() {
       <textarea rows={5} style={{ ...box, resize: 'vertical' }} value={prompt} onChange={(e) => setPrompt(e.target.value)} />
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px', marginTop: '8px' }}>
         <button type="button" style={{ ...box, cursor: 'pointer', fontWeight: 700, background: '#11303a', color: '#79e4ff' }} onClick={checkHealth}>🩺 Health check</button>
-        <button type="button" style={{ ...box, cursor: 'pointer', fontWeight: 700, background: '#132935', color: '#79e4ff' }} onClick={generatePlan}>🧠 Generate plan</button>
+        <button type="button" disabled={!startupValidated} title={startupValidated ? 'Generate plan' : 'Сначала проверьте Primary prompt'} style={{ ...box, cursor: startupValidated ? 'pointer' : 'not-allowed', opacity: startupValidated ? 1 : 0.6, fontWeight: 700, background: '#132935', color: '#79e4ff' }} onClick={generatePlan}>🧠 Generate plan</button>
       </div>
       {showStartupPrompt && (
         <div style={{ marginTop: '10px', padding: '8px 10px', border: '1px solid #2f6d45', borderRadius: '6px', background: '#102017', color: '#8ef5ab', fontSize: '11px' }}>
-          ✅ Всё работает. LLM доступен — можно нажимать <strong>Generate plan</strong>.
-          <button type="button" onClick={() => setShowStartupPrompt(false)} style={{ marginLeft: '10px', border: '1px solid #356a46', background: '#12301f', color: '#8ef5ab', borderRadius: '4px', cursor: 'pointer', padding: '2px 8px', fontSize: '10px' }}>
+          <div>✅ Всё работает. LLM доступен — можно нажимать <strong>Generate plan</strong>.</div>
+          <button type="button" onClick={() => setShowStartupPrompt(false)} style={{ marginTop: '6px', border: '1px solid #356a46', background: '#12301f', color: '#8ef5ab', borderRadius: '4px', cursor: 'pointer', padding: '2px 8px', fontSize: '10px' }}>
             Закрыть
           </button>
         </div>
