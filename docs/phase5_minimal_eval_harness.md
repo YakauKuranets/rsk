@@ -12,6 +12,7 @@
 - `runProbeStreamEvalHarness(...)` in `src/api/probeEvalHarness.js`.
 - `runProbeStreamEvalSnapshot(...)` in `src/api/probeEvalHarness.js`.
 - `compareProbeEvalSnapshots(...)` in `src/api/probeEvalHarness.js`.
+- `runProbeEvalBaselineRunner(...)` in `src/api/probeEvalBaselineRunner.js`.
 
 ## Reproducible scenarios
 
@@ -71,8 +72,37 @@ const delta = compareProbeEvalSnapshots(snapshotPrev, snapshotNext);
 console.log(delta);
 ```
 
+## Dev-only baseline runner
+
+```js
+import {
+  runProbeEvalBaselineRunner,
+  buildProbeEvalBaseline,
+  compareSnapshotAgainstBaseline,
+} from '/src/api/probeEvalBaselineRunner.js';
+
+// 1) Create baseline from first run
+const first = await runProbeEvalBaselineRunner({
+  inputs: [
+    { caseId: 'site_a', aliveTargetId: 'alive_a', deadTargetId: 'dead_a' },
+    { caseId: 'site_b', aliveTargetId: 'alive_b', deadTargetId: 'dead_b' },
+  ],
+});
+const baseline = buildProbeEvalBaseline(first.snapshot);
+
+// 2) Run again and compare against baseline
+const second = await runProbeEvalBaselineRunner({
+  baseline,
+  inputs: baseline.sourceSnapshot.inputs,
+});
+
+console.log(second.comparison.classification); // improved | unchanged | regressed | inconclusive
+console.log(second.comparison.summary); // human-readable delta summary
+```
+
 ## Notes
 
 - If `aliveTargetId`/`deadTargetId` are not provided, related scenarios are skipped.
 - `fallback_path_behavior` is executed only when `aliveTargetId` is provided.
 - Snapshot format includes: `snapshotId`, `createdAt`, `inputs`, `events`, `metrics`.
+- Baseline format (minimal): `baselineId`, `sourceSnapshot`, `metrics`, `createdAt`.
