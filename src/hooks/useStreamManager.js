@@ -1,6 +1,24 @@
 import { useCallback, useState } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { probeStreamCapability } from '../api/capabilities';
+import { pushRuntimeLogEntry } from '../api/tauri';
+
+const SHADOW_PROBE_HIGH_LATENCY_MS = 1200;
+
+function shouldLogShadowProbeRuntime(telemetry) {
+  const mismatch = !telemetry.capability_probe_ok || !telemetry.capability_alive;
+  const highLatency = telemetry.timing_delta_ms >= SHADOW_PROBE_HIGH_LATENCY_MS;
+  return mismatch || highLatency;
+}
+
+function buildShadowProbeLogLine(targetId, telemetry) {
+  const reasons = [];
+  if (!telemetry.capability_probe_ok) reasons.push('capability_error');
+  if (telemetry.capability_probe_ok && !telemetry.capability_alive) reasons.push('alive_mismatch');
+  if (telemetry.timing_delta_ms >= SHADOW_PROBE_HIGH_LATENCY_MS) reasons.push('high_latency');
+  const reasonText = reasons.join(',') || 'n/a';
+  return `SHADOW_PROBE_STREAM|target=${targetId}|reasons=${reasonText}|ok=${telemetry.capability_probe_ok}|alive=${telemetry.capability_alive}|latency_ms=${telemetry.timing_delta_ms}|source=${telemetry.source}`;
+}
 
 export function useStreamManager() {
   const [activeStreams, setActiveStreams] = useState({});
@@ -30,6 +48,9 @@ export function useStreamManager() {
           ...prev,
           [targetId]: telemetry,
         }));
+        if (shouldLogShadowProbeRuntime(telemetry)) {
+          void pushRuntimeLogEntry(buildShadowProbeLogLine(targetId, telemetry)).catch(() => {});
+        }
         console.debug('[SHADOW_STREAM_TELEMETRY]', targetId, telemetry);
       })
       .catch(() => {
@@ -47,6 +68,9 @@ export function useStreamManager() {
           ...prev,
           [targetId]: telemetry,
         }));
+        if (shouldLogShadowProbeRuntime(telemetry)) {
+          void pushRuntimeLogEntry(buildShadowProbeLogLine(targetId, telemetry)).catch(() => {});
+        }
         console.debug('[SHADOW_STREAM_TELEMETRY]', targetId, telemetry);
       });
 

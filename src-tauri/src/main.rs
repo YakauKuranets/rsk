@@ -2427,6 +2427,30 @@ fn get_runtime_logs(
 }
 
 #[tauri::command]
+fn push_runtime_log_entry(message: String, state: State<'_, LogState>) -> Result<(), String> {
+    let cleaned = message.trim();
+    if cleaned.is_empty() {
+        return Err("runtime log entry is empty".into());
+    }
+
+    let safe_message = if cleaned.chars().count() > 400 {
+        let mut out = String::new();
+        for (idx, ch) in cleaned.chars().enumerate() {
+            if idx >= 400 {
+                break;
+            }
+            out.push(ch);
+        }
+        format!("{out}…")
+    } else {
+        cleaned.to_string()
+    };
+
+    push_runtime_log(&state, safe_message);
+    Ok(())
+}
+
+#[tauri::command]
 async fn videodvor_login(
     username: String,
     password: String,
@@ -6946,6 +6970,7 @@ fn main() {
             streaming::start_hub_stream,
             system_cmds::scan_host_ports,
             get_runtime_logs,
+            push_runtime_log_entry,
             archive::cancel_download_task,
             probe_nvr_protocols,
             fetch_nvr_device_info,

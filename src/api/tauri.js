@@ -62,6 +62,7 @@ export const startFuzzerJob = (target) => invoke('start_fuzzer_job', { target })
 
 // ═══ Logs ═══
 export const getRuntimeLogs = (limit = 200) => invoke('get_runtime_logs', { limit });
+export const pushRuntimeLogEntry = (message) => invoke('push_runtime_log_entry', { message });
 
 // ═══ Nexus ═══
 export const runNexusProtocol = (ip, login, pass) =>
