@@ -10,6 +10,8 @@
 ## Harness entry
 
 - `runProbeStreamEvalHarness(...)` in `src/api/probeEvalHarness.js`.
+- `runProbeStreamEvalSnapshot(...)` in `src/api/probeEvalHarness.js`.
+- `compareProbeEvalSnapshots(...)` in `src/api/probeEvalHarness.js`.
 
 ## Reproducible scenarios
 
@@ -42,7 +44,35 @@ console.log(report.metrics);
 console.table(report.events);
 ```
 
+## Snapshot run example (multi-input)
+
+```js
+import { runProbeStreamEvalSnapshot } from '/src/api/probeEvalHarness.js';
+
+const snapshot = await runProbeStreamEvalSnapshot({
+  mode: 'discovery_mode',
+  inputs: [
+    { caseId: 'site_a', aliveTargetId: 'alive_a', deadTargetId: 'dead_a' },
+    { caseId: 'site_b', aliveTargetId: 'alive_b', deadTargetId: 'dead_b' },
+  ],
+});
+
+console.log(snapshot.snapshotId, snapshot.createdAt);
+console.log(snapshot.metrics);
+console.table(snapshot.events);
+```
+
+## Compare two snapshots
+
+```js
+import { compareProbeEvalSnapshots } from '/src/api/probeEvalHarness.js';
+
+const delta = compareProbeEvalSnapshots(snapshotPrev, snapshotNext);
+console.log(delta);
+```
+
 ## Notes
 
 - If `aliveTargetId`/`deadTargetId` are not provided, related scenarios are skipped.
 - `fallback_path_behavior` is executed only when `aliveTargetId` is provided.
+- Snapshot format includes: `snapshotId`, `createdAt`, `inputs`, `events`, `metrics`.

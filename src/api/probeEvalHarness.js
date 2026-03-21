@@ -113,3 +113,104 @@ export async function runProbeStreamEvalHarness({ aliveTargetId, deadTargetId, m
     metrics: aggregateProbeEvalMetrics(events),
   };
 }
+
+function makeSnapshotId() {
+  const ts = Date.now();
+  const rand = Math.floor(Math.random() * 1e6)
+    .toString()
+    .padStart(6, '0');
+  return `probe_eval_${ts}_${rand}`;
+}
+
+function mergeStatusDistribution(reports) {
+  const merged = {
+    reviewer_rejected: 0,
+    capability_succeeded: 0,
+    capability_failed: 0,
+    unknown: 0,
+  };
+
+  for (const report of reports) {
+    const dist = report?.metrics?.finalStatusDistribution || {};
+    for (const key of Object.keys(merged)) {
+      merged[key] += Number(dist[key] || 0);
+    }
+  }
+  return merged;
+}
+
+export async function runProbeStreamEvalSnapshot({
+  inputs = [],
+  mode = 'discovery_mode',
+  includeCaseMetrics = true,
+} = {}) {
+  const normalizedInputs = inputs.map((item, idx) => ({
+    caseId: item?.caseId || `case_${idx + 1}`,
+    aliveTargetId: item?.aliveTargetId || null,
+    deadTargetId: item?.deadTargetId || null,
+    mode: item?.mode || mode,
+  }));
+
+  const caseReports = [];
+  const events = [];
+  for (const input of normalizedInputs) {
+    const report = await runProbeStreamEvalHarness({
+      aliveTargetId: input.aliveTargetId,
+      deadTargetId: input.deadTargetId,
+      mode: input.mode,
+    });
+
+    const caseEvents = report.events.map((event) => ({
+      ...event,
+      caseId: input.caseId,
+    }));
+    events.push(...caseEvents);
+    caseReports.push({
+      input,
+      metrics: report.metrics,
+      eventCount: caseEvents.length,
+    });
+  }
+
+  const metrics = aggregateProbeEvalMetrics(events);
+  metrics.finalStatusDistribution = mergeStatusDistribution(caseReports);
+
+  return {
+    snapshotId: makeSnapshotId(),
+    createdAt: new Date().toISOString(),
+    inputs: normalizedInputs,
+    events,
+    metrics,
+    caseReports: includeCaseMetrics ? caseReports : undefined,
+  };
+}
+
+function distributionDelta(baseDist, nextDist) {
+  const keys = ['reviewer_rejected', 'capability_succeeded', 'capability_failed', 'unknown'];
+  const delta = {};
+  for (const key of keys) {
+    delta[key] = Number(nextDist?.[key] || 0) - Number(baseDist?.[key] || 0);
+  }
+  return delta;
+}
+
+export function compareProbeEvalSnapshots(baseSnapshot, nextSnapshot) {
+  const baseMetrics = baseSnapshot?.metrics || {};
+  const nextMetrics = nextSnapshot?.metrics || {};
+
+  return {
+    baseSnapshotId: baseSnapshot?.snapshotId || null,
+    nextSnapshotId: nextSnapshot?.snapshotId || null,
+    createdAt: new Date().toISOString(),
+    statusDistributionDelta: distributionDelta(
+      baseMetrics.finalStatusDistribution,
+      nextMetrics.finalStatusDistribution,
+    ),
+    fallbackRateDelta: Number(nextMetrics.fallbackRate || 0) - Number(baseMetrics.fallbackRate || 0),
+    semanticAliveKnownRateDelta:
+      Number(nextMetrics.semanticAliveKnownRate || 0) - Number(baseMetrics.semanticAliveKnownRate || 0),
+    mismatchDelta:
+      Number(nextMetrics.mismatchIndications?.length || 0) -
+      Number(baseMetrics.mismatchIndications?.length || 0),
+  };
+}
