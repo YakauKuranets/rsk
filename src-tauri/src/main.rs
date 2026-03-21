@@ -92,6 +92,7 @@ mod ioc_sharing;
 mod llm_orchestrator;
 pub mod core_types;
 mod capability_adapter;
+mod agent_minimal;
 use scout_agent::ScoutState;
 use suppaftp::FtpStream;
 use tauri::State;
@@ -7102,6 +7103,7 @@ fn main() {
             tool_executor::execute_tool,
             tool_executor::check_tools_available,
             capability_adapter::execute_capability,
+            agent_minimal::run_agent_minimal,
             meta_agent::run_meta_campaign,
             meta_agent::get_meta_recommendations,
             scout_agent::start_scout_agent,
