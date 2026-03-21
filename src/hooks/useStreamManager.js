@@ -1,7 +1,7 @@
 import { useCallback, useState } from 'react';
 import { invoke } from '@tauri-apps/api/core';
-import { probeStreamCapability } from '../api/capabilities';
-import { pushRuntimeLogEntry, runAgentMinimal } from '../api/tauri';
+import { probeStreamPreferred } from '../api/capabilities';
+import { pushRuntimeLogEntry } from '../api/tauri';
 
 const SHADOW_PROBE_HIGH_LATENCY_MS = 1200;
 
@@ -30,35 +30,29 @@ export function useStreamManager() {
     const probeStartedAt = new Date().toISOString();
     const probeTimer = typeof performance !== 'undefined' ? performance.now() : Date.now();
 
+    // Preferred probe policy for UI/workflow consumers:
+    // use probeStreamPreferred (minimal-agent first, legacy fallback internalized in API layer).
     // Shadow-mode capability check: read-only diagnostic path.
     // Does not affect legacy UX/behavior and is safe to ignore by consumers.
-    void runAgentMinimal({
-      targetId,
-      mode: 'discovery_mode',
-      permitProbeStream: true,
-    })
-      .then((agent) => {
-        if (!agent?.ok) {
-          throw new Error((agent?.errors || []).join('; ') || 'minimal-agent-envelope-invalid');
-        }
-
+    void probeStreamPreferred(targetId, 'discovery_mode')
+      .then((probe) => {
         const probeFinished = typeof performance !== 'undefined' ? performance.now() : Date.now();
         const timingDeltaMs = Math.max(0, Math.round(probeFinished - probeTimer));
-        const capabilityOk = agent.finalStatus === 'capability_succeeded';
-        const capabilityAlive = capabilityOk && Boolean(agent.capabilityResultSummary?.alive);
+        const capabilityOk = probe.finalStatus === 'capability_succeeded';
+        const capabilityAlive = capabilityOk && Boolean(probe.alive);
 
         const telemetry = {
           legacy_started: true,
           capability_probe_ok: capabilityOk,
           capability_alive: capabilityAlive,
-          final_status: agent.finalStatus,
-          run_id: agent.runId,
-          reporter_summary: agent.reporterSummary,
-          reviewer_approved: Boolean(agent.reviewerVerdict?.approved),
-          planner_action_count: Number(agent.plannerDecision?.actionCount ?? 0),
+          final_status: probe.finalStatus || (capabilityOk ? 'capability_succeeded' : 'capability_failed'),
+          run_id: probe.runId || null,
+          reporter_summary: probe.reporterSummary || null,
+          reviewer_approved: probe.reviewerApproved ?? null,
+          planner_action_count: probe.plannerActionCount ?? null,
           checkedAt: probeStartedAt,
           timing_delta_ms: timingDeltaMs,
-          source: 'minimal-agent',
+          source: probe.source || 'probe-preferred',
         };
         setShadowProbeStatus((prev) => ({
           ...prev,
@@ -70,25 +64,20 @@ export function useStreamManager() {
         console.debug('[SHADOW_STREAM_TELEMETRY]', targetId, telemetry);
       })
       .catch(() => {
-        // Rollback/compatibility: if minimal agent path fails, keep old probe capability path.
-        return probeStreamCapability(targetId, 'discovery_mode');
-      })
-      .then((cap) => {
-        if (!cap) return;
         const probeFinished = typeof performance !== 'undefined' ? performance.now() : Date.now();
         const timingDeltaMs = Math.max(0, Math.round(probeFinished - probeTimer));
         const telemetry = {
           legacy_started: true,
-          capability_probe_ok: Boolean(cap.ok),
-          capability_alive: Boolean(cap.alive),
-          final_status: cap.ok ? 'capability_succeeded' : 'capability_failed',
+          capability_probe_ok: false,
+          capability_alive: false,
+          final_status: 'capability_failed',
           run_id: null,
-          reporter_summary: cap.message || null,
+          reporter_summary: 'probe-preferred-error',
           reviewer_approved: null,
           planner_action_count: null,
           checkedAt: probeStartedAt,
           timing_delta_ms: timingDeltaMs,
-          source: cap.source || 'capability-fallback',
+          source: 'probe-preferred-error',
         };
         setShadowProbeStatus((prev) => ({
           ...prev,

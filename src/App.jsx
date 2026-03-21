@@ -449,15 +449,25 @@ export default function App() {
       setActiveCameraName(`${terminal.name} :: ${channel.name}`);
       setLoading(false);
 
+      // Guard against overlapping probe ticks to avoid extra load on slow paths.
+      let healthProbeInFlight = false;
       healthCheckRef.current = setInterval(async () => {
+        if (healthProbeInFlight) return;
+        healthProbeInFlight = true;
         try {
           const probe = await probeStreamPreferred(streamSessionId, 'discovery_mode');
+          // Semantic drift guard:
+          // only make stop decisions when the probe source can confidently decide liveness.
+          if (!probe.semanticAliveKnown) return;
           const alive = Boolean(probe.alive);
           if (!alive) {
             clearInterval(healthCheckRef.current);
             console.warn('[STREAM] FFmpeg process died for', streamSessionId);
           }
-        } catch (e) {}
+        } catch (e) {
+        } finally {
+          healthProbeInFlight = false;
+        }
       }, 5000);
     } catch (err) {
       toast("СБОЙ: " + err);

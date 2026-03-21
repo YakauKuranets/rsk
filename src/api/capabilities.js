@@ -137,6 +137,7 @@ export async function probeStreamPreferred(targetId, mode = 'discovery_mode') {
       runId: null,
       finalStatus: 'capability_failed',
       reporterSummary: null,
+      semanticAliveKnown: false,
       evidenceRefs: [],
     };
   }
@@ -152,6 +153,9 @@ export async function probeStreamPreferred(targetId, mode = 'discovery_mode') {
       throw new Error((agent?.errors || []).join('; ') || 'minimal-agent-envelope-invalid');
     }
 
+    if (agent.finalStatus === 'reviewer_rejected') {
+      throw new Error('minimal-agent-reviewer-rejected');
+    }
     const alive = agent.finalStatus === 'capability_succeeded' && Boolean(agent.capabilityResultSummary?.alive);
     return {
       ok: agent.finalStatus === 'capability_succeeded',
@@ -163,6 +167,7 @@ export async function probeStreamPreferred(targetId, mode = 'discovery_mode') {
       reporterSummary: agent.reporterSummary || null,
       reviewerApproved: Boolean(agent.reviewerVerdict?.approved),
       plannerActionCount: Number(agent.plannerDecision?.actionCount ?? 0),
+      semanticAliveKnown: true,
       evidenceRefs: Array.isArray(agent.evidenceRefs) ? agent.evidenceRefs : [],
     };
   } catch (_) {
@@ -175,6 +180,7 @@ export async function probeStreamPreferred(targetId, mode = 'discovery_mode') {
       reporterSummary: fallback.message || null,
       reviewerApproved: null,
       plannerActionCount: null,
+      semanticAliveKnown: fallback.source === 'capability',
     };
   }
 }
