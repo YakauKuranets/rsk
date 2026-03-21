@@ -1,6 +1,38 @@
 import { deriveCardKind } from './cardKindAdapter';
 
 const TARGET_ENVELOPE_VERSION = 1;
+const ALLOWED_VERSIONS = new Set([1]);
+const ALLOWED_KINDS = new Set(['discovery', 'verified', 'promoted', 'legacy']);
+
+function isPlainObject(value) {
+  return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
+}
+
+function normalizeKind(kind) {
+  const value = String(kind || '').trim().toLowerCase();
+  return ALLOWED_KINDS.has(value) ? value : null;
+}
+
+export function validateTargetEnvelope(raw) {
+  if (!isPlainObject(raw)) {
+    return { valid: false, reason: 'not_object' };
+  }
+
+  if (!ALLOWED_VERSIONS.has(Number(raw.version))) {
+    return { valid: false, reason: 'invalid_version' };
+  }
+
+  const normalizedKind = normalizeKind(raw.kind);
+  if (!normalizedKind) {
+    return { valid: false, reason: 'invalid_kind' };
+  }
+
+  if (!isPlainObject(raw.payload)) {
+    return { valid: false, reason: 'missing_payload' };
+  }
+
+  return { valid: true, reason: 'ok', kind: normalizedKind };
+}
 
 function inferWriteKind(target) {
   const raw = target || {};
@@ -19,9 +51,23 @@ function inferWriteKind(target) {
 }
 
 export function buildTargetEnvelope(target, source = 'unknown') {
-  const kind = inferWriteKind(target);
+  const validation = validateTargetEnvelope(target);
+  if (validation.valid) {
+    return {
+      ...target,
+      kind: validation.kind,
+      metadata: {
+        ...(isPlainObject(target.metadata) ? target.metadata : {}),
+        source: source || target?.metadata?.source || 'unknown',
+        writtenAt: new Date().toISOString(),
+      },
+    };
+  }
+
+  const raw = isPlainObject(target) ? target : {};
+  const kind = inferWriteKind(raw);
   const nowIso = new Date().toISOString();
-  const payload = { ...(target || {}) };
+  const payload = { ...raw };
 
   return {
     version: TARGET_ENVELOPE_VERSION,
@@ -39,20 +85,13 @@ export function buildTargetEnvelope(target, source = 'unknown') {
 }
 
 export function unwrapTargetEnvelope(raw) {
-  if (
-    raw &&
-    typeof raw === 'object' &&
-    Number.isInteger(raw.version) &&
-    raw.version >= 1 &&
-    typeof raw.kind === 'string' &&
-    raw.payload &&
-    typeof raw.payload === 'object'
-  ) {
+  const validation = validateTargetEnvelope(raw);
+  if (validation.valid) {
     return {
       target: {
         ...raw.payload,
-        __kind: raw.kind,
-        __envelopeVersion: raw.version,
+        __kind: validation.kind,
+        __envelopeVersion: Number(raw.version),
         __envelopeMetadata: raw.metadata || null,
       },
       envelope: raw,
@@ -60,6 +99,13 @@ export function unwrapTargetEnvelope(raw) {
     };
   }
 
+  if (isPlainObject(raw) && raw.__envelopeVersion && raw.__kind) {
+    return { target: raw, envelope: null, isEnvelope: false };
+  }
+
+  if (!isPlainObject(raw)) {
+    return { target: {}, envelope: null, isEnvelope: false };
+  }
+
   return { target: raw, envelope: null, isEnvelope: false };
 }
-
