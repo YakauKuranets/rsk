@@ -1,14 +1,25 @@
 import {
+  DEFAULT_COOKIE_EVAL_BASELINE_INPUTS,
   DEFAULT_PROBE_EVAL_BASELINE_INPUTS,
   formatProbeEvalBaselineCompactReport,
   runProbeEvalBaselineRunner,
 } from '../api/probeEvalBaselineRunner';
 
-async function runFromDevConsole({ inputs, mode = 'discovery_mode', baseline = null } = {}) {
-  const resolvedInputs = Array.isArray(inputs) && inputs.length > 0 ? inputs : DEFAULT_PROBE_EVAL_BASELINE_INPUTS;
+async function runFromDevConsole({
+  inputs,
+  mode = 'discovery_mode',
+  capabilityMode = 'probe_stream',
+  baseline = null,
+} = {}) {
+  const defaultInputs =
+    capabilityMode === 'verify_session_cookie_flags'
+      ? DEFAULT_COOKIE_EVAL_BASELINE_INPUTS
+      : DEFAULT_PROBE_EVAL_BASELINE_INPUTS;
+  const resolvedInputs = Array.isArray(inputs) && inputs.length > 0 ? inputs : defaultInputs;
   const result = await runProbeEvalBaselineRunner({
     inputs: resolvedInputs,
     mode,
+    capabilityMode,
     baseline,
   });
 

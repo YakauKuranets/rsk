@@ -2,7 +2,7 @@
 
 ## Scope
 
-- Only for `probe_stream` minimal-agent path.
+- For minimal-agent eval paths: `probe_stream` and `verify_session_cookie_flags`.
 - No self-learning.
 - No new capabilities.
 - No backend storage/model rewrite.
@@ -12,6 +12,7 @@
 - `runProbeStreamEvalHarness(...)` in `src/api/probeEvalHarness.js`.
 - `runVerifySessionCookieEvalHarness(...)` in `src/api/probeEvalHarness.js`.
 - `runProbeStreamEvalSnapshot(...)` in `src/api/probeEvalHarness.js`.
+- `runVerifySessionCookieEvalSnapshot(...)` in `src/api/probeEvalHarness.js`.
 - `compareProbeEvalSnapshots(...)` in `src/api/probeEvalHarness.js`.
 - `runProbeEvalBaselineRunner(...)` in `src/api/probeEvalBaselineRunner.js`.
 
@@ -97,6 +98,25 @@ const delta = compareProbeEvalSnapshots(snapshotPrev, snapshotNext);
 console.log(delta);
 ```
 
+## Cookie snapshot + compare
+
+```js
+import {
+  runVerifySessionCookieEvalSnapshot,
+  compareVerifySessionCookieEvalSnapshots,
+} from '/src/api/probeEvalHarness.js';
+
+const cookieA = await runVerifySessionCookieEvalSnapshot({
+  inputs: [{ caseId: 'cookie_a', secureTarget: 'https://localhost', issuesTarget: 'http://localhost', unreachableTarget: 'http://127.0.0.1:1' }],
+});
+const cookieB = await runVerifySessionCookieEvalSnapshot({
+  inputs: [{ caseId: 'cookie_a', secureTarget: 'https://localhost', issuesTarget: 'http://localhost', unreachableTarget: 'http://127.0.0.1:1' }],
+});
+
+const cookieDelta = compareVerifySessionCookieEvalSnapshots(cookieA, cookieB);
+console.log(cookieDelta);
+```
+
 ## Dev-only baseline runner
 
 ```js
@@ -139,6 +159,10 @@ npm run dev
 const run = window.__runProbeEvalBaseline;
 const out = await run();
 console.log(out.compact);
+
+// cookie mode:
+const outCookie = await run({ capabilityMode: 'verify_session_cookie_flags' });
+console.log(outCookie.compact);
 ```
 
 Compact report includes:
@@ -156,3 +180,4 @@ Compact report includes:
 - Baseline format (minimal): `baselineId`, `sourceSnapshot`, `metrics`, `createdAt`.
 - Baseline inputs should stay controlled/stable; comparison is meaningful only for comparable inputs.
 - `inconclusive` is not equal to `regressed` (it usually means mixed/noisy or insufficiently comparable signals).
+- For cookie baseline, keep `secureTarget/issuesTarget/unreachableTarget` stable across runs to reduce environment noise.

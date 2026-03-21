@@ -264,6 +264,10 @@ function mergeStatusDistribution(reports) {
   return merged;
 }
 
+function mergeStatusDistributionFromEvents(events) {
+  return statusDistribution(events);
+}
+
 export async function runProbeStreamEvalSnapshot({
   inputs = [],
   mode = 'discovery_mode',
@@ -310,6 +314,54 @@ export async function runProbeStreamEvalSnapshot({
   };
 }
 
+export async function runVerifySessionCookieEvalSnapshot({
+  inputs = [],
+  mode = 'discovery_mode',
+  includeCaseMetrics = true,
+} = {}) {
+  const normalizedInputs = inputs.map((item, idx) => ({
+    caseId: item?.caseId || `cookie_case_${idx + 1}`,
+    secureTarget: item?.secureTarget || 'https://localhost',
+    issuesTarget: item?.issuesTarget || 'http://localhost',
+    unreachableTarget: item?.unreachableTarget || 'http://127.0.0.1:1',
+    mode: item?.mode || mode,
+  }));
+
+  const caseReports = [];
+  const events = [];
+  for (const input of normalizedInputs) {
+    const report = await runVerifySessionCookieEvalHarness({
+      secureTarget: input.secureTarget,
+      issuesTarget: input.issuesTarget,
+      unreachableTarget: input.unreachableTarget,
+      mode: input.mode,
+    });
+
+    const caseEvents = report.events.map((event) => ({
+      ...event,
+      caseId: input.caseId,
+    }));
+    events.push(...caseEvents);
+    caseReports.push({
+      input,
+      metrics: report.metrics,
+      eventCount: caseEvents.length,
+    });
+  }
+
+  const metrics = aggregateCookieEvalMetrics(events);
+  metrics.finalStatusDistribution = mergeStatusDistributionFromEvents(events);
+
+  return {
+    snapshotId: makeSnapshotId(),
+    createdAt: new Date().toISOString(),
+    inputs: normalizedInputs,
+    events,
+    metrics,
+    caseReports: includeCaseMetrics ? caseReports : undefined,
+  };
+}
+
 function distributionDelta(baseDist, nextDist) {
   const keys = ['reviewer_rejected', 'capability_succeeded', 'capability_failed', 'unknown'];
   const delta = {};
@@ -337,5 +389,28 @@ export function compareProbeEvalSnapshots(baseSnapshot, nextSnapshot) {
     mismatchDelta:
       Number(nextMetrics.mismatchIndications?.length || 0) -
       Number(baseMetrics.mismatchIndications?.length || 0),
+  };
+}
+
+export function compareVerifySessionCookieEvalSnapshots(baseSnapshot, nextSnapshot) {
+  const baseMetrics = baseSnapshot?.metrics || {};
+  const nextMetrics = nextSnapshot?.metrics || {};
+
+  return {
+    baseSnapshotId: baseSnapshot?.snapshotId || null,
+    nextSnapshotId: nextSnapshot?.snapshotId || null,
+    createdAt: new Date().toISOString(),
+    statusDistributionDelta: distributionDelta(
+      baseMetrics.finalStatusDistribution,
+      nextMetrics.finalStatusDistribution,
+    ),
+    reviewerRejectRateDelta:
+      Number(nextMetrics.reviewerRejectRate || 0) - Number(baseMetrics.reviewerRejectRate || 0),
+    secureRateDelta: Number(nextMetrics.secureRate || 0) - Number(baseMetrics.secureRate || 0),
+    issuesDetectedRateDelta:
+      Number(nextMetrics.issuesDetectedRate || 0) - Number(baseMetrics.issuesDetectedRate || 0),
+    inconclusiveFailureRateDelta:
+      Number(nextMetrics.inconclusiveFailureRate || 0) -
+      Number(baseMetrics.inconclusiveFailureRate || 0),
   };
 }
