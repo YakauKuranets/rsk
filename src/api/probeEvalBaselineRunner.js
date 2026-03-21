@@ -100,3 +100,24 @@ export async function runProbeEvalBaselineRunner({
     comparison,
   };
 }
+
+export function formatProbeEvalBaselineCompactReport(runResult) {
+  const snapshot = runResult?.snapshot || {};
+  const baseline = runResult?.baseline || {};
+  const comparison = runResult?.comparison || {};
+  const metrics = snapshot?.metrics || {};
+
+  const lines = [
+    `snapshotId=${snapshot.snapshotId || 'n/a'}`,
+    `baselineId=${baseline.baselineId || 'n/a'}`,
+    `classification=${comparison.classification || 'inconclusive'}`,
+    `summary=${comparison.summary || 'n/a'}`,
+    `keyMetrics=fallbackRate:${Number(metrics.fallbackRate || 0).toFixed(4)},semanticAliveKnownRate:${Number(
+      metrics.semanticAliveKnownRate || 0,
+    ).toFixed(4)},reviewerRejectRate:${Number(metrics.reviewerRejectRate || 0).toFixed(
+      4,
+    )},mismatchCount:${Number(metrics.mismatchIndications?.length || 0)}`,
+  ];
+
+  return lines.join('\n');
+}

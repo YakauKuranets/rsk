@@ -100,9 +100,34 @@ console.log(second.comparison.classification); // improved | unchanged | regress
 console.log(second.comparison.summary); // human-readable delta summary
 ```
 
+## Dev entrypoint (operational glue)
+
+1. Start dev app:
+
+```bash
+npm run dev
+```
+
+2. In browser devtools console run:
+
+```js
+const run = window.__runProbeEvalBaseline;
+const out = await run();
+console.log(out.compact);
+```
+
+Compact report includes:
+- `snapshotId`
+- `baselineId`
+- `classification`
+- `summary`
+- key metrics (`fallbackRate`, `semanticAliveKnownRate`, `reviewerRejectRate`, `mismatchCount`)
+
 ## Notes
 
 - If `aliveTargetId`/`deadTargetId` are not provided, related scenarios are skipped.
 - `fallback_path_behavior` is executed only when `aliveTargetId` is provided.
 - Snapshot format includes: `snapshotId`, `createdAt`, `inputs`, `events`, `metrics`.
 - Baseline format (minimal): `baselineId`, `sourceSnapshot`, `metrics`, `createdAt`.
+- Baseline inputs should stay controlled/stable; comparison is meaningful only for comparable inputs.
+- `inconclusive` is not equal to `regressed` (it usually means mixed/noisy or insufficiently comparable signals).
