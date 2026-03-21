@@ -163,6 +163,13 @@ console.log(out.compact);
 // cookie mode:
 const outCookie = await run({ capabilityMode: 'verify_session_cookie_flags' });
 console.log(outCookie.compact);
+
+// cookie mode with explicit profile:
+const outCookieTls = await run({
+  capabilityMode: 'verify_session_cookie_flags',
+  cookieProfile: 'local_tls',
+});
+console.log(outCookieTls.compact);
 ```
 
 Compact report includes:
@@ -170,7 +177,9 @@ Compact report includes:
 - `baselineId`
 - `classification`
 - `summary`
-- key metrics (`fallbackRate`, `semanticAliveKnownRate`, `reviewerRejectRate`, `mismatchCount`)
+- key metrics (mode-dependent):
+  - probe mode: `fallbackRate`, `semanticAliveKnownRate`, `reviewerRejectRate`, `mismatchCount`
+  - cookie mode: `secureRate`, `issuesDetectedRate`, `reviewerRejectRate`, `inconclusiveFailureRate`
 
 ## Notes
 
@@ -181,3 +190,23 @@ Compact report includes:
 - Baseline inputs should stay controlled/stable; comparison is meaningful only for comparable inputs.
 - `inconclusive` is not equal to `regressed` (it usually means mixed/noisy or insufficiently comparable signals).
 - For cookie baseline, keep `secureTarget/issuesTarget/unreachableTarget` stable across runs to reduce environment noise.
+
+## Controlled cookie baseline profiles
+
+### `local_tls`
+
+- profile id: `local_tls`
+- assumptions:
+  - `https://localhost` reachable (secure cookie candidate)
+  - `http://localhost` reachable (issues contrast)
+  - `http://127.0.0.1:1` remains unreachable (failure path)
+- intent: balanced local profile for secure/issues/failure coverage.
+
+### `local_plain_http`
+
+- profile id: `local_plain_http`
+- assumptions:
+  - `http://localhost` reachable
+  - HTTPS may be absent in local setup
+  - `http://127.0.0.1:1` remains unreachable
+- intent: emphasize issues-detected + failure behavior in plain local environments.

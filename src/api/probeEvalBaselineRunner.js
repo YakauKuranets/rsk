@@ -21,6 +21,51 @@ export const DEFAULT_COOKIE_EVAL_BASELINE_INPUTS = [
   },
 ];
 
+export const COOKIE_BASELINE_PROFILES = {
+  local_tls: {
+    profileId: 'local_tls',
+    description:
+      'Assumes local HTTPS endpoint with secure cookie flags and a local HTTP endpoint for contrast.',
+    assumptions: [
+      'https://localhost is reachable and uses cookies in session flow',
+      'http://localhost is reachable for non-secure contrast',
+      '127.0.0.1:1 stays unreachable for failure path',
+    ],
+    inputs: [
+      {
+        caseId: 'cookie_local_tls_case',
+        secureTarget: 'https://localhost',
+        issuesTarget: 'http://localhost',
+        unreachableTarget: 'http://127.0.0.1:1',
+      },
+    ],
+  },
+  local_plain_http: {
+    profileId: 'local_plain_http',
+    description:
+      'Assumes local plain HTTP is primary target; useful to observe issuesDetected and failure behavior.',
+    assumptions: [
+      'http://localhost is reachable',
+      'https://localhost may be unavailable (allowed)',
+      '127.0.0.1:1 stays unreachable for failure path',
+    ],
+    inputs: [
+      {
+        caseId: 'cookie_local_plain_http_case',
+        secureTarget: 'http://localhost',
+        issuesTarget: 'http://localhost',
+        unreachableTarget: 'http://127.0.0.1:1',
+      },
+    ],
+  },
+};
+
+export function resolveCookieBaselineProfile(profileName = 'local_tls') {
+  const profile = COOKIE_BASELINE_PROFILES[profileName];
+  if (profile) return profile;
+  return COOKIE_BASELINE_PROFILES.local_tls;
+}
+
 function makeBaselineId() {
   return `probe_baseline_${Date.now()}`;
 }
@@ -33,6 +78,7 @@ export function buildProbeEvalBaseline(snapshot, { baselineId } = {}) {
       snapshotId: snapshot?.snapshotId || null,
       createdAt: snapshot?.createdAt || null,
       inputs: Array.isArray(snapshot?.inputs) ? snapshot.inputs : [],
+      profileId: snapshot?.profileId || null,
     },
     metrics: snapshot?.metrics || null,
     createdAt: new Date().toISOString(),
@@ -133,17 +179,21 @@ export function compareSnapshotAgainstBaseline(snapshot, baseline) {
 export async function runProbeEvalBaselineRunner({
   capabilityMode = 'probe_stream',
   inputs = DEFAULT_PROBE_EVAL_BASELINE_INPUTS,
+  cookieProfile = 'local_tls',
   mode = 'discovery_mode',
   baseline = null,
 } = {}) {
+  const cookieProfileResolved = resolveCookieBaselineProfile(cookieProfile);
   const snapshot =
     capabilityMode === 'verify_session_cookie_flags'
       ? await runVerifySessionCookieEvalSnapshot({
-          inputs: inputs.length ? inputs : DEFAULT_COOKIE_EVAL_BASELINE_INPUTS,
+          inputs: inputs.length ? inputs : cookieProfileResolved?.inputs || DEFAULT_COOKIE_EVAL_BASELINE_INPUTS,
           mode,
         })
       : await runProbeStreamEvalSnapshot({ inputs, mode });
   snapshot.capabilityMode = capabilityMode;
+  snapshot.profileId =
+    capabilityMode === 'verify_session_cookie_flags' ? cookieProfileResolved?.profileId : null;
   const baselineRecord = baseline || buildProbeEvalBaseline(snapshot);
   const comparison = compareSnapshotAgainstBaseline(snapshot, baselineRecord);
 
@@ -151,6 +201,7 @@ export async function runProbeEvalBaselineRunner({
     snapshot,
     baseline: baselineRecord,
     comparison,
+    profile: capabilityMode === 'verify_session_cookie_flags' ? cookieProfileResolved : null,
   };
 }
 

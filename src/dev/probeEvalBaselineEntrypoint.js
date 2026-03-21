@@ -9,6 +9,7 @@ async function runFromDevConsole({
   inputs,
   mode = 'discovery_mode',
   capabilityMode = 'probe_stream',
+  cookieProfile = 'local_tls',
   baseline = null,
 } = {}) {
   const defaultInputs =
@@ -20,6 +21,7 @@ async function runFromDevConsole({
     inputs: resolvedInputs,
     mode,
     capabilityMode,
+    cookieProfile,
     baseline,
   });
 
