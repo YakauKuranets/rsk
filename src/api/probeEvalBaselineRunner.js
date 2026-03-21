@@ -81,6 +81,7 @@ export function buildProbeEvalBaseline(snapshot, { baselineId } = {}) {
       profileId: snapshot?.profileId || null,
     },
     metrics: snapshot?.metrics || null,
+    contractHealth: snapshot?.contractHealth || null,
     createdAt: new Date().toISOString(),
   };
 }
@@ -140,8 +141,20 @@ function summarizeCookieEvalDelta(delta, classification) {
     `issuesDetectedRateDelta=${Number(delta.issuesDetectedRateDelta || 0).toFixed(4)}`,
     `reviewerRejectRateDelta=${Number(delta.reviewerRejectRateDelta || 0).toFixed(4)}`,
     `inconclusiveFailureRateDelta=${Number(delta.inconclusiveFailureRateDelta || 0).toFixed(4)}`,
+    `invariantsPassedBaseline=${delta.invariantsPassedBaseline === true ? 'yes' : 'no'}`,
+    `invariantsPassedSnapshot=${delta.invariantsPassedSnapshot === true ? 'yes' : 'no'}`,
     `statusDelta=${JSON.stringify(delta.statusDistributionDelta || {})}`,
   ].join(' | ');
+}
+
+function getCookieInvariantHealth(snapshot, baseline) {
+  const snapshotPassed = snapshot?.contractHealth?.invariantsPassed === true;
+  const baselinePassed = baseline?.contractHealth?.invariantsPassed === true;
+  return {
+    snapshotPassed,
+    baselinePassed,
+    safeToCompare: snapshotPassed && baselinePassed,
+  };
 }
 
 export function compareSnapshotAgainstBaseline(snapshot, baseline) {
@@ -156,21 +169,36 @@ export function compareSnapshotAgainstBaseline(snapshot, baseline) {
   const baselineSnapshotLike = {
     snapshotId: baseline?.sourceSnapshot?.snapshotId || baseline?.baselineId || null,
     metrics: baseline.metrics,
+    contractHealth: baseline?.contractHealth || null,
   };
 
   const isCookieMode = (baseline?.capabilityMode || snapshot?.capabilityMode) === 'verify_session_cookie_flags';
   const delta = isCookieMode
     ? compareVerifySessionCookieEvalSnapshots(baselineSnapshotLike, snapshot)
     : compareProbeEvalSnapshots(baselineSnapshotLike, snapshot);
-  const classification = isCookieMode ? classifyCookieDelta(delta) : classifyDelta(delta);
-  const summary = isCookieMode
+  const metricClassification = isCookieMode ? classifyCookieDelta(delta) : classifyDelta(delta);
+  const invariantHealth = isCookieMode ? getCookieInvariantHealth(snapshot, baseline) : null;
+  const classification =
+    isCookieMode && invariantHealth && !invariantHealth.safeToCompare
+      ? 'inconclusive'
+      : metricClassification;
+  const summaryCore = isCookieMode
     ? summarizeCookieEvalDelta(delta, classification)
     : summarizeProbeEvalDelta(delta, classification);
+  const summary =
+    isCookieMode && invariantHealth && !invariantHealth.safeToCompare
+      ? `${summaryCore} | warning=invariant_contract_failed_compare_unsafe`
+      : summaryCore;
 
   return {
     classification,
     delta,
     summary,
+    warning:
+      isCookieMode && invariantHealth && !invariantHealth.safeToCompare
+        ? 'invariant_contract_failed_compare_unsafe'
+        : null,
+    invariantHealth,
     baselineId: baseline.baselineId,
     snapshotId: snapshot.snapshotId,
   };
@@ -218,7 +246,9 @@ export function formatProbeEvalBaselineCompactReport(runResult) {
           metrics.issuesDetectedRate || 0,
         ).toFixed(4)},reviewerRejectRate:${Number(metrics.reviewerRejectRate || 0).toFixed(
           4,
-        )},inconclusiveFailureRate:${Number(metrics.inconclusiveFailureRate || 0).toFixed(4)}`
+        )},inconclusiveFailureRate:${Number(metrics.inconclusiveFailureRate || 0).toFixed(4)},invariantsPassed:${
+          snapshot?.contractHealth?.invariantsPassed === true ? 'yes' : 'no'
+        }`
       : `fallbackRate:${Number(metrics.fallbackRate || 0).toFixed(4)},semanticAliveKnownRate:${Number(
           metrics.semanticAliveKnownRate || 0,
         ).toFixed(4)},reviewerRejectRate:${Number(metrics.reviewerRejectRate || 0).toFixed(
@@ -230,6 +260,7 @@ export function formatProbeEvalBaselineCompactReport(runResult) {
     `snapshotId=${snapshot.snapshotId || 'n/a'}`,
     `baselineId=${baseline.baselineId || 'n/a'}`,
     `classification=${comparison.classification || 'inconclusive'}`,
+    `warning=${comparison.warning || 'none'}`,
     `summary=${comparison.summary || 'n/a'}`,
     `keyMetrics=${keyMetrics}`,
   ];

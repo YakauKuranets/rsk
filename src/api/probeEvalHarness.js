@@ -409,6 +409,7 @@ export async function runVerifySessionCookieEvalSnapshot({
 
   const caseReports = [];
   const events = [];
+  const invariantCaseReports = [];
   for (const input of normalizedInputs) {
     const report = await runVerifySessionCookieEvalHarness({
       secureTarget: input.secureTarget,
@@ -426,11 +427,25 @@ export async function runVerifySessionCookieEvalSnapshot({
       input,
       metrics: report.metrics,
       eventCount: caseEvents.length,
+      invariants: report.invariants,
+    });
+    invariantCaseReports.push({
+      caseId: input.caseId,
+      allPassed: Boolean(report?.invariants?.allPassed),
+      shapeCompatible: Boolean(report?.invariants?.shapeCompatible),
+      preferredViolations: Array.isArray(report?.invariants?.preferredCheck?.violations)
+        ? report.invariants.preferredCheck.violations
+        : [],
+      fallbackViolations: Array.isArray(report?.invariants?.fallbackCheck?.violations)
+        ? report.invariants.fallbackCheck.violations
+        : [],
     });
   }
 
   const metrics = aggregateCookieEvalMetrics(events);
   metrics.finalStatusDistribution = mergeStatusDistributionFromEvents(events);
+  const invariantsPassed =
+    invariantCaseReports.length > 0 && invariantCaseReports.every((item) => item.allPassed);
 
   return {
     snapshotId: makeSnapshotId(),
@@ -438,6 +453,12 @@ export async function runVerifySessionCookieEvalSnapshot({
     inputs: normalizedInputs,
     events,
     metrics,
+    contractHealth: {
+      invariantsPassed,
+      checkedCases: invariantCaseReports.length,
+      failedCases: invariantCaseReports.filter((item) => !item.allPassed).length,
+      caseResults: invariantCaseReports,
+    },
     caseReports: includeCaseMetrics ? caseReports : undefined,
   };
 }
@@ -492,5 +513,9 @@ export function compareVerifySessionCookieEvalSnapshots(baseSnapshot, nextSnapsh
     inconclusiveFailureRateDelta:
       Number(nextMetrics.inconclusiveFailureRate || 0) -
       Number(baseMetrics.inconclusiveFailureRate || 0),
+    invariantsPassedBaseline:
+      baseSnapshot?.contractHealth?.invariantsPassed === true,
+    invariantsPassedSnapshot:
+      nextSnapshot?.contractHealth?.invariantsPassed === true,
   };
 }
