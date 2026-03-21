@@ -25,6 +25,7 @@ import {
 } from './features/targets/cardKindAdapter';
 import { useArchiveTargetContext } from './hooks/useArchiveTargetContext';
 import { buildTargetEnvelope, unwrapTargetEnvelope } from './features/targets/targetEnvelope';
+import { probeStreamPreferred } from './api/capabilities';
 
 function normalizeTargetRecords(rawTargets) {
   const normalized = [];
@@ -450,7 +451,8 @@ export default function App() {
 
       healthCheckRef.current = setInterval(async () => {
         try {
-          const alive = await invoke('check_stream_alive', { targetId: streamSessionId });
+          const probe = await probeStreamPreferred(streamSessionId, 'discovery_mode');
+          const alive = Boolean(probe.alive);
           if (!alive) {
             clearInterval(healthCheckRef.current);
             console.warn('[STREAM] FFmpeg process died for', streamSessionId);

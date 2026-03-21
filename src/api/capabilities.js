@@ -1,4 +1,5 @@
 import { invoke } from '@tauri-apps/api/core';
+import { runAgentMinimal } from './tauri';
 
 export async function executeCapabilityRequest(req) {
   return invoke('execute_capability', { req });
@@ -118,6 +119,62 @@ export async function probeStreamCapability(targetId, mode = 'discovery_mode') {
       message: String(error),
       alive: false,
       evidenceRefs: [],
+    };
+  }
+}
+
+// DEPRECATION BOUNDARY:
+// - `probeStreamCapability` is a low-level/legacy helper kept for fallback compatibility.
+// - UI/workflow consumers should prefer `probeStreamPreferred`, which uses runAgentMinimal first.
+export async function probeStreamPreferred(targetId, mode = 'discovery_mode') {
+  const target = String(targetId || '').trim();
+  if (!target) {
+    return {
+      ok: false,
+      source: 'client-validation',
+      message: 'targetId is empty',
+      alive: false,
+      runId: null,
+      finalStatus: 'capability_failed',
+      reporterSummary: null,
+      evidenceRefs: [],
+    };
+  }
+
+  try {
+    const agent = await runAgentMinimal({
+      targetId: target,
+      mode,
+      permitProbeStream: true,
+    });
+
+    if (!agent?.ok) {
+      throw new Error((agent?.errors || []).join('; ') || 'minimal-agent-envelope-invalid');
+    }
+
+    const alive = agent.finalStatus === 'capability_succeeded' && Boolean(agent.capabilityResultSummary?.alive);
+    return {
+      ok: agent.finalStatus === 'capability_succeeded',
+      source: 'minimal-agent',
+      alive,
+      targetId: agent.targetId || target,
+      runId: agent.runId || null,
+      finalStatus: agent.finalStatus,
+      reporterSummary: agent.reporterSummary || null,
+      reviewerApproved: Boolean(agent.reviewerVerdict?.approved),
+      plannerActionCount: Number(agent.plannerDecision?.actionCount ?? 0),
+      evidenceRefs: Array.isArray(agent.evidenceRefs) ? agent.evidenceRefs : [],
+    };
+  } catch (_) {
+    const fallback = await probeStreamCapability(target, mode);
+    return {
+      ...fallback,
+      source: fallback.source || 'legacy-probe-fallback',
+      runId: null,
+      finalStatus: fallback.ok ? 'capability_succeeded' : 'capability_failed',
+      reporterSummary: fallback.message || null,
+      reviewerApproved: null,
+      plannerActionCount: null,
     };
   }
 }
