@@ -198,6 +198,9 @@ fn target_envelope_adoption_counters() -> &'static TargetEnvelopeAdoptionCounter
 
 fn record_target_envelope_marker(state: &State<'_, LogState>, marker: &str, target_id: &str) {
     const SUMMARY_EVERY_N_OPS: u64 = 25;
+    const POLICY_WARNING_MIN_OPS: u64 = 100;
+    const POLICY_WARNING_LEGACY_RATIO: f64 = 0.20;
+    const POLICY_WARNING_NON_JSON_RATIO: f64 = 0.05;
     let counters = target_envelope_adoption_counters();
 
     match marker {
@@ -262,6 +265,28 @@ fn record_target_envelope_marker(state: &State<'_, LogState>, marker: &str, targ
                 envelope_write_passthrough
             ),
         );
+
+        if total >= POLICY_WARNING_MIN_OPS {
+            let legacy_total = legacy_wrapped_on_read + legacy_wrapped_on_save;
+            let non_json_total = non_json_passthrough_on_read + non_json_passthrough_on_save;
+            let legacy_ratio = (legacy_total as f64) / (total as f64);
+            let non_json_ratio = (non_json_total as f64) / (total as f64);
+            if legacy_ratio >= POLICY_WARNING_LEGACY_RATIO
+                || non_json_ratio >= POLICY_WARNING_NON_JSON_RATIO
+            {
+                push_runtime_log(
+                    state,
+                    format!(
+                        "TARGET_ENVELOPE_POLICY_WARNING|ops={}|legacy_ratio={:.4}|non_json_ratio={:.4}|legacy_total={}|non_json_total={}|note=policy_tightening_may_be_premature",
+                        total,
+                        legacy_ratio,
+                        non_json_ratio,
+                        legacy_total,
+                        non_json_total
+                    ),
+                );
+            }
+        }
     }
 }
 
