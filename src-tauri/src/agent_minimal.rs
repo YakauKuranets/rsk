@@ -4,7 +4,8 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use tauri::State;
 
 use crate::capability_adapter::{
-    self, CapabilityName, CapabilityResult, CapabilityResultData, CapabilityRequest, ProbeStreamInput,
+    self, CapabilityName, CapabilityRequest, CapabilityResult, CapabilityResultData, ProbeStreamInput,
+    VerifySessionCookieFlagsInput,
 };
 use crate::core_types::WorkflowMode;
 
@@ -15,6 +16,8 @@ static AGENT_RUN_SEQ: AtomicU64 = AtomicU64::new(1);
 pub struct PlannerInput {
     pub target_id: String,
     pub mode: WorkflowMode,
+    pub preferred_capability: Option<CapabilityName>,
+    pub verify_session_cookie_flags: Option<VerifySessionCookieFlagsInput>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -25,6 +28,7 @@ pub struct PlannedAction {
     pub rationale: String,
     pub confidence: f32,
     pub probe_stream: Option<ProbeStreamInput>,
+    pub verify_session_cookie_flags: Option<VerifySessionCookieFlagsInput>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -38,6 +42,7 @@ pub struct PlannerOutput {
 pub struct ReviewerInput {
     pub actions: Vec<PlannedAction>,
     pub permit_probe_stream: bool,
+    pub permit_verify_session_cookie_flags: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -68,6 +73,7 @@ pub struct ReviewerVerdictSummary {
 #[serde(rename_all = "camelCase")]
 pub struct CapabilityArgsSummary {
     pub target_id: Option<String>,
+    pub ip_or_url: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -75,6 +81,8 @@ pub struct CapabilityArgsSummary {
 pub struct CapabilityResultSummary {
     pub ok: bool,
     pub alive: Option<bool>,
+    pub secure: Option<bool>,
+    pub issues_count: Option<usize>,
     pub error_code: Option<String>,
     pub error_message: Option<String>,
 }
@@ -114,15 +122,46 @@ fn make_agent_run_id() -> String {
 }
 
 fn planner(input: PlannerInput) -> PlannerOutput {
-    PlannerOutput {
-        actions: vec![PlannedAction {
-            capability: CapabilityName::ProbeStream,
-            mode: input.mode,
-            rationale: "Probe stream availability for initial liveness signal".to_string(),
-            confidence: 0.8,
-            probe_stream: Some(ProbeStreamInput {
+    let preferred = input.preferred_capability.clone().unwrap_or(CapabilityName::ProbeStream);
+    let (capability, rationale, probe_stream, verify_session_cookie_flags) = match preferred {
+        CapabilityName::VerifySessionCookieFlags => (
+            CapabilityName::VerifySessionCookieFlags,
+            "Verify session cookie security flags for target endpoint".to_string(),
+            None,
+            Some(VerifySessionCookieFlagsInput {
+                ip_or_url: input
+                    .verify_session_cookie_flags
+                    .as_ref()
+                    .map(|v| v.ip_or_url.clone())
+                    .unwrap_or_else(|| input.target_id.clone()),
+            }),
+        ),
+        CapabilityName::ProbeStream => (
+            CapabilityName::ProbeStream,
+            "Probe stream availability for initial liveness signal".to_string(),
+            Some(ProbeStreamInput {
                 target_id: input.target_id,
             }),
+            None,
+        ),
+        _ => (
+            CapabilityName::ProbeStream,
+            "Unsupported preferred capability; fallback to probe_stream".to_string(),
+            Some(ProbeStreamInput {
+                target_id: input.target_id,
+            }),
+            None,
+        ),
+    };
+
+    PlannerOutput {
+        actions: vec![PlannedAction {
+            capability,
+            mode: input.mode,
+            rationale,
+            confidence: 0.8,
+            probe_stream,
+            verify_session_cookie_flags,
         }],
     }
 }
@@ -139,16 +178,24 @@ fn reviewer(input: ReviewerInput) -> ReviewDecision {
         };
     };
 
-    if !input.permit_probe_stream {
-        reasons.push("probe_stream not permitted by reviewer policy".to_string());
-    }
-
-    if !matches!(action.capability, CapabilityName::ProbeStream) {
-        reasons.push("Only probe_stream capability is allowed in minimal adapter".to_string());
-    }
-
-    if action.probe_stream.is_none() {
-        reasons.push("probeStream input is required".to_string());
+    match action.capability {
+        CapabilityName::ProbeStream => {
+            if !input.permit_probe_stream {
+                reasons.push("probe_stream not permitted by reviewer policy".to_string());
+            }
+            if action.probe_stream.is_none() {
+                reasons.push("probeStream input is required".to_string());
+            }
+        }
+        CapabilityName::VerifySessionCookieFlags => {
+            if !input.permit_verify_session_cookie_flags {
+                reasons.push("verify_session_cookie_flags not permitted by reviewer policy".to_string());
+            }
+            if action.verify_session_cookie_flags.is_none() {
+                reasons.push("verifySessionCookieFlags input is required".to_string());
+            }
+        }
+        _ => reasons.push("Only probe_stream and verify_session_cookie_flags are allowed in minimal adapter".to_string()),
     }
 
     let approved = reasons.is_empty();
@@ -177,14 +224,23 @@ fn summarize_reviewer(review: &ReviewDecision) -> ReviewerVerdictSummary {
 }
 
 fn summarize_capability_result(result: &CapabilityResult) -> CapabilityResultSummary {
-    let alive = match &result.data {
+    let (alive, secure, issues_count) = match &result.data {
         Some(CapabilityResultData::ProbeStream(out)) => Some(out.alive),
-        _ => None,
-    };
+        _ => None
+    }
+    .map(|v| (Some(v), None, None))
+    .unwrap_or_else(|| match &result.data {
+        Some(CapabilityResultData::VerifySessionCookieFlags(out)) => {
+            (None, Some(out.secure), Some(out.issues.len()))
+        }
+        _ => (None, None, None),
+    });
 
     CapabilityResultSummary {
         ok: result.ok,
         alive,
+        secure,
+        issues_count,
         error_code: result.error.as_ref().map(|e| e.code.clone()),
         error_message: result.error.as_ref().map(|e| e.message.clone()),
     }
@@ -195,6 +251,7 @@ fn summarize_capability_result(result: &CapabilityResult) -> CapabilityResultSum
 pub struct AgentMinimalRequest {
     pub planner: PlannerInput,
     pub permit_probe_stream: bool,
+    pub permit_verify_session_cookie_flags: bool,
 }
 
 #[tauri::command]
@@ -221,6 +278,7 @@ pub async fn run_agent_minimal(
     let review = reviewer(ReviewerInput {
         actions: planned.actions,
         permit_probe_stream: req.permit_probe_stream,
+        permit_verify_session_cookie_flags: req.permit_verify_session_cookie_flags,
     });
     let reviewer_verdict = summarize_reviewer(&review);
 
@@ -251,11 +309,15 @@ pub async fn run_agent_minimal(
         mode: action.mode,
         probe_stream: action.probe_stream.clone(),
         search_archive_records: None,
-        verify_session_cookie_flags: None,
+        verify_session_cookie_flags: action.verify_session_cookie_flags.clone(),
     };
 
     let capability_args_summary = CapabilityArgsSummary {
         target_id: action.probe_stream.as_ref().map(|p| p.target_id.clone()),
+        ip_or_url: action
+            .verify_session_cookie_flags
+            .as_ref()
+            .map(|v| v.ip_or_url.clone()),
     };
 
     let result = capability_adapter::execute_capability(capability_req, stream_state, log_state.clone()).await?;
@@ -266,6 +328,16 @@ pub async fn run_agent_minimal(
             format!(
                 "Planner->Reviewer->Execute completed for target {} (alive={})",
                 out.target_id, out.alive
+            ),
+            out.evidence_refs.clone(),
+            MinimalAgentFinalStatus::CapabilitySucceeded,
+        ),
+        Some(CapabilityResultData::VerifySessionCookieFlags(out)) if result.ok => (
+            format!(
+                "Planner->Reviewer->Execute completed for endpoint {} (secure={} issues={})",
+                out.ip_or_url,
+                out.secure,
+                out.issues.len()
             ),
             out.evidence_refs.clone(),
             MinimalAgentFinalStatus::CapabilitySucceeded,

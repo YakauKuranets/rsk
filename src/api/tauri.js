@@ -143,11 +143,20 @@ export const normalizeAgentMinimalResult = (raw) => {
     capabilityInvoked: envelope.capabilityInvoked ?? null,
     capabilityArgsSummary: {
       targetId: capabilityArgsSummary.targetId ?? null,
+      ipOrUrl: capabilityArgsSummary.ipOrUrl ?? null,
     },
     capabilityResultSummary: {
       ok: Boolean(capabilityResultSummary.ok),
       alive:
         typeof capabilityResultSummary.alive === 'boolean' ? capabilityResultSummary.alive : null,
+      secure:
+        typeof capabilityResultSummary.secure === 'boolean'
+          ? capabilityResultSummary.secure
+          : null,
+      issuesCount:
+        typeof capabilityResultSummary.issuesCount === 'number'
+          ? capabilityResultSummary.issuesCount
+          : null,
       errorCode: capabilityResultSummary.errorCode ?? null,
       errorMessage: capabilityResultSummary.errorMessage ?? null,
     },
@@ -157,14 +166,26 @@ export const normalizeAgentMinimalResult = (raw) => {
   };
 };
 
-export const runAgentMinimal = async ({ targetId, mode, permitProbeStream = true }) => {
+export const runAgentMinimal = async ({
+  targetId,
+  mode,
+  permitProbeStream = true,
+  permitVerifySessionCookieFlags = false,
+  preferredCapability = null,
+  verifySessionCookieFlagsIpOrUrl = null,
+}) => {
   const response = await invoke('run_agent_minimal', {
     req: {
       planner: {
         targetId,
         mode,
+        preferredCapability,
+        verifySessionCookieFlags: verifySessionCookieFlagsIpOrUrl
+          ? { ipOrUrl: verifySessionCookieFlagsIpOrUrl }
+          : undefined,
       },
       permitProbeStream,
+      permitVerifySessionCookieFlags,
     },
   });
 
