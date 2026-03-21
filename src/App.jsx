@@ -24,6 +24,7 @@ import {
   deriveCardKind,
 } from './features/targets/cardKindAdapter';
 import { useArchiveTargetContext } from './hooks/useArchiveTargetContext';
+import { buildTargetEnvelope, unwrapTargetEnvelope } from './features/targets/targetEnvelope';
 
 function normalizeTargetRecords(rawTargets) {
   const normalized = [];
@@ -345,7 +346,8 @@ export default function App() {
         try {
           const jsonStr = await invoke('read_target', { targetId: key });
           const obj = typeof jsonStr === 'string' ? JSON.parse(jsonStr) : jsonStr;
-          if (obj && typeof obj === 'object') loaded.push(obj);
+          const { target } = unwrapTargetEnvelope(obj);
+          if (target && typeof target === 'object') loaded.push(target);
         } catch (e) {
           // One bad record does NOT kill the rest
           console.warn('[vault] skipped unreadable target', key, e.message || e);
@@ -361,7 +363,8 @@ export default function App() {
     if (!form.host) return toast("Требуется IP");
     const autoId = `nvr_${Date.now()}`;
     const channels = Array.from({length: form.channelCount}, (_, i) => ({ id: `ch${i+1}`, index: i+1, name: `Камера ${i+1}` }));
-    const payload = JSON.stringify({ ...form, id: autoId, channels });
+    const envelope = buildTargetEnvelope({ ...form, id: autoId, channels }, 'handleSmartSave');
+    const payload = JSON.stringify(envelope);
     await invoke('save_target', { targetId: autoId, payload });
     loadTargets();
   };
@@ -972,9 +975,10 @@ export default function App() {
     const lng = mapCenter[1];
     const autoId = `hub_${cam.id}_${Date.now()}`;
     const channels = cam.channels.map(ch => ({ id: `ch${ch}`, index: ch, name: `Камера ${parseInt(ch) + 1}` }));
-    const payload = JSON.stringify({
+    const envelope = buildTargetEnvelope({
       id: autoId, name: `ХАБ: ${cam.ip}`, host: `streamhub_user${cam.id}`, hub_id: cam.id, type: 'hub', lat: lat, lng: lng, channels: channels
-    });
+    }, 'handleSaveHubToLocal');
+    const payload = JSON.stringify(envelope);
     await invoke('save_target', { targetId: autoId, payload });
     loadTargets();
   };

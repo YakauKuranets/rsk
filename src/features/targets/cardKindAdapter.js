@@ -18,7 +18,7 @@ function hasAnyField(target, fields) {
 
 function getEnvelopeKind(target) {
   if (!target || typeof target !== 'object') return null;
-  if (target.kind && target.data && typeof target.data === 'object') {
+  if (target.kind && ((target.data && typeof target.data === 'object') || (target.payload && typeof target.payload === 'object') || (target.body && typeof target.body === 'object'))) {
     return normalizeKind(target.kind);
   }
   if (target.card && typeof target.card === 'object' && target.card.kind) {
