@@ -1,10 +1,14 @@
 use serde::{Deserialize, Serialize};
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::time::{SystemTime, UNIX_EPOCH};
 use tauri::State;
 
 use crate::capability_adapter::{
     self, CapabilityName, CapabilityResult, CapabilityResultData, CapabilityRequest, ProbeStreamInput,
 };
 use crate::core_types::WorkflowMode;
+
+static AGENT_RUN_SEQ: AtomicU64 = AtomicU64::new(1);
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -46,11 +50,67 @@ pub struct ReviewDecision {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct ReporterOutput {
-    pub summary: String,
+pub struct PlannerDecisionSummary {
+    pub action_count: usize,
+    pub primary_capability: Option<CapabilityName>,
+    pub rationale: Option<String>,
+    pub confidence: Option<f32>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ReviewerVerdictSummary {
+    pub approved: bool,
+    pub reasons: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CapabilityArgsSummary {
+    pub target_id: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CapabilityResultSummary {
+    pub ok: bool,
+    pub alive: Option<bool>,
+    pub error_code: Option<String>,
+    pub error_message: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum MinimalAgentFinalStatus {
+    ReviewerRejected,
+    CapabilitySucceeded,
+    CapabilityFailed,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AgentMinimalTraceEnvelope {
+    pub agent_run_id: String,
+    pub target_id: String,
+    pub mode: WorkflowMode,
+    pub planner_decision: PlannerDecisionSummary,
+    pub reviewer_verdict: ReviewerVerdictSummary,
+    pub capability_invoked: Option<CapabilityName>,
+    pub capability_args_summary: Option<CapabilityArgsSummary>,
+    pub capability_result_summary: Option<CapabilityResultSummary>,
     pub evidence_refs: Vec<String>,
+    pub reporter_summary: String,
+    pub final_status: MinimalAgentFinalStatus,
     pub capability_result: Option<CapabilityResult>,
-    pub review: ReviewDecision,
+}
+
+fn make_agent_run_id() -> String {
+    let millis = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_millis())
+        .unwrap_or(0);
+    let seq = AGENT_RUN_SEQ.fetch_add(1, Ordering::Relaxed);
+    format!("amr_{}_{}", millis, seq)
 }
 
 fn planner(input: PlannerInput) -> PlannerOutput {
@@ -99,27 +159,34 @@ fn reviewer(input: ReviewerInput) -> ReviewDecision {
     }
 }
 
-fn reporter(review: ReviewDecision, result: Option<CapabilityResult>) -> ReporterOutput {
-    let mut evidence_refs = Vec::new();
-    let summary = if let Some(res) = &result {
-        if let Some(CapabilityResultData::ProbeStream(out)) = &res.data {
-            evidence_refs.extend(out.evidence_refs.clone());
-            format!(
-                "Planner->Reviewer->Execute completed for target {} (alive={})",
-                out.target_id, out.alive
-            )
-        } else {
-            "Planner->Reviewer approved, but capability returned no probe_stream payload".to_string()
-        }
-    } else {
-        "Planner->Reviewer rejected action; execution skipped".to_string()
+fn summarize_planner(planned: &PlannerOutput) -> PlannerDecisionSummary {
+    let primary = planned.actions.first();
+    PlannerDecisionSummary {
+        action_count: planned.actions.len(),
+        primary_capability: primary.map(|a| a.capability.clone()),
+        rationale: primary.map(|a| a.rationale.clone()),
+        confidence: primary.map(|a| a.confidence),
+    }
+}
+
+fn summarize_reviewer(review: &ReviewDecision) -> ReviewerVerdictSummary {
+    ReviewerVerdictSummary {
+        approved: review.approved,
+        reasons: review.reasons.clone(),
+    }
+}
+
+fn summarize_capability_result(result: &CapabilityResult) -> CapabilityResultSummary {
+    let alive = match &result.data {
+        Some(CapabilityResultData::ProbeStream(out)) => Some(out.alive),
+        _ => None,
     };
 
-    ReporterOutput {
-        summary,
-        evidence_refs,
-        capability_result: result,
-        review,
+    CapabilityResultSummary {
+        ok: result.ok,
+        alive,
+        error_code: result.error.as_ref().map(|e| e.code.clone()),
+        error_message: result.error.as_ref().map(|e| e.message.clone()),
     }
 }
 
@@ -135,23 +202,43 @@ pub async fn run_agent_minimal(
     req: AgentMinimalRequest,
     stream_state: State<'_, crate::StreamState>,
     log_state: State<'_, crate::LogState>,
-) -> Result<ReporterOutput, String> {
+) -> Result<AgentMinimalTraceEnvelope, String> {
+    let agent_run_id = make_agent_run_id();
+
     crate::push_runtime_log(
         &log_state,
         format!(
-            "AGENT_MINIMAL|target={} mode={:?}",
-            req.planner.target_id, req.planner.mode
+            "AGENT_MINIMAL|runId={} target={} mode={:?}",
+            agent_run_id, req.planner.target_id, req.planner.mode
         ),
     );
 
+    let target_id = req.planner.target_id.clone();
+    let mode = req.planner.mode.clone();
     let planned = planner(req.planner);
+    let planner_decision = summarize_planner(&planned);
+
     let review = reviewer(ReviewerInput {
         actions: planned.actions,
         permit_probe_stream: req.permit_probe_stream,
     });
+    let reviewer_verdict = summarize_reviewer(&review);
 
     if !review.approved {
-        return Ok(reporter(review, None));
+        return Ok(AgentMinimalTraceEnvelope {
+            agent_run_id,
+            target_id,
+            mode,
+            planner_decision,
+            reviewer_verdict,
+            capability_invoked: None,
+            capability_args_summary: None,
+            capability_result_summary: None,
+            evidence_refs: vec![],
+            reporter_summary: "Planner->Reviewer rejected action; execution skipped".to_string(),
+            final_status: MinimalAgentFinalStatus::ReviewerRejected,
+            capability_result: None,
+        });
     }
 
     let action = review
@@ -160,13 +247,60 @@ pub async fn run_agent_minimal(
         .ok_or_else(|| "review approved but action missing".to_string())?;
 
     let capability_req = CapabilityRequest {
-        capability: action.capability,
+        capability: action.capability.clone(),
         mode: action.mode,
-        probe_stream: action.probe_stream,
+        probe_stream: action.probe_stream.clone(),
         search_archive_records: None,
         verify_session_cookie_flags: None,
     };
 
+    let capability_args_summary = CapabilityArgsSummary {
+        target_id: action.probe_stream.as_ref().map(|p| p.target_id.clone()),
+    };
+
     let result = capability_adapter::execute_capability(capability_req, stream_state, log_state).await?;
-    Ok(reporter(review, Some(result)))
+    let capability_result_summary = summarize_capability_result(&result);
+
+    let (reporter_summary, evidence_refs, final_status) = match &result.data {
+        Some(CapabilityResultData::ProbeStream(out)) if result.ok => (
+            format!(
+                "Planner->Reviewer->Execute completed for target {} (alive={})",
+                out.target_id, out.alive
+            ),
+            out.evidence_refs.clone(),
+            MinimalAgentFinalStatus::CapabilitySucceeded,
+        ),
+        _ => (
+            "Planner->Reviewer approved, but capability execution failed or returned unexpected payload"
+                .to_string(),
+            vec![],
+            MinimalAgentFinalStatus::CapabilityFailed,
+        ),
+    };
+
+    crate::push_runtime_log(
+        &log_state,
+        format!(
+            "AGENT_MINIMAL|runId={} status={:?} capability={:?} ok={}",
+            agent_run_id,
+            final_status,
+            action.capability,
+            result.ok
+        ),
+    );
+
+    Ok(AgentMinimalTraceEnvelope {
+        agent_run_id,
+        target_id,
+        mode,
+        planner_decision,
+        reviewer_verdict,
+        capability_invoked: Some(action.capability),
+        capability_args_summary: Some(capability_args_summary),
+        capability_result_summary: Some(capability_result_summary),
+        evidence_refs,
+        reporter_summary,
+        final_status,
+        capability_result: Some(result),
+    })
 }
