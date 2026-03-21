@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { useAppStore } from '../../store/appStore';
+import { verifySessionCookieFlagsCapability } from '../../api/capabilities';
 
 const S={
   wrap:{border:'1px solid #2a2a2a',padding:'10px',backgroundColor:'#0a0a0a',marginBottom:'8px'},
@@ -23,6 +24,7 @@ export default function ToolExecutorPanel(){
   const [load,setLoad]=useState(false);
   const [result,setResult]=useState(null);
   const [avail,setAvail]=useState([]);
+  const [sessionResult, setSessionResult] = useState('');
 
   const run=async()=>{
     if(!intelligenceTarget.trim())return alert('Введите цель');
@@ -31,6 +33,22 @@ export default function ToolExecutorPanel(){
     try{setResult(await invoke('execute_tool',{req:{tool,target:intelligenceTarget.trim(),args:args.trim().split(/\s+/).filter(Boolean),timeoutSecs:+timeout,permitToken:permit.trim()}}));}
     catch(e){alert('Ошибка: '+e);}
     setLoad(false);
+  };
+
+  const runSessionCapability = async () => {
+    const target = intelligenceTarget.trim();
+    if (!target) return alert('Введите цель');
+    setSessionResult('Проверка session capability...');
+    const session = await verifySessionCookieFlagsCapability(target, 'discovery_mode');
+    if (!session.ok) {
+      setSessionResult(`Ошибка проверки: ${session.message || 'unknown error'}`);
+      return;
+    }
+    if (session.secure) {
+      setSessionResult(`✅ Session cookie flags выглядят безопасно (${target})`);
+    } else {
+      setSessionResult(`⚠️ Найдены проблемы: ${(session.issues || []).join(' | ')}`);
+    }
   };
 
   return(
@@ -53,8 +71,19 @@ export default function ToolExecutorPanel(){
         <div style={{flex:2,display:'flex',flexDirection:'column',gap:'3px'}}>
           <button style={{...S.btn(),flex:1,marginBottom:0}} onClick={run} disabled={load}>{load?'⚙...':'▶ '+tool}</button>
           <button style={{...S.btn('#555'),flex:1,marginBottom:0,fontSize:'10px'}} onClick={()=>invoke('check_tools_available').then(setAvail).catch(()=>{})}>Проверить доступность</button>
+          <button
+            style={{...S.btn('#44cc88'),flex:1,marginBottom:0,fontSize:'10px'}}
+            onClick={runSessionCapability}
+          >
+            Session audit via capability
+          </button>
         </div>
       </div>
+      {sessionResult && (
+        <div style={{background:'#09111b',border:'1px solid #24404e',padding:'6px',marginBottom:'6px',fontSize:'10px',color:'#9fc6d5',borderRadius:'3px'}}>
+          {sessionResult}
+        </div>
+      )}
       {avail.length>0&&<div style={{display:'flex',flexWrap:'wrap',gap:'4px',margin:'6px 0'}}>
         {avail.map(t=><span key={t.tool} style={{fontSize:'9px',background:(t.available?'#00aa44':'#aa3333')+'20',color:t.available?'#00aa44':'#aa3333',border:'1px solid '+(t.available?'#00aa44':'#aa3333')+'40',padding:'2px 6px',borderRadius:'8px'}}>{t.tool}: {t.available?'✓':'✗'}</span>)}
       </div>}
