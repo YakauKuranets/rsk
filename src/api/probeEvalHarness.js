@@ -114,6 +114,131 @@ export async function runProbeStreamEvalHarness({ aliveTargetId, deadTargetId, m
   };
 }
 
+function statusDistribution(events) {
+  const byStatus = {
+    reviewer_rejected: 0,
+    capability_succeeded: 0,
+    capability_failed: 0,
+    unknown: 0,
+  };
+  for (const event of events) {
+    const status = String(event?.finalStatus || 'unknown');
+    if (Object.prototype.hasOwnProperty.call(byStatus, status)) {
+      byStatus[status] += 1;
+    } else {
+      byStatus.unknown += 1;
+    }
+  }
+  return byStatus;
+}
+
+function buildCookieEvent(scenario, normalized) {
+  return {
+    scenario,
+    capability: 'verify_session_cookie_flags',
+    finalStatus: normalized?.finalStatus || 'unknown',
+    ok: Boolean(normalized?.ok),
+    secure:
+      typeof normalized?.capabilityResultSummary?.secure === 'boolean'
+        ? normalized.capabilityResultSummary.secure
+        : null,
+    issuesCount:
+      typeof normalized?.capabilityResultSummary?.issuesCount === 'number'
+        ? normalized.capabilityResultSummary.issuesCount
+        : null,
+    reviewerApproved: Boolean(normalized?.reviewerVerdict?.approved),
+    runId: normalized?.runId || null,
+    reporterSummary: normalized?.reporterSummary || null,
+  };
+}
+
+export function aggregateCookieEvalMetrics(events) {
+  const total = events.length;
+  const finalStatusDistribution = statusDistribution(events);
+  const reviewerRejected = finalStatusDistribution.reviewer_rejected;
+  const failedOrInconclusive = finalStatusDistribution.capability_failed + finalStatusDistribution.unknown;
+
+  const succeeded = events.filter((e) => e.finalStatus === 'capability_succeeded');
+  const secureCount = succeeded.filter((e) => e.secure === true).length;
+  const issuesDetectedCount = succeeded.filter((e) => Number(e.issuesCount || 0) > 0).length;
+
+  return {
+    total,
+    finalStatusDistribution,
+    reviewerRejectRate: toRate(reviewerRejected, total),
+    secureRate: toRate(secureCount, succeeded.length),
+    issuesDetectedRate: toRate(issuesDetectedCount, succeeded.length),
+    inconclusiveFailureRate: toRate(failedOrInconclusive, total),
+  };
+}
+
+async function runCookieScenario({
+  scenario,
+  targetId,
+  mode,
+  permitVerifySessionCookieFlags,
+}) {
+  const normalized = await runAgentMinimal({
+    targetId,
+    mode,
+    preferredCapability: 'verify_session_cookie_flags',
+    verifySessionCookieFlagsIpOrUrl: targetId,
+    permitProbeStream: false,
+    permitVerifySessionCookieFlags,
+  });
+  return buildCookieEvent(scenario, normalized);
+}
+
+export async function runVerifySessionCookieEvalHarness({
+  secureTarget = 'https://localhost',
+  issuesTarget = 'http://localhost',
+  unreachableTarget = 'http://127.0.0.1:1',
+  mode = 'discovery_mode',
+} = {}) {
+  const events = [];
+
+  events.push(
+    await runCookieScenario({
+      scenario: 'reviewer_rejected_when_cookie_permit_false',
+      targetId: secureTarget,
+      mode,
+      permitVerifySessionCookieFlags: false,
+    }),
+  );
+
+  events.push(
+    await runCookieScenario({
+      scenario: 'cookie_check_success_path',
+      targetId: secureTarget,
+      mode,
+      permitVerifySessionCookieFlags: true,
+    }),
+  );
+
+  events.push(
+    await runCookieScenario({
+      scenario: 'cookie_check_issues_detected_path',
+      targetId: issuesTarget,
+      mode,
+      permitVerifySessionCookieFlags: true,
+    }),
+  );
+
+  events.push(
+    await runCookieScenario({
+      scenario: 'cookie_check_unreachable_or_failed_path',
+      targetId: unreachableTarget,
+      mode,
+      permitVerifySessionCookieFlags: true,
+    }),
+  );
+
+  return {
+    events,
+    metrics: aggregateCookieEvalMetrics(events),
+  };
+}
+
 function makeSnapshotId() {
   const ts = Date.now();
   const rand = Math.floor(Math.random() * 1e6)

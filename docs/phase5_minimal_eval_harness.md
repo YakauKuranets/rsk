@@ -10,6 +10,7 @@
 ## Harness entry
 
 - `runProbeStreamEvalHarness(...)` in `src/api/probeEvalHarness.js`.
+- `runVerifySessionCookieEvalHarness(...)` in `src/api/probeEvalHarness.js`.
 - `runProbeStreamEvalSnapshot(...)` in `src/api/probeEvalHarness.js`.
 - `compareProbeEvalSnapshots(...)` in `src/api/probeEvalHarness.js`.
 - `runProbeEvalBaselineRunner(...)` in `src/api/probeEvalBaselineRunner.js`.
@@ -29,6 +30,14 @@
 - `fallbackRate`
 - `semanticAliveKnownRate`
 - `mismatchIndications`
+
+### Cookie-path metrics (verify_session_cookie_flags)
+
+- `finalStatusDistribution`
+- `reviewerRejectRate`
+- `secureRate`
+- `issuesDetectedRate`
+- `inconclusiveFailureRate`
 
 ## Manual run example (browser console)
 
@@ -61,6 +70,22 @@ const snapshot = await runProbeStreamEvalSnapshot({
 console.log(snapshot.snapshotId, snapshot.createdAt);
 console.log(snapshot.metrics);
 console.table(snapshot.events);
+```
+
+## Cookie eval harness example
+
+```js
+import { runVerifySessionCookieEvalHarness } from '/src/api/probeEvalHarness.js';
+
+const cookieReport = await runVerifySessionCookieEvalHarness({
+  secureTarget: 'https://localhost',
+  issuesTarget: 'http://localhost',
+  unreachableTarget: 'http://127.0.0.1:1',
+  mode: 'discovery_mode',
+});
+
+console.log(cookieReport.metrics);
+console.table(cookieReport.events);
 ```
 
 ## Compare two snapshots
