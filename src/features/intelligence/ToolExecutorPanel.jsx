@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { useAppStore } from '../../store/appStore';
+import { verifySessionCookieFlagsCapability } from '../../api/capabilities';
 
 const S={
   wrap:{border:'1px solid #2a2a2a',padding:'10px',backgroundColor:'#0a0a0a',marginBottom:'8px'},
@@ -38,36 +39,15 @@ export default function ToolExecutorPanel(){
     const target = intelligenceTarget.trim();
     if (!target) return alert('Введите цель');
     setSessionResult('Проверка session capability...');
-    try {
-      const res = await invoke('execute_capability', {
-        req: {
-          capability: 'verify_session_cookie_flags',
-          mode: 'discovery_mode',
-          verifySessionCookieFlags: { ipOrUrl: target },
-        },
-      });
-
-      if (res?.ok && res?.data?.type === 'verifySessionCookieFlags') {
-        const out = res.data.verifySessionCookieFlags || {};
-        if (out.secure) {
-          setSessionResult(`✅ Session cookie flags выглядят безопасно (${target})`);
-        } else {
-          setSessionResult(`⚠️ Найдены проблемы: ${(out.issues || []).join(' | ')}`);
-        }
-        return;
-      }
-
-      // Fallback to legacy command path if adapter returned structured error
-      const fallback = await invoke('check_session_security', { ip: target });
-      setSessionResult(`Fallback: ${fallback}`);
-    } catch (e) {
-      // Fallback to legacy command if capability adapter is unavailable
-      try {
-        const fallback = await invoke('check_session_security', { ip: target });
-        setSessionResult(`Fallback: ${fallback}`);
-      } catch (fallbackError) {
-        setSessionResult(`Ошибка capability и fallback: ${e} | ${fallbackError}`);
-      }
+    const session = await verifySessionCookieFlagsCapability(target, 'discovery_mode');
+    if (!session.ok) {
+      setSessionResult(`Ошибка проверки: ${session.message || 'unknown error'}`);
+      return;
+    }
+    if (session.secure) {
+      setSessionResult(`✅ Session cookie flags выглядят безопасно (${target})`);
+    } else {
+      setSessionResult(`⚠️ Найдены проблемы: ${(session.issues || []).join(' | ')}`);
     }
   };
 
