@@ -189,3 +189,61 @@
 2. Policy table with status/dependencies/deprecation direction published.
 3. Backend evolution path defined as incremental adapter-based plan.
 4. First backend step identified with explicit non-goals (no big-bang rewrite, no new capability/UI).
+
+---
+
+## 10) Envelope adoption policy interpretation note (Phase 8 close-out)
+
+This note defines how to interpret backend runtime markers and when strictness can be increased safely.
+
+### Standard adoption indicators
+
+Primary indicator of healthy envelope-first behavior:
+
+- `envelope_read`
+- `envelope_write_passthrough`
+
+These indicate records are already in envelope-aware shape with no legacy wrapping required.
+
+### Warning-level indicators and ratios
+
+Warning-level marker families:
+
+- legacy wrapping:
+  - `legacy_wrapped_on_read`
+  - `legacy_wrapped_on_save`
+- non-json passthrough:
+  - `non_json_passthrough_on_read`
+  - `non_json_passthrough_on_save`
+
+Current soft-warning thresholds used in backend logs:
+
+- `legacy_ratio >= 0.20`
+- `non_json_ratio >= 0.05`
+- sample guard: `ops >= 100`
+
+Ratios are based on `TARGET_ENVELOPE_ADOPTION_SUMMARY` windows and emitted as
+`TARGET_ENVELOPE_POLICY_WARNING` when threshold criteria are met.
+
+### Interpretation guidance
+
+- High `legacy_wrapped` ratio means envelope adoption is still incomplete; strict write rejection is likely premature.
+- High `non_json_passthrough` ratio means there are still callers or records bypassing JSON envelope assumptions; tightening should wait until this ratio is consistently low.
+- If warning thresholds are breached repeatedly over consecutive windows, keep compatibility-first behavior.
+
+### When tightening is still too early
+
+Treat policy tightening as **not ready** when any of the following holds:
+
+1. `ops < 100` (insufficient sample size).
+2. `legacy_ratio >= 0.20`.
+3. `non_json_ratio >= 0.05`.
+
+### When to prepare next backend strictness step
+
+It is reasonable to prepare the next strictness increment when all are true for multiple consecutive windows:
+
+1. Sufficient sample size (`ops >= 100` in each observed window).
+2. `legacy_ratio` remains well below warning threshold.
+3. `non_json_ratio` remains near zero or consistently below warning threshold.
+4. No new spikes in warning logs after routine operational activity.
