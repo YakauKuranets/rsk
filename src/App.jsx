@@ -25,7 +25,7 @@ import {
 } from './features/targets/cardKindAdapter';
 import { useArchiveTargetContext } from './hooks/useArchiveTargetContext';
 import { buildTargetEnvelope, unwrapTargetEnvelope } from './features/targets/targetEnvelope';
-import { probeStreamPreferred } from './api/capabilities';
+import { probeStreamPreferred, shouldStopStreamOnProbe } from './api/capabilities';
 
 function normalizeTargetRecords(rawTargets) {
   const normalized = [];
@@ -456,11 +456,7 @@ export default function App() {
         healthProbeInFlight = true;
         try {
           const probe = await probeStreamPreferred(streamSessionId, 'discovery_mode');
-          // Semantic drift guard:
-          // only make stop decisions when the probe source can confidently decide liveness.
-          if (!probe.semanticAliveKnown) return;
-          const alive = Boolean(probe.alive);
-          if (!alive) {
+          if (shouldStopStreamOnProbe(probe)) {
             clearInterval(healthCheckRef.current);
             console.warn('[STREAM] FFmpeg process died for', streamSessionId);
           }

@@ -126,8 +126,14 @@ export async function probeStreamCapability(targetId, mode = 'discovery_mode') {
 // DEPRECATION BOUNDARY:
 // - `probeStreamCapability` is a low-level/legacy helper kept for fallback compatibility.
 // - UI/workflow consumers should prefer `probeStreamPreferred`, which uses runAgentMinimal first.
-export async function probeStreamPreferred(targetId, mode = 'discovery_mode') {
+export function shouldStopStreamOnProbe(probe) {
+  if (!probe?.semanticAliveKnown) return false;
+  return !Boolean(probe?.alive);
+}
+
+export async function probeStreamPreferred(targetId, mode = 'discovery_mode', options = {}) {
   const target = String(targetId || '').trim();
+  const forceLegacyFallback = Boolean(options?.forceLegacyFallback);
   if (!target) {
     return {
       ok: false,
@@ -138,11 +144,16 @@ export async function probeStreamPreferred(targetId, mode = 'discovery_mode') {
       finalStatus: 'capability_failed',
       reporterSummary: null,
       semanticAliveKnown: false,
+      fallbackUsed: false,
       evidenceRefs: [],
     };
   }
 
   try {
+    if (forceLegacyFallback) {
+      throw new Error('forced-legacy-fallback');
+    }
+
     const agent = await runAgentMinimal({
       targetId: target,
       mode,
@@ -168,6 +179,7 @@ export async function probeStreamPreferred(targetId, mode = 'discovery_mode') {
       reviewerApproved: Boolean(agent.reviewerVerdict?.approved),
       plannerActionCount: Number(agent.plannerDecision?.actionCount ?? 0),
       semanticAliveKnown: true,
+      fallbackUsed: false,
       evidenceRefs: Array.isArray(agent.evidenceRefs) ? agent.evidenceRefs : [],
     };
   } catch (_) {
@@ -181,6 +193,7 @@ export async function probeStreamPreferred(targetId, mode = 'discovery_mode') {
       reviewerApproved: null,
       plannerActionCount: null,
       semanticAliveKnown: fallback.source === 'capability',
+      fallbackUsed: true,
     };
   }
 }
