@@ -986,8 +986,17 @@ fn save_target(
     payload: String,
     db_state: State<'_, TargetsDb>,
     vault_state: State<'_, VaultState>,
+    log_state: State<'_, LogState>,
 ) -> Result<String, String> {
-    let normalized_payload = normalize_target_payload_for_storage(&payload, Some(&target_id));
+    let (normalized_payload, normalization_marker) =
+        normalize_target_payload_for_storage(&payload, Some(&target_id));
+    push_runtime_log(
+        &log_state,
+        format!(
+            "TARGET_ENVELOPE_ADOPTION|marker={}|targetId={}",
+            normalization_marker, target_id
+        ),
+    );
     let key = current_vault_key(&vault_state)?;
     let cipher = Aes256Gcm::new(&key.into());
 
@@ -1144,13 +1153,17 @@ fn wrap_legacy_target_as_envelope(
     Value::Object(envelope)
 }
 
-fn normalize_target_payload_for_storage(payload: &str, target_id: Option<&str>) -> String {
+fn normalize_target_payload_for_storage(
+    payload: &str,
+    target_id: Option<&str>,
+) -> (String, &'static str) {
     let parsed = match serde_json::from_str::<Value>(payload) {
         Ok(v) => v,
-        Err(_) => return payload.to_string(),
+        Err(_) => return (payload.to_string(), "non_json_passthrough_on_save"),
     };
+    let is_envelope = is_valid_target_envelope(&parsed);
 
-    let normalized = if is_valid_target_envelope(&parsed) {
+    let normalized = if is_envelope {
         normalize_envelope_json(parsed, "backend.save_target", true)
     } else {
         wrap_legacy_target_as_envelope(
@@ -1161,16 +1174,28 @@ fn normalize_target_payload_for_storage(payload: &str, target_id: Option<&str>) 
         )
     };
 
-    serde_json::to_string(&normalized).unwrap_or_else(|_| payload.to_string())
+    let marker = if is_envelope {
+        "envelope_write_passthrough"
+    } else {
+        "legacy_wrapped_on_save"
+    };
+    (
+        serde_json::to_string(&normalized).unwrap_or_else(|_| payload.to_string()),
+        marker,
+    )
 }
 
-fn normalize_target_payload_for_read(payload: &str, target_id: Option<&str>) -> String {
+fn normalize_target_payload_for_read(
+    payload: &str,
+    target_id: Option<&str>,
+) -> (String, &'static str) {
     let parsed = match serde_json::from_str::<Value>(payload) {
         Ok(v) => v,
-        Err(_) => return payload.to_string(),
+        Err(_) => return (payload.to_string(), "non_json_passthrough_on_read"),
     };
+    let is_envelope = is_valid_target_envelope(&parsed);
 
-    let normalized = if is_valid_target_envelope(&parsed) {
+    let normalized = if is_envelope {
         normalize_envelope_json(parsed, "backend.read_target", false)
     } else {
         wrap_legacy_target_as_envelope(
@@ -1181,7 +1206,15 @@ fn normalize_target_payload_for_read(payload: &str, target_id: Option<&str>) -> 
         )
     };
 
-    serde_json::to_string(&normalized).unwrap_or_else(|_| payload.to_string())
+    let marker = if is_envelope {
+        "envelope_read"
+    } else {
+        "legacy_wrapped_on_read"
+    };
+    (
+        serde_json::to_string(&normalized).unwrap_or_else(|_| payload.to_string()),
+        marker,
+    )
 }
 
 #[tauri::command]
@@ -1189,6 +1222,7 @@ fn read_target(
     target_id: String,
     db_state: State<'_, TargetsDb>,
     vault_state: State<'_, VaultState>,
+    log_state: State<'_, LogState>,
 ) -> Result<String, String> {
     if let Some(data) = db_state
         .db
@@ -1207,7 +1241,15 @@ fn read_target(
             .decrypt(Nonce::from_slice(nonce_bytes), ciphertext)
             .map_err(|_| "Access denied".to_string())?;
         let raw = String::from_utf8(decrypted).map_err(|_| "UTF-8 error".to_string())?;
-        Ok(normalize_target_payload_for_read(&raw, Some(&target_id)))
+        let (normalized, marker) = normalize_target_payload_for_read(&raw, Some(&target_id));
+        push_runtime_log(
+            &log_state,
+            format!(
+                "TARGET_ENVELOPE_ADOPTION|marker={}|targetId={}",
+                marker, target_id
+            ),
+        );
+        Ok(normalized)
     } else {
         Err("Not found".to_string())
     }
