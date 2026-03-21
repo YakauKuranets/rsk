@@ -64,6 +64,113 @@ export const startFuzzerJob = (target) => invoke('start_fuzzer_job', { target })
 export const getRuntimeLogs = (limit = 200) => invoke('get_runtime_logs', { limit });
 export const pushRuntimeLogEntry = (message) => invoke('push_runtime_log_entry', { message });
 
+// ═══ Minimal agent (stable consumer contract) ═══
+const AGENT_MINIMAL_FINAL_STATUS = {
+  REVIEWER_REJECTED: 'reviewer_rejected',
+  CAPABILITY_SUCCEEDED: 'capability_succeeded',
+  CAPABILITY_FAILED: 'capability_failed',
+};
+
+const AGENT_MINIMAL_STATUS_ALIASES = {
+  reviewerrejected: AGENT_MINIMAL_FINAL_STATUS.REVIEWER_REJECTED,
+  reviewer_rejected: AGENT_MINIMAL_FINAL_STATUS.REVIEWER_REJECTED,
+  capabilitysucceeded: AGENT_MINIMAL_FINAL_STATUS.CAPABILITY_SUCCEEDED,
+  capability_succeeded: AGENT_MINIMAL_FINAL_STATUS.CAPABILITY_SUCCEEDED,
+  capabilityfailed: AGENT_MINIMAL_FINAL_STATUS.CAPABILITY_FAILED,
+  capability_failed: AGENT_MINIMAL_FINAL_STATUS.CAPABILITY_FAILED,
+};
+
+const normalizeStatus = (value) => {
+  const key = String(value ?? '')
+    .trim()
+    .toLowerCase();
+  return AGENT_MINIMAL_STATUS_ALIASES[key] ?? AGENT_MINIMAL_FINAL_STATUS.CAPABILITY_FAILED;
+};
+
+const ensureObject = (value) => (value && typeof value === 'object' ? value : {});
+
+export const validateAgentMinimalEnvelope = (raw) => {
+  const envelope = ensureObject(raw);
+  const errors = [];
+
+  if (!envelope.agentRunId || typeof envelope.agentRunId !== 'string') {
+    errors.push('agentRunId is missing');
+  }
+  if (!envelope.targetId || typeof envelope.targetId !== 'string') {
+    errors.push('targetId is missing');
+  }
+  if (!envelope.mode || typeof envelope.mode !== 'string') {
+    errors.push('mode is missing');
+  }
+  if (typeof envelope.reporterSummary !== 'string') {
+    errors.push('reporterSummary is missing');
+  }
+
+  return {
+    ok: errors.length === 0,
+    errors,
+    envelope,
+  };
+};
+
+export const normalizeAgentMinimalResult = (raw) => {
+  const { ok, errors, envelope } = validateAgentMinimalEnvelope(raw);
+  const plannerDecision = ensureObject(envelope.plannerDecision);
+  const reviewerVerdict = ensureObject(envelope.reviewerVerdict);
+  const capabilityResultSummary = ensureObject(envelope.capabilityResultSummary);
+  const capabilityArgsSummary = ensureObject(envelope.capabilityArgsSummary);
+  const evidenceRefs = Array.isArray(envelope.evidenceRefs) ? envelope.evidenceRefs : [];
+  const normalizedFinalStatus = normalizeStatus(envelope.finalStatus);
+
+  return {
+    ok,
+    errors,
+    runId: envelope.agentRunId ?? null,
+    targetId: envelope.targetId ?? null,
+    mode: envelope.mode ?? null,
+    finalStatus: normalizedFinalStatus,
+    plannerDecision: {
+      actionCount: Number(plannerDecision.actionCount ?? 0),
+      primaryCapability: plannerDecision.primaryCapability ?? null,
+      rationale: plannerDecision.rationale ?? null,
+      confidence:
+        typeof plannerDecision.confidence === 'number' ? plannerDecision.confidence : null,
+    },
+    reviewerVerdict: {
+      approved: Boolean(reviewerVerdict.approved),
+      reasons: Array.isArray(reviewerVerdict.reasons) ? reviewerVerdict.reasons : [],
+    },
+    capabilityInvoked: envelope.capabilityInvoked ?? null,
+    capabilityArgsSummary: {
+      targetId: capabilityArgsSummary.targetId ?? null,
+    },
+    capabilityResultSummary: {
+      ok: Boolean(capabilityResultSummary.ok),
+      alive:
+        typeof capabilityResultSummary.alive === 'boolean' ? capabilityResultSummary.alive : null,
+      errorCode: capabilityResultSummary.errorCode ?? null,
+      errorMessage: capabilityResultSummary.errorMessage ?? null,
+    },
+    evidenceRefs,
+    reporterSummary: envelope.reporterSummary ?? '',
+    raw: envelope,
+  };
+};
+
+export const runAgentMinimal = async ({ targetId, mode, permitProbeStream = true }) => {
+  const response = await invoke('run_agent_minimal', {
+    req: {
+      planner: {
+        targetId,
+        mode,
+      },
+      permitProbeStream,
+    },
+  });
+
+  return normalizeAgentMinimalResult(response);
+};
+
 // ═══ Nexus ═══
 export const runNexusProtocol = (ip, login, pass) =>
   invoke('run_nexus_protocol', { ip, login, pass });
