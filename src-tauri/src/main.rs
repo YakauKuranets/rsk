@@ -987,6 +987,7 @@ fn save_target(
     db_state: State<'_, TargetsDb>,
     vault_state: State<'_, VaultState>,
 ) -> Result<String, String> {
+    let normalized_payload = normalize_target_payload_for_storage(&payload, Some(&target_id));
     let key = current_vault_key(&vault_state)?;
     let cipher = Aes256Gcm::new(&key.into());
 
@@ -995,7 +996,7 @@ fn save_target(
     let nonce = Nonce::from_slice(&nonce_bytes);
 
     let ciphertext = cipher
-        .encrypt(nonce, payload.as_bytes())
+        .encrypt(nonce, normalized_payload.as_bytes())
         .map_err(|_| "Encryption error".to_string())?;
 
     let mut stored = nonce_bytes.to_vec();
@@ -1006,6 +1007,181 @@ fn save_target(
         .insert(target_id.as_bytes(), stored)
         .map_err(|e: sled::Error| e.to_string())?;
     Ok("Saved".into())
+}
+
+fn is_non_empty_string(value: Option<&Value>) -> bool {
+    value
+        .and_then(|v| v.as_str())
+        .map(|s| !s.trim().is_empty())
+        .unwrap_or(false)
+}
+
+fn infer_target_kind(payload: &serde_json::Map<String, Value>) -> String {
+    let explicit_kind = payload
+        .get("kind")
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .trim()
+        .to_lowercase();
+    if explicit_kind == "discovery" || explicit_kind == "verified" || explicit_kind == "promoted" {
+        return explicit_kind;
+    }
+
+    let has_promotion = payload.contains_key("promotionId")
+        || payload.contains_key("promotionStatus")
+        || payload.contains_key("sourceDiscoveryCardId");
+    if has_promotion {
+        return "promoted".to_string();
+    }
+
+    let has_credentials = payload.contains_key("credentialRef")
+        || is_non_empty_string(payload.get("password"))
+        || is_non_empty_string(payload.get("login"));
+    if has_credentials {
+        return "verified".to_string();
+    }
+
+    if payload.contains_key("host") || payload.contains_key("ip") || payload.contains_key("address") {
+        return "discovery".to_string();
+    }
+
+    "legacy".to_string()
+}
+
+fn is_supported_target_kind(kind: &str) -> bool {
+    matches!(kind, "discovery" | "verified" | "promoted" | "legacy")
+}
+
+fn is_valid_target_envelope(value: &Value) -> bool {
+    let obj = match value.as_object() {
+        Some(obj) => obj,
+        None => return false,
+    };
+
+    let version = obj.get("version").and_then(|v| v.as_i64());
+    if version != Some(1) {
+        return false;
+    }
+
+    let kind = obj
+        .get("kind")
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .trim()
+        .to_lowercase();
+    if !is_supported_target_kind(&kind) {
+        return false;
+    }
+
+    obj.get("payload").map(|v| v.is_object()).unwrap_or(false)
+}
+
+fn normalize_envelope_json(value: Value, source: &str, touch_written_at: bool) -> Value {
+    if let Some(mut obj) = value.as_object().cloned() {
+        let normalized_kind = obj
+            .get("kind")
+            .and_then(|v| v.as_str())
+            .unwrap_or("legacy")
+            .trim()
+            .to_lowercase();
+        obj.insert("kind".to_string(), Value::String(normalized_kind));
+        obj.insert("version".to_string(), Value::from(1));
+
+        if !obj.get("metadata").map(|m| m.is_object()).unwrap_or(false) {
+            obj.insert("metadata".to_string(), Value::Object(serde_json::Map::new()));
+        }
+        if let Some(metadata) = obj.get_mut("metadata").and_then(|m| m.as_object_mut()) {
+            metadata.insert("normalizedBy".to_string(), Value::String("backend_target_adapter_v1".to_string()));
+            if !metadata.contains_key("source") {
+                metadata.insert("source".to_string(), Value::String(source.to_string()));
+            }
+            if touch_written_at {
+                metadata.insert("writtenAt".to_string(), Value::String(Utc::now().to_rfc3339()));
+            }
+        }
+
+        return Value::Object(obj);
+    }
+    value
+}
+
+fn wrap_legacy_target_as_envelope(
+    value: Value,
+    source: &str,
+    include_written_at: bool,
+    target_id: Option<&str>,
+) -> Value {
+    let mut payload_obj = match value {
+        Value::Object(obj) => obj,
+        other => {
+            let mut map = serde_json::Map::new();
+            map.insert("legacyValue".to_string(), other);
+            map
+        }
+    };
+
+    if !payload_obj.contains_key("id") {
+        let fallback_id = target_id
+            .map(|x| x.to_string())
+            .unwrap_or_else(|| "legacy_unkeyed".to_string());
+        payload_obj.insert("id".to_string(), Value::String(fallback_id));
+    }
+    let inferred_kind = infer_target_kind(&payload_obj);
+
+    let mut metadata = serde_json::Map::new();
+    metadata.insert("source".to_string(), Value::String(source.to_string()));
+    if include_written_at {
+        metadata.insert("writtenAt".to_string(), Value::String(Utc::now().to_rfc3339()));
+    }
+    metadata.insert("normalizedBy".to_string(), Value::String("backend_target_adapter_v1".to_string()));
+
+    let mut envelope = serde_json::Map::new();
+    envelope.insert("version".to_string(), Value::from(1));
+    envelope.insert("kind".to_string(), Value::String(inferred_kind));
+    envelope.insert("metadata".to_string(), Value::Object(metadata));
+    envelope.insert("payload".to_string(), Value::Object(payload_obj));
+
+    Value::Object(envelope)
+}
+
+fn normalize_target_payload_for_storage(payload: &str, target_id: Option<&str>) -> String {
+    let parsed = match serde_json::from_str::<Value>(payload) {
+        Ok(v) => v,
+        Err(_) => return payload.to_string(),
+    };
+
+    let normalized = if is_valid_target_envelope(&parsed) {
+        normalize_envelope_json(parsed, "backend.save_target", true)
+    } else {
+        wrap_legacy_target_as_envelope(
+            parsed,
+            "backend.save_target.wrap_legacy",
+            true,
+            target_id,
+        )
+    };
+
+    serde_json::to_string(&normalized).unwrap_or_else(|_| payload.to_string())
+}
+
+fn normalize_target_payload_for_read(payload: &str, target_id: Option<&str>) -> String {
+    let parsed = match serde_json::from_str::<Value>(payload) {
+        Ok(v) => v,
+        Err(_) => return payload.to_string(),
+    };
+
+    let normalized = if is_valid_target_envelope(&parsed) {
+        normalize_envelope_json(parsed, "backend.read_target", false)
+    } else {
+        wrap_legacy_target_as_envelope(
+            parsed,
+            "backend.read_target.wrap_legacy",
+            false,
+            target_id,
+        )
+    };
+
+    serde_json::to_string(&normalized).unwrap_or_else(|_| payload.to_string())
 }
 
 #[tauri::command]
@@ -1030,7 +1206,8 @@ fn read_target(
         let decrypted = cipher
             .decrypt(Nonce::from_slice(nonce_bytes), ciphertext)
             .map_err(|_| "Access denied".to_string())?;
-        String::from_utf8(decrypted).map_err(|_| "UTF-8 error".to_string())
+        let raw = String::from_utf8(decrypted).map_err(|_| "UTF-8 error".to_string())?;
+        Ok(normalize_target_payload_for_read(&raw, Some(&target_id)))
     } else {
         Err("Not found".to_string())
     }
