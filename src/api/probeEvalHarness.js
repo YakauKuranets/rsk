@@ -1,4 +1,8 @@
-import { probeStreamPreferred, shouldStopStreamOnProbe } from './capabilities';
+import {
+  probeStreamPreferred,
+  shouldStopStreamOnProbe,
+  verifySessionCookieFlagsCapability,
+} from './capabilities';
 import { runAgentMinimal } from './tauri';
 
 function toRate(count, total) {
@@ -172,6 +176,76 @@ export function aggregateCookieEvalMetrics(events) {
   };
 }
 
+export function validateCookieResultInvariants(result) {
+  const violations = [];
+  const issues = result?.issues;
+  const issuesCount = result?.issuesCount;
+  const source = String(result?.source || '');
+  const fallbackUsed = Boolean(result?.fallbackUsed);
+  const inconclusive = Boolean(result?.inconclusive);
+
+  if (!Array.isArray(issues) || !issues.every((x) => typeof x === 'string')) {
+    violations.push('issues_must_be_string_array');
+  }
+  if (Number(issuesCount) !== (Array.isArray(issues) ? issues.length : 0)) {
+    violations.push('issues_count_must_match_issues_length');
+  }
+  if (fallbackUsed && source === 'minimal-agent') {
+    violations.push('fallback_used_conflicts_with_minimal_agent_source');
+  }
+  if (!fallbackUsed && source !== 'minimal-agent' && source !== 'client-validation') {
+    violations.push('non_fallback_source_must_be_minimal_or_client_validation');
+  }
+  if (inconclusive && result?.ok) {
+    violations.push('inconclusive_conflicts_with_ok_true');
+  }
+  if (inconclusive && source === 'minimal-agent') {
+    violations.push('inconclusive_conflicts_with_confident_minimal_agent_source');
+  }
+
+  return {
+    ok: violations.length === 0,
+    violations,
+  };
+}
+
+export async function runCookieResultInvariantChecks({
+  target = 'https://localhost',
+  mode = 'discovery_mode',
+} = {}) {
+  const preferred = await verifySessionCookieFlagsCapability(target, mode);
+  const fallback = await verifySessionCookieFlagsCapability(target, mode, {
+    forceLegacyFallback: true,
+  });
+
+  const preferredCheck = validateCookieResultInvariants(preferred);
+  const fallbackCheck = validateCookieResultInvariants(fallback);
+  const requiredKeys = [
+    'ok',
+    'source',
+    'secure',
+    'issues',
+    'issuesCount',
+    'runId',
+    'reporterSummary',
+    'evidenceRefs',
+    'fallbackUsed',
+    'inconclusive',
+    'contractVersion',
+  ];
+  const preferredShapeOk = requiredKeys.every((k) => Object.prototype.hasOwnProperty.call(preferred, k));
+  const fallbackShapeOk = requiredKeys.every((k) => Object.prototype.hasOwnProperty.call(fallback, k));
+
+  return {
+    preferred,
+    fallback,
+    preferredCheck,
+    fallbackCheck,
+    shapeCompatible: preferredShapeOk && fallbackShapeOk,
+    allPassed: preferredCheck.ok && fallbackCheck.ok && preferredShapeOk && fallbackShapeOk,
+  };
+}
+
 async function runCookieScenario({
   scenario,
   targetId,
@@ -233,9 +307,15 @@ export async function runVerifySessionCookieEvalHarness({
     }),
   );
 
+  const invariantChecks = await runCookieResultInvariantChecks({
+    target: secureTarget,
+    mode,
+  });
+
   return {
     events,
     metrics: aggregateCookieEvalMetrics(events),
+    invariants: invariantChecks,
   };
 }
 

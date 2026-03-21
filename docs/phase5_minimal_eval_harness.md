@@ -11,6 +11,7 @@
 
 - `runProbeStreamEvalHarness(...)` in `src/api/probeEvalHarness.js`.
 - `runVerifySessionCookieEvalHarness(...)` in `src/api/probeEvalHarness.js`.
+- `runCookieResultInvariantChecks(...)` in `src/api/probeEvalHarness.js`.
 - `runProbeStreamEvalSnapshot(...)` in `src/api/probeEvalHarness.js`.
 - `runVerifySessionCookieEvalSnapshot(...)` in `src/api/probeEvalHarness.js`.
 - `compareProbeEvalSnapshots(...)` in `src/api/probeEvalHarness.js`.
@@ -39,6 +40,14 @@
 - `secureRate`
 - `issuesDetectedRate`
 - `inconclusiveFailureRate`
+
+### Cookie contract invariants (`cookie_result_v1`)
+
+- `issues` is always an array of strings
+- `issuesCount` matches `issues.length`
+- `fallbackUsed` is consistent with `source`
+- `inconclusive` does not conflict with confident states
+- preferred and forced-fallback results expose the same consumer shape
 
 ## Manual run example (browser console)
 
@@ -87,6 +96,19 @@ const cookieReport = await runVerifySessionCookieEvalHarness({
 
 console.log(cookieReport.metrics);
 console.table(cookieReport.events);
+console.log(cookieReport.invariants);
+```
+
+## Cookie invariants-only check
+
+```js
+import { runCookieResultInvariantChecks } from '/src/api/probeEvalHarness.js';
+
+const invariant = await runCookieResultInvariantChecks({
+  target: 'https://localhost',
+  mode: 'discovery_mode',
+});
+console.log(invariant.allPassed, invariant);
 ```
 
 ## Compare two snapshots

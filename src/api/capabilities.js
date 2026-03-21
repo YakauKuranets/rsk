@@ -54,58 +54,62 @@ function normalizeCookieResult(raw) {
   };
 }
 
-export async function verifySessionCookieFlagsCapability(ipOrUrl, mode = 'discovery_mode') {
+export async function verifySessionCookieFlagsCapability(ipOrUrl, mode = 'discovery_mode', options = {}) {
+  const forceLegacyFallback = Boolean(options?.forceLegacyFallback);
   const target = String(ipOrUrl || '').trim();
   if (!target) {
-    return {
+    return normalizeCookieResult({
       ok: false,
       source: 'client-validation',
       message: 'ipOrUrl is empty',
-      secure: false,
+      secure: null,
       issues: [],
-    };
+      fallbackUsed: false,
+    });
   }
 
-  try {
-    const agent = await runAgentMinimal({
-      targetId: target,
-      mode,
-      preferredCapability: 'verify_session_cookie_flags',
-      verifySessionCookieFlagsIpOrUrl: target,
-      permitProbeStream: false,
-      permitVerifySessionCookieFlags: true,
-    });
-
-    if (
-      agent?.ok &&
-      agent?.finalStatus === 'capability_succeeded' &&
-      agent?.capabilityInvoked === 'verify_session_cookie_flags'
-    ) {
-      const rawData = agent?.raw?.capabilityResult?.data || {};
-      const out = rawData?.verifySessionCookieFlags || rawData?.verify_session_cookie_flags || {};
-      const issues = normalizeIssues(out?.issues);
-      const secure =
-        typeof agent?.capabilityResultSummary?.secure === 'boolean'
-          ? agent.capabilityResultSummary.secure
-          : issues.length === 0;
-
-      return normalizeCookieResult({
-        ok: true,
-        source: 'minimal-agent',
-        secure,
-        issues,
-        issuesCount:
-          typeof agent?.capabilityResultSummary?.issuesCount === 'number'
-            ? agent.capabilityResultSummary.issuesCount
-            : issues.length,
-        runId: agent.runId || null,
-        reporterSummary: agent.reporterSummary || null,
-        evidenceRefs: Array.isArray(agent.evidenceRefs) ? agent.evidenceRefs : [],
-        fallbackUsed: false,
+  if (!forceLegacyFallback) {
+    try {
+      const agent = await runAgentMinimal({
+        targetId: target,
+        mode,
+        preferredCapability: 'verify_session_cookie_flags',
+        verifySessionCookieFlagsIpOrUrl: target,
+        permitProbeStream: false,
+        permitVerifySessionCookieFlags: true,
       });
+
+      if (
+        agent?.ok &&
+        agent?.finalStatus === 'capability_succeeded' &&
+        agent?.capabilityInvoked === 'verify_session_cookie_flags'
+      ) {
+        const rawData = agent?.raw?.capabilityResult?.data || {};
+        const out = rawData?.verifySessionCookieFlags || rawData?.verify_session_cookie_flags || {};
+        const issues = normalizeIssues(out?.issues);
+        const secure =
+          typeof agent?.capabilityResultSummary?.secure === 'boolean'
+            ? agent.capabilityResultSummary.secure
+            : issues.length === 0;
+
+        return normalizeCookieResult({
+          ok: true,
+          source: 'minimal-agent',
+          secure,
+          issues,
+          issuesCount:
+            typeof agent?.capabilityResultSummary?.issuesCount === 'number'
+              ? agent.capabilityResultSummary.issuesCount
+              : issues.length,
+          runId: agent.runId || null,
+          reporterSummary: agent.reporterSummary || null,
+          evidenceRefs: Array.isArray(agent.evidenceRefs) ? agent.evidenceRefs : [],
+          fallbackUsed: false,
+        });
+      }
+    } catch (_) {
+      // fall through to legacy path
     }
-  } catch (_) {
-    // fall through to legacy path
   }
 
   return verifySessionCookieFlagsLegacyCapability(target, mode);
@@ -113,13 +117,14 @@ export async function verifySessionCookieFlagsCapability(ipOrUrl, mode = 'discov
 
 async function verifySessionCookieFlagsLegacyCapability(target, mode = 'discovery_mode') {
   if (!target) {
-    return {
+    return normalizeCookieResult({
       ok: false,
       source: 'client-validation',
       message: 'ipOrUrl is empty',
-      secure: false,
+      secure: null,
       issues: [],
-    };
+      fallbackUsed: true,
+    });
   }
 
   try {
