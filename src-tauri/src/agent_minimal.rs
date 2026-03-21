@@ -258,7 +258,7 @@ pub async fn run_agent_minimal(
         target_id: action.probe_stream.as_ref().map(|p| p.target_id.clone()),
     };
 
-    let result = capability_adapter::execute_capability(capability_req, stream_state, log_state).await?;
+    let result = capability_adapter::execute_capability(capability_req, stream_state, log_state.clone()).await?;
     let capability_result_summary = summarize_capability_result(&result);
 
     let (reporter_summary, evidence_refs, final_status) = match &result.data {
