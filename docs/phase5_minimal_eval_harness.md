@@ -191,6 +191,9 @@ Compact report includes:
 - `inconclusive` is not equal to `regressed` (it usually means mixed/noisy or insufficiently comparable signals).
 - For cookie baseline, keep `secureTarget/issuesTarget/unreachableTarget` stable across runs to reduce environment noise.
 - Runtime consumer boundary for cookie checks: `verifySessionCookieFlagsCapability(...)` now prefers minimal-agent path and falls back to legacy capability/session checker path for compatibility.
+- Runtime cookie consumer contract is normalized as `cookie_result_v1`:
+  - stable fields: `ok`, `source`, `secure`, `issues`, `issuesCount`, `runId`, `reporterSummary`, `evidenceRefs`
+  - explicit semantics: `fallbackUsed`, `inconclusive`
 
 ## Controlled cookie baseline profiles
 

@@ -17,6 +17,43 @@ export function normalizeCapabilityError(res, fallbackMessage = 'Unexpected capa
   };
 }
 
+function normalizeIssues(issues) {
+  if (!Array.isArray(issues)) return [];
+  return issues
+    .map((x) => String(x ?? '').trim())
+    .filter(Boolean);
+}
+
+function normalizeCookieResult(raw) {
+  const issues = normalizeIssues(raw?.issues);
+  const issuesCountRaw = Number(raw?.issuesCount);
+  const issuesCount = Number.isFinite(issuesCountRaw) && issuesCountRaw >= 0 ? issuesCountRaw : issues.length;
+  const secure =
+    typeof raw?.secure === 'boolean'
+      ? raw.secure
+      : issuesCount > 0
+        ? false
+        : null;
+  const ok = Boolean(raw?.ok);
+  const fallbackUsed = Boolean(raw?.fallbackUsed);
+  const inconclusive = !ok && !fallbackUsed;
+
+  return {
+    ok,
+    source: String(raw?.source || 'unknown'),
+    secure,
+    issues,
+    issuesCount,
+    runId: raw?.runId || null,
+    reporterSummary: raw?.reporterSummary || null,
+    evidenceRefs: Array.isArray(raw?.evidenceRefs) ? raw.evidenceRefs : [],
+    message: raw?.message || null,
+    fallbackUsed,
+    inconclusive,
+    contractVersion: 'cookie_result_v1',
+  };
+}
+
 export async function verifySessionCookieFlagsCapability(ipOrUrl, mode = 'discovery_mode') {
   const target = String(ipOrUrl || '').trim();
   if (!target) {
@@ -45,19 +82,14 @@ export async function verifySessionCookieFlagsCapability(ipOrUrl, mode = 'discov
       agent?.capabilityInvoked === 'verify_session_cookie_flags'
     ) {
       const rawData = agent?.raw?.capabilityResult?.data || {};
-      const out =
-        rawData?.verifySessionCookieFlags ||
-        rawData?.verify_session_cookie_flags ||
-        rawData?.verifySessionCookieflags ||
-        {};
-
-      const issues = Array.isArray(out?.issues) ? out.issues : [];
+      const out = rawData?.verifySessionCookieFlags || rawData?.verify_session_cookie_flags || {};
+      const issues = normalizeIssues(out?.issues);
       const secure =
         typeof agent?.capabilityResultSummary?.secure === 'boolean'
           ? agent.capabilityResultSummary.secure
           : issues.length === 0;
 
-      return {
+      return normalizeCookieResult({
         ok: true,
         source: 'minimal-agent',
         secure,
@@ -69,7 +101,8 @@ export async function verifySessionCookieFlagsCapability(ipOrUrl, mode = 'discov
         runId: agent.runId || null,
         reporterSummary: agent.reporterSummary || null,
         evidenceRefs: Array.isArray(agent.evidenceRefs) ? agent.evidenceRefs : [],
-      };
+        fallbackUsed: false,
+      });
     }
   } catch (_) {
     // fall through to legacy path
@@ -98,45 +131,55 @@ async function verifySessionCookieFlagsLegacyCapability(target, mode = 'discover
 
     if (validateCapabilityEnvelope(res, 'verifySessionCookieFlags')) {
       const out = res.data.verifySessionCookieFlags || {};
-      return {
+      return normalizeCookieResult({
         ok: true,
-        source: 'capability',
+        source: 'legacy-capability',
         secure: Boolean(out.secure),
-        issues: Array.isArray(out.issues) ? out.issues : [],
+        issues: out.issues,
+        issuesCount: Array.isArray(out.issues) ? out.issues.length : 0,
         evidenceRefs: Array.isArray(out.evidenceRefs) ? out.evidenceRefs : [],
-      };
+        fallbackUsed: true,
+      });
     }
 
     if (res?.error?.message) {
       const fallback = await invoke('check_session_security', { ip: target });
-      return {
+      return normalizeCookieResult({
         ok: true,
         source: 'legacy-fallback',
         secure: String(fallback).includes('выглядят безопасно'),
         issues: String(fallback).replace('[SESSION_AUDIT] ', '').split(' | ').filter(Boolean),
         legacyText: String(fallback),
-      };
+        fallbackUsed: true,
+      });
     }
 
-    return { ...normalizeCapabilityError(res), secure: false, issues: [] };
+    return normalizeCookieResult({
+      ...normalizeCapabilityError(res),
+      secure: null,
+      issues: [],
+      fallbackUsed: true,
+    });
   } catch (_) {
     try {
       const fallback = await invoke('check_session_security', { ip: target });
-      return {
+      return normalizeCookieResult({
         ok: true,
         source: 'legacy-fallback',
         secure: String(fallback).includes('выглядят безопасно'),
         issues: String(fallback).replace('[SESSION_AUDIT] ', '').split(' | ').filter(Boolean),
         legacyText: String(fallback),
-      };
+        fallbackUsed: true,
+      });
     } catch (fallbackError) {
-      return {
+      return normalizeCookieResult({
         ok: false,
         source: 'error',
         message: String(fallbackError),
-        secure: false,
+        secure: null,
         issues: [],
-      };
+        fallbackUsed: true,
+      });
     }
   }
 }
