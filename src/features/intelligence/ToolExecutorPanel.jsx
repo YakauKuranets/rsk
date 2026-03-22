@@ -43,6 +43,8 @@ const QUICK_SCENARIOS = [
 ];
 const TOOL_EXEC_STATE_KEY = 'hyperion_tool_executor_state_v1';
 const TOOL_EXEC_FAVORITE_SCENARIOS_KEY = 'hyperion_tool_executor_favorite_scenarios_v1';
+const TOOL_EXEC_RECENT_RUNS_KEY = 'hyperion_tool_executor_recent_runs_v1';
+const TOOL_EXEC_RECENT_RUNS_LIMIT = 6;
 
 function getRecommendedToolPlan(selectedTarget) {
   if (!selectedTarget) return null;
@@ -118,6 +120,7 @@ export default function ToolExecutorPanel({ onSessionAuditStatus, selectedTarget
   const [sessionResult, setSessionResult] = useState('');
   const [sessionDebug, setSessionDebug] = useState(null);
   const [favoriteScenarioIds, setFavoriteScenarioIds] = useState([]);
+  const [recentRuns, setRecentRuns] = useState([]);
   const selectedTargetLabel = selectedTarget
     ? (selectedTarget.name || selectedTarget.host || selectedTarget.id || 'Без имени')
     : '';
@@ -157,6 +160,16 @@ export default function ToolExecutorPanel({ onSessionAuditStatus, selectedTarget
 
   useEffect(() => {
     try {
+      const raw = localStorage.getItem(TOOL_EXEC_RECENT_RUNS_KEY);
+      if (!raw) return;
+      const saved = JSON.parse(raw);
+      if (!Array.isArray(saved)) return;
+      setRecentRuns(saved.filter((item) => item && typeof item === 'object').slice(0, TOOL_EXEC_RECENT_RUNS_LIMIT));
+    } catch {}
+  }, []);
+
+  useEffect(() => {
+    try {
       const raw = localStorage.getItem(TOOL_EXEC_FAVORITE_SCENARIOS_KEY);
       if (!raw) return;
       const saved = JSON.parse(raw);
@@ -187,16 +200,63 @@ export default function ToolExecutorPanel({ onSessionAuditStatus, selectedTarget
     } catch {}
   }, [favoriteScenarioIds]);
 
-  const run=async()=>{
+  useEffect(() => {
+    try {
+      localStorage.setItem(TOOL_EXEC_RECENT_RUNS_KEY, JSON.stringify(recentRuns.slice(0, TOOL_EXEC_RECENT_RUNS_LIMIT)));
+    } catch {}
+  }, [recentRuns]);
+
+  const appendRecentRun = (entry) => {
+    if (!entry) return;
+    setRecentRuns((prev) => {
+      const filtered = prev.filter((item) => item?.id !== entry.id);
+      return [entry, ...filtered].slice(0, TOOL_EXEC_RECENT_RUNS_LIMIT);
+    });
+  };
+
+  const executeToolLaunch = async ({ tool: runTool, target: runTarget, args: runArgs, profileId: runProfileId }) => {
+    setLoad(true);
+    setResult(null);
+    try {
+      const response = await invoke('execute_tool', {
+        req: {
+          tool: runTool,
+          target: String(runTarget || '').trim(),
+          args: String(runArgs || '').trim().split(/\s+/).filter(Boolean),
+          timeoutSecs: +timeout,
+          permitToken: permit.trim(),
+        },
+      });
+      setResult(response);
+      return true;
+    } catch (e) {
+      alert('Ошибка: ' + e);
+      return false;
+    } finally {
+      appendRecentRun({
+        id: `${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+        tool: runTool,
+        target: String(runTarget || '').trim(),
+        args: String(runArgs || '').trim(),
+        profileId: runProfileId || null,
+        executedAt: new Date().toISOString(),
+      });
+      setLoad(false);
+    }
+  };
+
+  const run = async () => {
     if (!launchReadiness.canRun) return alert(launchReadiness.text);
     if (launchReadiness.level === 'warn') {
       const proceed = window.confirm('⚠ Обнаружены шаблонные заглушки в аргументах (TARGET/FUZZ/example.com). Запустить всё равно?');
       if (!proceed) return;
     }
-    setLoad(true);setResult(null);
-    try{setResult(await invoke('execute_tool',{req:{tool,target:intelligenceTarget.trim(),args:args.trim().split(/\s+/).filter(Boolean),timeoutSecs:+timeout,permitToken:permit.trim()}}));}
-    catch(e){alert('Ошибка: '+e);}
-    setLoad(false);
+    await executeToolLaunch({
+      tool,
+      target: intelligenceTarget,
+      args,
+      profileId: activePresetId || null,
+    });
   };
 
   const runSessionCapability = async () => {
@@ -280,6 +340,32 @@ export default function ToolExecutorPanel({ onSessionAuditStatus, selectedTarget
   };
 
   const favoriteScenarios = QUICK_SCENARIOS.filter((scenario) => favoriteScenarioIds.includes(scenario.id));
+  const formatRecentRunTime = (iso) => {
+    if (!iso) return 'время неизвестно';
+    const parsed = new Date(iso);
+    if (Number.isNaN(parsed.getTime())) return 'время неизвестно';
+    return parsed.toLocaleString('ru-RU', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
+  };
+  const applyRecentRun = (entry) => {
+    if (!entry) return;
+    if (entry.tool) setTool(entry.tool);
+    if (typeof entry.args === 'string') setArgs(entry.args);
+    if (entry.target) setIntelligenceTarget(entry.target);
+    if (entry.tool && entry.profileId) {
+      setSelectedPresetByTool((prev) => ({ ...prev, [entry.tool]: entry.profileId }));
+    }
+  };
+  const repeatRecentRun = async (entry) => {
+    if (!entry) return;
+    if (!permit.trim()) return alert('Для повторного запуска нужен разрешительный токен');
+    applyRecentRun(entry);
+    await executeToolLaunch({
+      tool: entry.tool || tool,
+      target: entry.target || intelligenceTarget,
+      args: entry.args || args,
+      profileId: entry.profileId || null,
+    });
+  };
 
   return(
     <div style={S.wrap}>
@@ -359,6 +445,34 @@ export default function ToolExecutorPanel({ onSessionAuditStatus, selectedTarget
         <div style={{marginTop:'4px',color:'#6f8398'}}>
           Один клик: инструмент + профиль + цель (если выбрана). Затем можно вручную скорректировать args/цель.
         </div>
+      </div>
+      <div style={{background:'#101318',border:'1px solid #2b3442',padding:'6px',marginBottom:'6px',fontSize:'10px',borderRadius:'3px'}}>
+        <div style={{color:'#7f93a4',marginBottom:'4px'}}>Недавние запуски</div>
+        {recentRuns.length === 0 ? (
+          <div style={{color:'#6f8398'}}>Пока пусто. Запусти инструмент — здесь появится история.</div>
+        ) : (
+          <div style={{display:'flex',flexDirection:'column',gap:'4px'}}>
+            {recentRuns.map((entry) => (
+              <div key={entry.id} style={{border:'1px solid #263142',background:'#0d1219',padding:'5px',borderRadius:'3px'}}>
+                <div style={{color:'#9fc6d5',marginBottom:'3px'}}>
+                  <b>{entry.tool || 'tool'}</b> · {entry.target || 'без цели'} · {formatRecentRunTime(entry.executedAt)}
+                  {entry.profileId ? <> · профиль: <b>{entry.profileId}</b></> : null}
+                </div>
+                <div style={{color:'#7d91a5',fontFamily:'monospace',marginBottom:'4px',whiteSpace:'pre-wrap',wordBreak:'break-word'}}>
+                  {entry.args || '(без аргументов)'}
+                </div>
+                <div style={{display:'flex',gap:'4px',flexWrap:'wrap'}}>
+                  <button style={{...S.btn('#7bb7ff'),width:'auto',padding:'4px 8px',marginBottom:0,fontSize:'10px'}} onClick={()=>repeatRecentRun(entry)}>
+                    Повторить
+                  </button>
+                  <button style={{...S.btn('#8ea5bf'),width:'auto',padding:'4px 8px',marginBottom:0,fontSize:'10px'}} onClick={()=>applyRecentRun(entry)}>
+                    Подставить
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
       </div>
       <div style={{display:'flex',gap:'4px',flexWrap:'wrap',marginBottom:'8px'}}>
         {TOOLS.map(t=>(
