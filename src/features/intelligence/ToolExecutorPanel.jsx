@@ -39,7 +39,7 @@ export default function ToolExecutorPanel(){
   const runSessionCapability = async () => {
     const target = intelligenceTarget.trim();
     if (!target) return alert('Введите цель');
-    setSessionResult('Проверка session capability...');
+    setSessionResult('Проверка сессионных флагов...');
     setSessionDebug(null);
     const session = await verifySessionCookieFlagsCapability(target, 'discovery_mode');
     setSessionDebug({
@@ -86,7 +86,7 @@ export default function ToolExecutorPanel(){
             style={{...S.btn('#44cc88'),flex:1,marginBottom:0,fontSize:'10px'}}
             onClick={runSessionCapability}
           >
-            Session audit via capability
+            Аудит сессии через capability
           </button>
         </div>
       </div>
@@ -97,14 +97,14 @@ export default function ToolExecutorPanel(){
       )}
       {sessionDebug && (
         <div style={{background:'#0f1318',border:'1px solid #2f3d4a',padding:'6px',marginBottom:'6px',fontSize:'9px',color:'#8ea3b6',borderRadius:'3px'}}>
-          <div style={{marginBottom:'4px',color:'#7f93a4'}}>session debug</div>
-          {sessionDebug.source && <div>source: <b style={{color:'#a9bfd1'}}>{sessionDebug.source}</b></div>}
-          {typeof sessionDebug.fallbackUsed === 'boolean' && <div>fallbackUsed: <b style={{color:'#a9bfd1'}}>{String(sessionDebug.fallbackUsed)}</b></div>}
-          {typeof sessionDebug.inconclusive === 'boolean' && <div>inconclusive: <b style={{color:'#a9bfd1'}}>{String(sessionDebug.inconclusive)}</b></div>}
-          {sessionDebug.runId && <div>runId: <b style={{color:'#a9bfd1'}}>{sessionDebug.runId}</b></div>}
-          {typeof sessionDebug.issuesCount === 'number' && <div>issuesCount: <b style={{color:'#a9bfd1'}}>{sessionDebug.issuesCount}</b></div>}
-          {typeof sessionDebug.evidenceRefsCount === 'number' && <div>evidenceRefs: <b style={{color:'#a9bfd1'}}>{sessionDebug.evidenceRefsCount}</b></div>}
-          {sessionDebug.reporterSummary && <div style={{marginTop:'4px'}}>reporterSummary: <span style={{color:'#a9bfd1'}}>{sessionDebug.reporterSummary}</span></div>}
+          <div style={{marginBottom:'4px',color:'#7f93a4'}}>Отладка сессии</div>
+          {sessionDebug.source && <div>Источник: <b style={{color:'#a9bfd1'}}>{sessionDebug.source}</b></div>}
+          {typeof sessionDebug.fallbackUsed === 'boolean' && <div>Использован fallback: <b style={{color:'#a9bfd1'}}>{String(sessionDebug.fallbackUsed)}</b></div>}
+          {typeof sessionDebug.inconclusive === 'boolean' && <div>Неопределённый результат: <b style={{color:'#a9bfd1'}}>{String(sessionDebug.inconclusive)}</b></div>}
+          {sessionDebug.runId && <div>ID запуска: <b style={{color:'#a9bfd1'}}>{sessionDebug.runId}</b></div>}
+          {typeof sessionDebug.issuesCount === 'number' && <div>Количество проблем: <b style={{color:'#a9bfd1'}}>{sessionDebug.issuesCount}</b></div>}
+          {typeof sessionDebug.evidenceRefsCount === 'number' && <div>Ссылок на доказательства: <b style={{color:'#a9bfd1'}}>{sessionDebug.evidenceRefsCount}</b></div>}
+          {sessionDebug.reporterSummary && <div style={{marginTop:'4px'}}>Сводка отчёта: <span style={{color:'#a9bfd1'}}>{sessionDebug.reporterSummary}</span></div>}
         </div>
       )}
       {avail.length>0&&<div style={{display:'flex',flexWrap:'wrap',gap:'4px',margin:'6px 0'}}>
