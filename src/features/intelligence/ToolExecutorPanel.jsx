@@ -63,6 +63,38 @@ function getRecommendedToolPlan(selectedTarget) {
   };
 }
 
+function buildSemanticSummary(tool, result) {
+  if (!result) return 'Нет данных результата.';
+  const findings = Array.isArray(result?.findingsExtracted) ? result.findingsExtracted : [];
+  const mergedOutput = `${result?.stdout || ''}\n${result?.stderr || ''}`;
+  const openPorts = mergedOutput.match(/\b(\d{1,5})\/(tcp|udp)\s+open\b/gi) || [];
+  const webSignals = mergedOutput.match(/(vuln|xss|sql|csrf|interesting|directory|admin|login|exposed)/gi) || [];
+  const pathSignals = mergedOutput.match(/\/[a-z0-9._\-\/]+/gi) || [];
+
+  if (tool === 'nmap') {
+    return openPorts.length > 0
+      ? `Есть признаки открытых портов/сервисов (${openPorts.length}).`
+      : 'Явных открытых портов по текущему выводу не видно.';
+  }
+  if (tool === 'nikto') {
+    return (findings.length > 0 || webSignals.length > 0)
+      ? 'Есть web-находки, нужно проверить вручную.'
+      : 'Критичных web-находок по текущему запуску не найдено.';
+  }
+  if (tool === 'ffuf') {
+    return (findings.length > 0 || pathSignals.length > 0)
+      ? 'Найдены интересные пути/эндпоинты.'
+      : 'Интересные пути по текущему словарю не обнаружены.';
+  }
+  if (tool === 'masscan') {
+    return openPorts.length > 0
+      ? `Есть признаки открытых портов (${openPorts.length}).`
+      : 'Открытые порты по текущему запуску masscan не зафиксированы.';
+  }
+  if (findings.length > 0) return `Найдены артефакты (${findings.length}), см. детали ниже.`;
+  return 'Нейтральная сводка: данных для уверенного вывода мало.';
+}
+
 export default function ToolExecutorPanel({ onSessionAuditStatus, selectedTarget }){
   const intelligenceTarget = useAppStore((s)=>s.intelligenceTarget);
   const setIntelligenceTarget = useAppStore((s)=>s.setIntelligenceTarget);
@@ -83,6 +115,7 @@ export default function ToolExecutorPanel({ onSessionAuditStatus, selectedTarget
     : '';
   const selectedTargetEndpoint = selectedTarget?.host || selectedTarget?.ip || '';
   const recommendedPlan = getRecommendedToolPlan(selectedTarget);
+  const semanticSummary = buildSemanticSummary(tool, result);
   const normalizedArgs = String(args || '').trim();
   const profiles = RUN_PROFILES[tool] || RUN_PROFILES.default;
   const activePresetId = selectedPresetByTool?.[tool] || null;
@@ -312,6 +345,10 @@ export default function ToolExecutorPanel({ onSessionAuditStatus, selectedTarget
           {result.exitCode===0
             ? (result.findingsExtracted?.length>0 ? 'Запуск завершён успешно, есть находки.' : 'Запуск завершён успешно, явных находок нет.')
             : 'Запуск завершился с ошибкой. Проверь параметры и вывод ниже.'}
+        </div>
+        <div style={{border:'1px solid #2b3b4d',background:'#0d1520',padding:'6px',borderRadius:'3px',marginBottom:'4px'}}>
+          <div style={{fontSize:'10px',color:'#8eb6d7',marginBottom:'3px'}}>Смысловая сводка</div>
+          <div style={{fontSize:'10px',color:'#9fb8cd'}}>{semanticSummary}</div>
         </div>
         <div style={{display:'flex',gap:'4px',marginBottom:'4px',flexWrap:'wrap'}}>
           <button style={{...S.btn('#66b3ff'),width:'auto',padding:'4px 8px',marginBottom:0,fontSize:'10px'}} onClick={()=>copyText((result.stdout||'').slice(0,2000)||(result.stderr||'').slice(0,500),'Вывод скопирован')}>
