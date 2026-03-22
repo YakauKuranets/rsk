@@ -45,6 +45,13 @@ const RUN_PROFILES={
     {id:'safe',label:'Аккуратный',args:'--help'},
   ],
 };
+
+function getProfileLabel(tool, profileId) {
+  if (!profileId) return null;
+  const profiles = RUN_PROFILES[tool] || RUN_PROFILES.default;
+  const match = profiles.find((item) => item.id === profileId);
+  return match?.label || null;
+}
 const QUICK_SCENARIOS = [
   { id: 'net_fast', label: 'Быстрая сетевая проверка', tool: 'nmap', profileId: 'fast', kind: 'network' },
   { id: 'net_careful', label: 'Осторожная сетевая проверка', tool: 'nmap', profileId: 'careful', kind: 'network' },
@@ -540,9 +547,10 @@ export default function ToolExecutorPanel({ onSessionAuditStatus, selectedTarget
     : false;
   const saveRecentRunAsUserScenario = (entry) => {
     if (!entry) return;
+    const profileLabel = getProfileLabel(entry.tool || tool, entry.profileId);
     const scenario = {
       id: `${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
-      title: `${entry.tool || 'tool'}${entry.profileId ? ` · ${entry.profileId}` : ''} · мой сценарий`,
+      title: `${entry.tool || 'инструмент'}${profileLabel ? ` · ${profileLabel}` : ''} · мой сценарий`,
       tool: entry.tool || tool,
       args: typeof entry.args === 'string' ? entry.args : '',
       profileId: entry.profileId || null,
@@ -607,7 +615,7 @@ export default function ToolExecutorPanel({ onSessionAuditStatus, selectedTarget
           ? (
             <>
               <div style={{color:'#9fc6d5',marginBottom:'4px'}}>
-                Инструмент: <b>{recommendedPlan.tool}</b> · Профиль: <b>{recommendedPlan.profileId}</b>
+                Инструмент: <b>{recommendedPlan.tool}</b> · Профиль: <b>{getProfileLabel(recommendedPlan.tool, recommendedPlan.profileId) || 'по умолчанию'}</b>
               </div>
               <div style={{color:'#768aa0',marginBottom:'6px'}}>{recommendedPlan.reason}</div>
               <button style={{...S.btn('#7bc3ff'),marginBottom:0,fontSize:'10px'}} onClick={applyRecommendation}>
@@ -769,7 +777,7 @@ export default function ToolExecutorPanel({ onSessionAuditStatus, selectedTarget
               <div key={entry.id} style={{border:'1px solid #263142',background:'#0d1219',padding:'5px',borderRadius:'3px'}}>
                 <div style={{color:'#9fc6d5',marginBottom:'3px'}}>
                   <b>{entry.tool || 'tool'}</b> · {entry.target || 'без цели'} · {formatRecentRunTime(entry.executedAt)}
-                  {entry.profileId ? <> · профиль: <b>{entry.profileId}</b></> : null}
+                  {entry.profileId ? <> · профиль: <b>{getProfileLabel(entry.tool, entry.profileId) || 'пользовательский'}</b></> : null}
                   <span style={{marginLeft:'6px',fontSize:'9px',color:getScenarioCompatibility(entry).color}}>
                     {getScenarioCompatibility(entry).text}
                   </span>

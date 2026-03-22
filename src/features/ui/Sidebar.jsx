@@ -337,10 +337,10 @@ function buildTargetCompatibilityProfile(target, availability, actionStatuses) {
   const archiveReady = actionStatuses?.archive === 'Готово' || actionStatuses?.archiveSearch === 'Готово' || Boolean(availability?.archive);
   const buildSignalsText = (extra = []) => {
     const signals = [];
-    if (typeText) signals.push(`type:${typeText}`);
-    if (streamReady) signals.push('stream+');
-    if (webReady) signals.push('web+');
-    if (archiveReady) signals.push('archive+');
+    if (typeText) signals.push(`тип: ${typeText}`);
+    if (streamReady) signals.push('поток доступен');
+    if (webReady) signals.push('web-проверки доступны');
+    if (archiveReady) signals.push('архив доступен');
     extra.filter(Boolean).forEach((item) => signals.push(item));
     return signals.join(', ');
   };
@@ -352,7 +352,7 @@ function buildTargetCompatibilityProfile(target, availability, actionStatuses) {
       web: 'частично уместны',
       archive: 'уместны',
       note: actionStatuses?.archive || 'Готово',
-      basis: buildSignalsText(['hub']),
+      basis: buildSignalsText(['класс: HUB']),
     };
   }
   if (looksCamera) {
@@ -362,7 +362,7 @@ function buildTargetCompatibilityProfile(target, availability, actionStatuses) {
       web: webReady ? 'уместны' : 'ограничены',
       archive: archiveReady ? 'уместны' : 'ограничены',
       note: actionStatuses?.stream || 'Готово',
-      basis: buildSignalsText(['camera-like']),
+      basis: buildSignalsText(['класс: камера/NVR']),
     };
   }
   if (looksWeb) {
@@ -372,7 +372,7 @@ function buildTargetCompatibilityProfile(target, availability, actionStatuses) {
       web: webReady ? 'уместны' : 'частично уместны',
       archive: archiveReady ? 'уместны' : 'зависит от цели',
       note: actionStatuses?.isapi || actionStatuses?.archiveSearch || 'Готово',
-      basis: buildSignalsText(['web-like']),
+      basis: buildSignalsText(['класс: web-цель']),
     };
   }
   if (hasHost) {
@@ -382,7 +382,7 @@ function buildTargetCompatibilityProfile(target, availability, actionStatuses) {
       web: webReady ? 'по ситуации' : 'неочевидны',
       archive: archiveReady ? 'возможны' : 'ограничены',
       note: actionStatuses?.stream || actionStatuses?.archive || 'Недостаточно данных',
-      basis: buildSignalsText(['host-only']),
+      basis: buildSignalsText(['класс: сетевой узел']),
     };
   }
   return {
@@ -391,7 +391,7 @@ function buildTargetCompatibilityProfile(target, availability, actionStatuses) {
     web: 'неочевидны',
     archive: 'неочевидны',
     note: 'Недостаточно данных для запуска',
-    basis: buildSignalsText(['low-signal']),
+    basis: buildSignalsText(['класс: неопределённый']),
   };
 }
 
