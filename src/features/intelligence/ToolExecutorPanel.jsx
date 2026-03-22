@@ -152,6 +152,11 @@ function normalizeTargetByScenarioKind(rawTarget, scenarioKind) {
   return target;
 }
 
+function shouldWarnOnCompatibilityHint(hintText) {
+  const text = String(hintText || '').toLowerCase();
+  return text.includes('сомнительно') || text.includes('лучше для');
+}
+
 export default function ToolExecutorPanel({ onSessionAuditStatus, selectedTarget }){
   const intelligenceTarget = useAppStore((s)=>s.intelligenceTarget);
   const setIntelligenceTarget = useAppStore((s)=>s.setIntelligenceTarget);
@@ -382,6 +387,7 @@ export default function ToolExecutorPanel({ onSessionAuditStatus, selectedTarget
 
   const applyQuickScenario = (scenario) => {
     if (!scenario) return;
+    if (!confirmCompatibilityIfNeeded(scenario, 'применение сценария')) return;
     const nextTool = scenario.tool;
     const nextProfiles = RUN_PROFILES[nextTool] || RUN_PROFILES.default;
     const profile = nextProfiles.find((p) => p.id === scenario.profileId) || nextProfiles[0] || { id: 'base', args: PRESETS[nextTool] || '' };
@@ -410,6 +416,12 @@ export default function ToolExecutorPanel({ onSessionAuditStatus, selectedTarget
   const getNormalizedSelectedTargetForScenario = (scenario) => {
     const scenarioKind = inferScenarioHintKind(scenario?.tool, scenario?.args, scenario?.kind || null);
     return normalizeTargetByScenarioKind(selectedTargetEndpoint, scenarioKind);
+  };
+  const confirmCompatibilityIfNeeded = (scenarioLike, actionLabel = 'применение') => {
+    if (!selectedTargetEndpoint) return true;
+    const hint = getScenarioCompatibility(scenarioLike);
+    if (!shouldWarnOnCompatibilityHint(hint?.text)) return true;
+    return window.confirm(`⚠ ${hint.text}. Продолжить ${actionLabel}?`);
   };
   const formatRecentRunTime = (iso) => {
     if (!iso) return 'время неизвестно';
@@ -441,6 +453,7 @@ export default function ToolExecutorPanel({ onSessionAuditStatus, selectedTarget
     if (!entry) return;
     if (!selectedTargetEndpoint) return alert('Нет выбранной цели');
     if (!permit.trim()) return alert('Для запуска нужен разрешительный токен');
+    if (!confirmCompatibilityIfNeeded(entry, 'запуск на текущую цель')) return;
     if (entry.tool) setTool(entry.tool);
     if (typeof entry.args === 'string') setArgs(entry.args);
     const normalizedTarget = getNormalizedSelectedTargetForScenario(entry);
@@ -457,6 +470,7 @@ export default function ToolExecutorPanel({ onSessionAuditStatus, selectedTarget
   };
   const applyUserScenario = (scenario) => {
     if (!scenario) return;
+    if (!confirmCompatibilityIfNeeded(scenario, 'применение сценария')) return;
     if (scenario.tool) setTool(scenario.tool);
     if (typeof scenario.args === 'string') setArgs(scenario.args);
     if (scenario.tool && scenario.profileId) {
