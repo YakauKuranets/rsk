@@ -245,6 +245,12 @@ function hasWebEndpoint(target) {
   return /^https?:\/\//i.test(value);
 }
 
+function hasLikelyWebTargetInput(target) {
+  const raw = `${target?.url || ''} ${target?.endpoint || ''} ${target?.host || ''}`.toLowerCase();
+  if (!raw.trim()) return false;
+  return /https?:\/\/|:80\b|:443\b|\bwww\./.test(raw);
+}
+
 function buildLinkedActionStatuses(target, availability) {
   const isHub = String(target?.type || '').toLowerCase() === 'hub';
   const streamTarget = normalizeTargetForLinkedAction(target, 'stream');
@@ -253,7 +259,7 @@ function buildLinkedActionStatuses(target, availability) {
   const archiveSearchTarget = normalizeTargetForLinkedAction(target, 'archive_search');
   const archiveEndpointTarget = normalizeTargetForLinkedAction(target, isHub ? 'hub_archive' : 'archive_endpoints');
   const hasHost = (t) => String(t?.host || '').trim().length > 0;
-  const hasWeb = (t) => hasWebEndpoint(t);
+  const hasWebHint = hasLikelyWebTargetInput(target) || hasWebEndpoint(target);
 
   return {
     stream: isHub
@@ -265,21 +271,21 @@ function buildLinkedActionStatuses(target, availability) {
           : 'Недостаточно данных для запуска',
     isapi: !hasHost(webIsapiTarget)
       ? 'Нет host/ip'
-      : !hasWeb(webIsapiTarget)
+      : !hasWebHint
         ? 'Нужен web-endpoint'
         : availability?.isapi
           ? 'Готово'
           : 'Недостаточно данных для запуска',
     onvif: !hasHost(webOnvifTarget)
       ? 'Нет host/ip'
-      : !hasWeb(webOnvifTarget)
+      : !hasWebHint
         ? 'Нужен web-endpoint'
         : availability?.onvif
           ? 'Готово'
           : 'Недостаточно данных для запуска',
     archiveSearch: !hasHost(archiveSearchTarget)
       ? 'Нет host/ip'
-      : !hasWeb(archiveSearchTarget)
+      : !hasWebHint
         ? 'Нужен web-endpoint'
         : 'Готово',
     archive: !hasHost(archiveEndpointTarget)
