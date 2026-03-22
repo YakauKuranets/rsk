@@ -324,11 +324,26 @@ function buildLinkedActionAggregate(statuses) {
 function buildTargetCompatibilityProfile(target, availability, actionStatuses) {
   const safeTarget = target || {};
   const typeText = String(safeTarget?.type || '').toLowerCase();
-  const text = `${safeTarget?.name || ''} ${safeTarget?.host || ''} ${safeTarget?.ip || ''} ${safeTarget?.url || ''} ${safeTarget?.endpoint || ''}`.toLowerCase();
+  const hostText = String(safeTarget?.host || safeTarget?.ip || '').toLowerCase();
+  const endpointText = `${safeTarget?.url || ''} ${safeTarget?.endpoint || ''}`.toLowerCase();
+  const nameText = String(safeTarget?.name || '').toLowerCase();
+  const text = `${nameText} ${hostText} ${endpointText}`.toLowerCase();
   const isHub = typeText === 'hub';
   const looksCamera = /(cam|camera|nvr|dvr|rtsp|onvif|554|hik|xmeye|ipcam)/.test(`${typeText} ${text}`);
   const looksWeb = /https?:\/\/|\bwww\.|:80\b|:443\b|web|portal|admin/.test(text);
-  const hasHost = String(safeTarget?.host || safeTarget?.ip || '').trim().length > 0;
+  const hasHost = hostText.trim().length > 0;
+  const streamReady = actionStatuses?.stream === 'Готово' || Boolean(availability?.stream);
+  const webReady = actionStatuses?.isapi === 'Готово' || actionStatuses?.onvif === 'Готово' || Boolean(availability?.isapi) || Boolean(availability?.onvif);
+  const archiveReady = actionStatuses?.archive === 'Готово' || actionStatuses?.archiveSearch === 'Готово' || Boolean(availability?.archive);
+  const buildSignalsText = (extra = []) => {
+    const signals = [];
+    if (typeText) signals.push(`type:${typeText}`);
+    if (streamReady) signals.push('stream+');
+    if (webReady) signals.push('web+');
+    if (archiveReady) signals.push('archive+');
+    extra.filter(Boolean).forEach((item) => signals.push(item));
+    return signals.join(', ');
+  };
 
   if (isHub) {
     return {
@@ -337,33 +352,37 @@ function buildTargetCompatibilityProfile(target, availability, actionStatuses) {
       web: 'частично уместны',
       archive: 'уместны',
       note: actionStatuses?.archive || 'Готово',
+      basis: buildSignalsText(['hub']),
     };
   }
   if (looksCamera) {
     return {
       label: 'Камера / NVR',
-      stream: availability?.stream ? 'уместен' : 'ограничен',
-      web: 'уместны',
-      archive: availability?.archive ? 'уместны' : 'ограничены',
+      stream: streamReady ? 'уместен' : 'ограничен',
+      web: webReady ? 'уместны' : 'ограничены',
+      archive: archiveReady ? 'уместны' : 'ограничены',
       note: actionStatuses?.stream || 'Готово',
+      basis: buildSignalsText(['camera-like']),
     };
   }
   if (looksWeb) {
     return {
       label: 'Web-цель',
-      stream: availability?.stream ? 'возможен' : 'не приоритет',
-      web: 'уместны',
-      archive: availability?.archive ? 'уместны' : 'зависит от цели',
+      stream: streamReady ? 'возможен' : 'не приоритет',
+      web: webReady ? 'уместны' : 'частично уместны',
+      archive: archiveReady ? 'уместны' : 'зависит от цели',
       note: actionStatuses?.isapi || actionStatuses?.archiveSearch || 'Готово',
+      basis: buildSignalsText(['web-like']),
     };
   }
   if (hasHost) {
     return {
       label: 'Сетевой узел',
-      stream: availability?.stream ? 'возможен' : 'неочевиден',
-      web: 'по ситуации',
-      archive: availability?.archive ? 'возможны' : 'ограничены',
+      stream: streamReady ? 'возможен' : 'неочевиден',
+      web: webReady ? 'по ситуации' : 'неочевидны',
+      archive: archiveReady ? 'возможны' : 'ограничены',
       note: actionStatuses?.stream || actionStatuses?.archive || 'Недостаточно данных',
+      basis: buildSignalsText(['host-only']),
     };
   }
   return {
@@ -372,6 +391,7 @@ function buildTargetCompatibilityProfile(target, availability, actionStatuses) {
     web: 'неочевидны',
     archive: 'неочевидны',
     note: 'Недостаточно данных для запуска',
+    basis: buildSignalsText(['low-signal']),
   };
 }
 
@@ -508,6 +528,9 @@ function TargetsPanel({
                 </div>
                 <div style={{fontSize:'10px',color:T.muted,marginTop:'3px'}}>
                   Сейчас ключевой сигнал: <b style={{color:T.amb}}>{selectedTargetCompatibilityProfile.note}</b>
+                </div>
+                <div style={{fontSize:'10px',color:'#6f8394',marginTop:'2px'}}>
+                  Эвристика: <span>{selectedTargetCompatibilityProfile.basis || 'недостаточно сигналов'}</span>
                 </div>
               </div>
             )}
