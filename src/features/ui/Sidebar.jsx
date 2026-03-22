@@ -161,9 +161,14 @@ function buildPolicyRuntimeSummary(runtimeLogs) {
   return { mode, text, warningCount, escalationCount, preStrictnessCount, strictRejectCount };
 }
 
-function UnifiedTargetStatusBlock({ targetSaveStatus, sessionAuditStatus, runtimeLogs, form, activeTargetId }) {
+function UnifiedTargetStatusBlock({ targetSaveStatus, sessionAuditStatus, runtimeLogs, form, activeTargetId, selectedTarget }) {
   const formTarget = [form?.name, form?.host].map((x) => String(x || '').trim()).filter(Boolean).join(' / ');
-  const targetContext = activeTargetId
+  const selectedTargetLabel = selectedTarget
+    ? [selectedTarget?.name, selectedTarget?.host].map((x) => String(x || '').trim()).filter(Boolean).join(' / ')
+    : '';
+  const targetContext = selectedTargetLabel
+    ? `Выбранная цель: ${selectedTargetLabel}`
+    : activeTargetId
     ? `Последняя активная цель: ${activeTargetId}`
     : formTarget
       ? `Для цели (форма): ${formTarget}`
@@ -223,7 +228,7 @@ function UnifiedTargetStatusBlock({ targetSaveStatus, sessionAuditStatus, runtim
 function TargetsPanel({
   targets,filteredTargets,targetSearch,setTargetSearch,
   targetTypeFilter,setTargetTypeFilter,archiveOnly,setArchiveOnly,
-  form,setForm,targetSaveStatus,sessionAuditStatus,runtimeLogs,hubRecon,
+  form,setForm,targetSaveStatus,sessionAuditStatus,runtimeLogs,selectedTarget,setSelectedTarget,hubRecon,
   handleSmartSave,handleDeleteTarget,handleGeocode,
   onNemesis,onMemoryRequest,onIsapiInfo,onIsapiSearch,
   onOnvifInfo,onOnvifRecordings,onArchiveEndpoints,onOpenHubArchive,
@@ -291,6 +296,7 @@ function TargetsPanel({
             runtimeLogs={runtimeLogs}
             form={form}
             activeTargetId={activeTargetId}
+            selectedTarget={selectedTarget}
           />
         </Section>
 
@@ -310,8 +316,15 @@ function TargetsPanel({
           </label>
         </div>
         <div style={{fontSize:'10px',color:T.muted,marginBottom:'8px'}}>Показано: {filteredTargets.length} из {targets.length}</div>
+        {selectedTarget && (
+          <div style={{fontSize:'10px',color:T.cyan,marginBottom:'6px'}}>
+            Выбрана: <b>{selectedTarget.name || selectedTarget.host || selectedTarget.id}</b>
+          </div>
+        )}
         {filteredTargets.map(t=>(
           <TargetCard key={t.id} target={t}
+            selected={selectedTarget?.id === t.id}
+            onSelect={setSelectedTarget}
             onNemesis={onNemesis} onMemoryRequest={onMemoryRequest}
             onIsapiInfo={onIsapiInfo} onIsapiSearch={onIsapiSearch}
             onOnvifInfo={onOnvifInfo} onOnvifRecordings={onOnvifRecordings}
@@ -466,10 +479,17 @@ export default function Sidebar(props){
 
   const [tab,setTab]=useState('targets');
   const [sessionAuditStatus, setSessionAuditStatus] = useState(null);
+  const [selectedTarget, setSelectedTarget] = useState(null);
 
   useEffect(() => {
     if (labelEditRequest?.label) setTab('targets');
   }, [labelEditRequest]);
+
+  useEffect(() => {
+    if (!selectedTarget?.id) return;
+    const stillExists = (targets || []).some((t) => t?.id === selectedTarget.id);
+    if (!stillExists) setSelectedTarget(null);
+  }, [targets, selectedTarget]);
 
   return(
     <div style={css.panel}>
@@ -496,7 +516,9 @@ export default function Sidebar(props){
           targetSearch={targetSearch} setTargetSearch={setTargetSearch}
           targetTypeFilter={targetTypeFilter} setTargetTypeFilter={setTargetTypeFilter}
           archiveOnly={archiveOnly} setArchiveOnly={setArchiveOnly}
-          form={form} setForm={setForm} targetSaveStatus={targetSaveStatus} sessionAuditStatus={sessionAuditStatus} runtimeLogs={runtimeLogs} hubRecon={hubRecon}
+          form={form} setForm={setForm} targetSaveStatus={targetSaveStatus} sessionAuditStatus={sessionAuditStatus} runtimeLogs={runtimeLogs}
+          selectedTarget={selectedTarget} setSelectedTarget={setSelectedTarget}
+          hubRecon={hubRecon}
           handleSmartSave={handleSmartSave} handleDeleteTarget={handleDeleteTarget}
           handleGeocode={handleGeocode}
           onNemesis={onNemesis} onMemoryRequest={onMemoryRequest}

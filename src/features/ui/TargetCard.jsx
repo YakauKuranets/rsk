@@ -47,6 +47,8 @@ function normalizeChannels(target) {
 
 export default function TargetCard({
   target: t,
+  selected = false,
+  onSelect,
   onNemesis,
   onMemoryRequest,
   onIsapiInfo,
@@ -79,11 +81,18 @@ export default function TargetCard({
       borderRadius: '6px',
       padding: '8px',
       color: T.text,
-      boxShadow: open ? `0 0 0 1px ${T.cyan}22 inset` : 'none',
+      boxShadow: selected
+        ? `0 0 0 1px ${T.cyan}55 inset`
+        : open
+          ? `0 0 0 1px ${T.cyan}22 inset`
+          : 'none',
     }}>
       <button
         type="button"
-        onClick={() => setOpen((v) => !v)}
+        onClick={() => {
+          onSelect?.(t);
+          setOpen((v) => !v);
+        }}
         style={{
           all: 'unset',
           display: 'grid',
