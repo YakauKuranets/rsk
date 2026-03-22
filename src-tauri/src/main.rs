@@ -147,6 +147,7 @@ struct FfmpegLimiterState {
 
 struct TargetEnvelopeAdoptionCounters {
     total_ops: AtomicU64,
+    warning_streak_windows: AtomicU64,
     envelope_read: AtomicU64,
     legacy_wrapped_on_read: AtomicU64,
     legacy_wrapped_on_save: AtomicU64,
@@ -159,6 +160,7 @@ impl TargetEnvelopeAdoptionCounters {
     fn new() -> Self {
         Self {
             total_ops: AtomicU64::new(0),
+            warning_streak_windows: AtomicU64::new(0),
             envelope_read: AtomicU64::new(0),
             legacy_wrapped_on_read: AtomicU64::new(0),
             legacy_wrapped_on_save: AtomicU64::new(0),
@@ -201,6 +203,7 @@ fn record_target_envelope_marker(state: &State<'_, LogState>, marker: &str, targ
     const POLICY_WARNING_MIN_OPS: u64 = 100;
     const POLICY_WARNING_LEGACY_RATIO: f64 = 0.20;
     const POLICY_WARNING_NON_JSON_RATIO: f64 = 0.05;
+    const POLICY_WARNING_STREAK_ESCALATION_WINDOWS: u64 = 3;
     let counters = target_envelope_adoption_counters();
 
     match marker {
@@ -288,9 +291,9 @@ fn record_target_envelope_marker(state: &State<'_, LogState>, marker: &str, targ
             let non_json_total = non_json_passthrough_on_read + non_json_passthrough_on_save;
             let legacy_ratio = (legacy_total as f64) / (total as f64);
             let non_json_ratio = (non_json_total as f64) / (total as f64);
-            if legacy_ratio >= POLICY_WARNING_LEGACY_RATIO
-                || non_json_ratio >= POLICY_WARNING_NON_JSON_RATIO
-            {
+            let warning_condition = legacy_ratio >= POLICY_WARNING_LEGACY_RATIO
+                || non_json_ratio >= POLICY_WARNING_NON_JSON_RATIO;
+            if warning_condition {
                 push_runtime_log(
                     state,
                     format!(
@@ -302,6 +305,25 @@ fn record_target_envelope_marker(state: &State<'_, LogState>, marker: &str, targ
                         non_json_total
                     ),
                 );
+
+                let warning_streak = counters
+                    .warning_streak_windows
+                    .fetch_add(1, Ordering::Relaxed)
+                    + 1;
+                if warning_streak >= POLICY_WARNING_STREAK_ESCALATION_WINDOWS {
+                    push_runtime_log(
+                        state,
+                        format!(
+                            "TARGET_ENVELOPE_POLICY_ESCALATION_WARNING|ops={}|warning_streak_windows={}|legacy_ratio={:.4}|non_json_ratio={:.4}|action=log_only_no_enforcement",
+                            total,
+                            warning_streak,
+                            legacy_ratio,
+                            non_json_ratio
+                        ),
+                    );
+                }
+            } else {
+                counters.warning_streak_windows.store(0, Ordering::Relaxed);
             }
         }
     }
