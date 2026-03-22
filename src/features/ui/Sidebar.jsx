@@ -239,6 +239,59 @@ function getSelectedTargetActionAvailability(target) {
   };
 }
 
+function hasWebEndpoint(target) {
+  const value = String(target?.url || target?.endpoint || '').trim();
+  if (!value) return false;
+  return /^https?:\/\//i.test(value);
+}
+
+function buildLinkedActionStatuses(target, availability) {
+  const isHub = String(target?.type || '').toLowerCase() === 'hub';
+  const streamTarget = normalizeTargetForLinkedAction(target, 'stream');
+  const webIsapiTarget = normalizeTargetForLinkedAction(target, 'isapi_info');
+  const webOnvifTarget = normalizeTargetForLinkedAction(target, 'onvif_info');
+  const archiveSearchTarget = normalizeTargetForLinkedAction(target, 'archive_search');
+  const archiveEndpointTarget = normalizeTargetForLinkedAction(target, isHub ? 'hub_archive' : 'archive_endpoints');
+  const hasHost = (t) => String(t?.host || '').trim().length > 0;
+  const hasWeb = (t) => hasWebEndpoint(t);
+
+  return {
+    stream: isHub
+      ? 'Ограничено для HUB'
+      : !hasHost(streamTarget)
+        ? 'Нет host/ip'
+        : availability?.stream
+          ? 'Готово'
+          : 'Недостаточно данных для запуска',
+    isapi: !hasHost(webIsapiTarget)
+      ? 'Нет host/ip'
+      : !hasWeb(webIsapiTarget)
+        ? 'Нужен web-endpoint'
+        : availability?.isapi
+          ? 'Готово'
+          : 'Недостаточно данных для запуска',
+    onvif: !hasHost(webOnvifTarget)
+      ? 'Нет host/ip'
+      : !hasWeb(webOnvifTarget)
+        ? 'Нужен web-endpoint'
+        : availability?.onvif
+          ? 'Готово'
+          : 'Недостаточно данных для запуска',
+    archiveSearch: !hasHost(archiveSearchTarget)
+      ? 'Нет host/ip'
+      : !hasWeb(archiveSearchTarget)
+        ? 'Нужен web-endpoint'
+        : 'Готово',
+    archive: !hasHost(archiveEndpointTarget)
+      ? 'Нет host/ip'
+      : isHub
+        ? 'Готово'
+        : availability?.archive
+          ? 'Готово'
+          : 'Недостаточно данных для запуска',
+  };
+}
+
 function TargetsPanel({
   targets,filteredTargets,targetSearch,setTargetSearch,
   targetTypeFilter,setTargetTypeFilter,archiveOnly,setArchiveOnly,
@@ -255,6 +308,7 @@ function TargetsPanel({
 }){
   const [tab2,setTab2]=useState('targets');
   const selectedTargetAvailability = selectedTarget ? getSelectedTargetActionAvailability(selectedTarget) : null;
+  const selectedTargetActionStatuses = selectedTarget ? buildLinkedActionStatuses(selectedTarget, selectedTargetAvailability) : null;
   const withNormalizedTarget = (actionType, handler, target) => {
     if (typeof handler !== 'function') return;
     handler(normalizeTargetForLinkedAction(target, actionType));
@@ -367,6 +421,17 @@ function TargetsPanel({
               {String(selectedTarget?.type || '').toLowerCase() === 'hub'
                 ? <button style={css.btn(T.blue)} onClick={()=>withNormalizedTarget('hub_archive', onOpenHubArchive, selectedTarget)}>Архив HUB</button>
                 : <button style={css.btn(T.purp)} onClick={()=>withNormalizedTarget('archive_endpoints', onArchiveEndpoints, selectedTarget)}>Точки архива</button>}
+            </div>
+            <div style={{marginTop:'6px',display:'grid',gap:'3px'}}>
+              {String(selectedTarget?.type || '').toLowerCase() !== 'hub' && (
+                <div style={{fontSize:'10px',color:T.muted}}>Открыть поток: <b style={{color:selectedTargetActionStatuses?.stream === 'Готово' ? T.grn : T.amb}}>{selectedTargetActionStatuses?.stream || '—'}</b></div>
+              )}
+              <div style={{fontSize:'10px',color:T.muted}}>Сведения ISAPI: <b style={{color:selectedTargetActionStatuses?.isapi === 'Готово' ? T.grn : T.amb}}>{selectedTargetActionStatuses?.isapi || '—'}</b></div>
+              <div style={{fontSize:'10px',color:T.muted}}>Сведения ONVIF: <b style={{color:selectedTargetActionStatuses?.onvif === 'Готово' ? T.grn : T.amb}}>{selectedTargetActionStatuses?.onvif || '—'}</b></div>
+              <div style={{fontSize:'10px',color:T.muted}}>Поиск в архиве: <b style={{color:selectedTargetActionStatuses?.archiveSearch === 'Готово' ? T.grn : T.amb}}>{selectedTargetActionStatuses?.archiveSearch || '—'}</b></div>
+              <div style={{fontSize:'10px',color:T.muted}}>
+                {String(selectedTarget?.type || '').toLowerCase() === 'hub' ? 'Архив HUB' : 'Точки архива'}: <b style={{color:selectedTargetActionStatuses?.archive === 'Готово' ? T.grn : T.amb}}>{selectedTargetActionStatuses?.archive || '—'}</b>
+              </div>
             </div>
           </div>
         )}
