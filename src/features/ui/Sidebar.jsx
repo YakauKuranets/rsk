@@ -226,6 +226,18 @@ function UnifiedTargetStatusBlock({ targetSaveStatus, sessionAuditStatus, runtim
   );
 }
 
+function getSelectedTargetActionAvailability(target) {
+  const isHub = String(target?.type || '').toLowerCase() === 'hub';
+  const canStream = !isHub && canRunStreamVerification(target);
+  const canArchive = isHub ? true : canRunArchiveExport(target);
+  return {
+    stream: canStream,
+    archive: canArchive,
+    isapi: canStream,
+    onvif: canStream,
+  };
+}
+
 function TargetsPanel({
   targets,filteredTargets,targetSearch,setTargetSearch,
   targetTypeFilter,setTargetTypeFilter,archiveOnly,setArchiveOnly,
@@ -241,6 +253,7 @@ function TargetsPanel({
   handleCaptureArchive,handleDownloadHttp,activeTargetId,streamRtspUrl,activeCameraName,
 }){
   const [tab2,setTab2]=useState('targets');
+  const selectedTargetAvailability = selectedTarget ? getSelectedTargetActionAvailability(selectedTarget) : null;
 
   useEffect(() => {
     if (labelEditRequest?.label) setTab2('labels');
@@ -320,14 +333,6 @@ function TargetsPanel({
         <div style={{fontSize:'10px',color:T.muted,marginBottom:'8px'}}>Показано: {filteredTargets.length} из {targets.length}</div>
         {selectedTarget && (
           <div style={{marginBottom:'8px',padding:'6px',border:'1px solid '+T.line,borderRadius:'4px',background:T.bg1}}>
-            {(() => {
-              const isHub = String(selectedTarget?.type || '').toLowerCase() === 'hub';
-              const streamAvailable = !isHub && canRunStreamVerification(selectedTarget);
-              const archiveAvailable = isHub ? true : canRunArchiveExport(selectedTarget);
-              const isapiAvailable = !isHub && canRunStreamVerification(selectedTarget);
-              const onvifAvailable = !isHub && canRunStreamVerification(selectedTarget);
-              const statusColor = (ok) => (ok ? T.grn : T.amb);
-              return (
             <div style={{border:'1px solid '+T.line,borderRadius:'4px',padding:'6px',background:T.bg0,marginBottom:'6px'}}>
               <div style={{fontSize:'10px',color:T.muted,marginBottom:'4px'}}>Контекст выбранной цели</div>
               <div style={{fontSize:'11px',color:T.text,fontWeight:700,marginBottom:'3px'}}>
@@ -337,14 +342,12 @@ function TargetsPanel({
                 <div>IP/хост: <span style={{color:T.text}}>{selectedTarget.host || selectedTarget.ip || 'не указан'}</span></div>
                 <div>Тип: <span style={{color:T.text}}>{String(selectedTarget.type || 'локальная').toUpperCase()}</span></div>
                 <div>Каналы: <span style={{color:T.text}}>{Array.isArray(selectedTarget.channels) ? selectedTarget.channels.length : Number(selectedTarget.channelCount || selectedTarget.cameraCount || 0)}</span></div>
-                <div>Поток: <span style={{color:statusColor(streamAvailable)}}>{streamAvailable ? 'доступен' : 'ограничен'}</span></div>
-                <div>Архив: <span style={{color:statusColor(archiveAvailable)}}>{archiveAvailable ? 'доступен' : 'ограничен'}</span></div>
-                <div>ISAPI: <span style={{color:statusColor(isapiAvailable)}}>{isapiAvailable ? 'доступен' : 'ограничен'}</span></div>
-                <div>ONVIF: <span style={{color:statusColor(onvifAvailable)}}>{onvifAvailable ? 'доступен' : 'ограничен'}</span></div>
+                <div>Поток: <span style={{color:selectedTargetAvailability?.stream ? T.grn : T.amb}}>{selectedTargetAvailability?.stream ? 'доступен' : 'ограничен'}</span></div>
+                <div>Архив: <span style={{color:selectedTargetAvailability?.archive ? T.grn : T.amb}}>{selectedTargetAvailability?.archive ? 'доступен' : 'ограничен'}</span></div>
+                <div>ISAPI: <span style={{color:selectedTargetAvailability?.isapi ? T.grn : T.amb}}>{selectedTargetAvailability?.isapi ? 'доступен' : 'ограничен'}</span></div>
+                <div>ONVIF: <span style={{color:selectedTargetAvailability?.onvif ? T.grn : T.amb}}>{selectedTargetAvailability?.onvif ? 'доступен' : 'ограничен'}</span></div>
               </div>
             </div>
-              );
-            })()}
             <div style={{fontSize:'10px',color:T.cyan,marginBottom:'6px'}}>
               Выбранная цель: <b>{selectedTarget.name || selectedTarget.host || selectedTarget.id}</b>
             </div>
