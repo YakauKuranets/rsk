@@ -149,31 +149,46 @@ function buildSemanticSummary(tool, result) {
   const findings = Array.isArray(result?.findingsExtracted) ? result.findingsExtracted : [];
   const mergedOutput = `${result?.stdout || ''}\n${result?.stderr || ''}`;
   const openPorts = mergedOutput.match(/\b(\d{1,5})\/(tcp|udp)\s+open\b/gi) || [];
-  const webSignals = mergedOutput.match(/(vuln|xss|sql|csrf|interesting|directory|admin|login|exposed)/gi) || [];
-  const pathSignals = mergedOutput.match(/\/[a-z0-9._\-\/]+/gi) || [];
+  const openServices = mergedOutput.match(/\b(open|filtered)\s+([a-z0-9_.-]{2,20})\b/gi) || [];
+  const webSignals = mergedOutput.match(/(vuln|xss|sql|csrf|interesting|directory|admin|login|exposed|cve|waf|cookie)/gi) || [];
+  const pathSignals = mergedOutput.match(/\/[a-z0-9._\-\/]{2,}/gi) || [];
+  const errorSignals = mergedOutput.match(/(error|failed|timeout|unreachable|refused|denied)/gi) || [];
+  const warningSignals = mergedOutput.match(/(warn|notice|retry|slow|fallback)/gi) || [];
+  const uniquePorts = new Set(openPorts.map((item) => (String(item).match(/\d{1,5}/) || [''])[0]).filter(Boolean));
+  const uniquePaths = new Set(pathSignals.slice(0, 20));
+
+  const noiseLevel = errorSignals.length + warningSignals.length;
+  const noiseText = noiseLevel >= 8 ? 'Шум высокий' : noiseLevel >= 3 ? 'Шум умеренный' : 'Шум низкий';
 
   if (tool === 'nmap') {
-    return openPorts.length > 0
-      ? `Есть признаки открытых портов/сервисов (${openPorts.length}).`
-      : 'Явных открытых портов по текущему выводу не видно.';
+    if (uniquePorts.size > 0) {
+      const topPorts = [...uniquePorts].slice(0, 3).join(', ');
+      return `Сетевые сигналы: открытые порты (${uniquePorts.size}), ключевые: ${topPorts}. Сервисы: ${openServices.length > 0 ? 'есть признаки' : 'мало данных'}. ${noiseText}.`;
+    }
+    return `Сетевые сигналы слабые: открытых портов не видно, сервисы не подтверждены. ${noiseText}.`;
   }
   if (tool === 'nikto') {
-    return (findings.length > 0 || webSignals.length > 0)
-      ? 'Есть web-находки, нужно проверить вручную.'
-      : 'Критичных web-находок по текущему запуску не найдено.';
+    if (findings.length > 0 || webSignals.length > 0) {
+      return `Web-сигналы: ${webSignals.length > 0 ? `обнаружено маркеров (${webSignals.length})` : 'маркеров мало'}, находок: ${findings.length}. ${noiseText}.`;
+    }
+    return `Web-сигналы слабые: явных уязвимостей не видно, но нужна ручная проверка контекста. ${noiseText}.`;
   }
   if (tool === 'ffuf') {
-    return (findings.length > 0 || pathSignals.length > 0)
-      ? 'Найдены интересные пути/эндпоинты.'
-      : 'Интересные пути по текущему словарю не обнаружены.';
+    if (findings.length > 0 || uniquePaths.size > 0) {
+      const topPaths = [...uniquePaths].slice(0, 2).join(', ');
+      return `Поиск путей: кандидатов ${uniquePaths.size}, находок: ${findings.length}. ${topPaths ? `Примеры: ${topPaths}. ` : ''}${noiseText}.`;
+    }
+    return `Поиск путей: заметных endpoint-сигналов нет. ${noiseText}.`;
   }
   if (tool === 'masscan') {
-    return openPorts.length > 0
-      ? `Есть признаки открытых портов (${openPorts.length}).`
-      : 'Открытые порты по текущему запуску masscan не зафиксированы.';
+    if (uniquePorts.size > 0) {
+      const topPorts = [...uniquePorts].slice(0, 3).join(', ');
+      return `Быстрый сетевой обзор: открытых портов ${uniquePorts.size}, ключевые: ${topPorts}. ${noiseText}.`;
+    }
+    return `Быстрый сетевой обзор: открытые порты не зафиксированы. ${noiseText}.`;
   }
-  if (findings.length > 0) return `Найдены артефакты (${findings.length}), см. детали ниже.`;
-  return 'Нейтральная сводка: данных для уверенного вывода мало.';
+  if (findings.length > 0) return `Общие сигналы: найдено артефактов ${findings.length}. Web-маркеры: ${webSignals.length}, пути: ${uniquePaths.size}. ${noiseText}.`;
+  return `Сигналы слабые: данных для уверенного вывода мало. ${noiseText}.`;
 }
 
 function inferTargetHintKind(selectedTarget) {
