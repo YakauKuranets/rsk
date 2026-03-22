@@ -16,6 +16,7 @@ import CapturePanel from '../archive/CapturePanel';
 import NvrProbePanel from '../archive/NvrProbePanel';
 import SpiderControl from '../spider/SpiderControl';
 import { canRunArchiveExport, canRunStreamVerification } from '../targets/cardKindAdapter';
+import { normalizeTargetForLinkedAction } from '../targets/targetActionNormalizer';
 
 const T={
   bg0:'#07070f',bg1:'#0c0c1a',bg2:'#111122',bg3:'#171730',
@@ -254,6 +255,10 @@ function TargetsPanel({
 }){
   const [tab2,setTab2]=useState('targets');
   const selectedTargetAvailability = selectedTarget ? getSelectedTargetActionAvailability(selectedTarget) : null;
+  const withNormalizedTarget = (actionType, handler, target) => {
+    if (typeof handler !== 'function') return;
+    handler(normalizeTargetForLinkedAction(target, actionType));
+  };
 
   useEffect(() => {
     if (labelEditRequest?.label) setTab2('labels');
@@ -354,14 +359,14 @@ function TargetsPanel({
             <div style={{fontSize:'10px',color:T.muted,marginBottom:'5px'}}>Быстрые действия для выбранной цели</div>
             <div style={{display:'grid',gridTemplateColumns:'repeat(2,minmax(0,1fr))',gap:'4px'}}>
               {String(selectedTarget?.type || '').toLowerCase() !== 'hub' && (
-                <button style={css.btn(T.cyan)} onClick={()=>onQuickStartStream?.(selectedTarget)}>Открыть поток (канал 1)</button>
+                <button style={css.btn(T.cyan)} onClick={()=>withNormalizedTarget('stream', onQuickStartStream, selectedTarget)}>Открыть поток (канал 1)</button>
               )}
-              <button style={css.btn(T.cyan)} onClick={()=>onIsapiInfo(selectedTarget)}>Сведения ISAPI</button>
-              <button style={css.btn(T.grn)} onClick={()=>onOnvifInfo(selectedTarget)}>Сведения ONVIF</button>
-              <button style={css.btn(T.amb)} onClick={()=>onIsapiSearch(selectedTarget)}>Поиск в архиве</button>
+              <button style={css.btn(T.cyan)} onClick={()=>withNormalizedTarget('isapi_info', onIsapiInfo, selectedTarget)}>Сведения ISAPI</button>
+              <button style={css.btn(T.grn)} onClick={()=>withNormalizedTarget('onvif_info', onOnvifInfo, selectedTarget)}>Сведения ONVIF</button>
+              <button style={css.btn(T.amb)} onClick={()=>withNormalizedTarget('archive_search', onIsapiSearch, selectedTarget)}>Поиск в архиве</button>
               {String(selectedTarget?.type || '').toLowerCase() === 'hub'
-                ? <button style={css.btn(T.blue)} onClick={()=>onOpenHubArchive(selectedTarget)}>Архив HUB</button>
-                : <button style={css.btn(T.purp)} onClick={()=>onArchiveEndpoints(selectedTarget)}>Точки архива</button>}
+                ? <button style={css.btn(T.blue)} onClick={()=>withNormalizedTarget('hub_archive', onOpenHubArchive, selectedTarget)}>Архив HUB</button>
+                : <button style={css.btn(T.purp)} onClick={()=>withNormalizedTarget('archive_endpoints', onArchiveEndpoints, selectedTarget)}>Точки архива</button>}
             </div>
           </div>
         )}
@@ -370,9 +375,13 @@ function TargetsPanel({
             selected={selectedTarget?.id === t.id}
             onSelect={setSelectedTarget}
             onNemesis={onNemesis} onMemoryRequest={onMemoryRequest}
-            onIsapiInfo={onIsapiInfo} onIsapiSearch={onIsapiSearch}
-            onOnvifInfo={onOnvifInfo} onOnvifRecordings={onOnvifRecordings}
-            onArchiveEndpoints={onArchiveEndpoints} onOpenHubArchive={onOpenHubArchive} onDelete={handleDeleteTarget}/>
+            onIsapiInfo={(x)=>withNormalizedTarget('isapi_info', onIsapiInfo, x)}
+            onIsapiSearch={(x)=>withNormalizedTarget('archive_search', onIsapiSearch, x)}
+            onOnvifInfo={(x)=>withNormalizedTarget('onvif_info', onOnvifInfo, x)}
+            onOnvifRecordings={(x)=>withNormalizedTarget('onvif_recordings', onOnvifRecordings, x)}
+            onArchiveEndpoints={(x)=>withNormalizedTarget('archive_endpoints', onArchiveEndpoints, x)}
+            onOpenHubArchive={(x)=>withNormalizedTarget('hub_archive', onOpenHubArchive, x)}
+            onDelete={handleDeleteTarget}/>
         ))}
 
         <Section icon='📦' title='Захват архива' color={T.amb} defaultOpen={false}>
