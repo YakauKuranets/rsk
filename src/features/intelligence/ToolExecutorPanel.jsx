@@ -43,35 +43,38 @@ const QUICK_SCENARIOS = [
 ];
 const WORK_CHAINS = [
   {
-    id: 'host_fast_overview',
-    label: 'Быстрый обзор узла',
+    id: 'node_quick_triage',
+    label: 'Быстрый триаж узла',
     steps: [
-      { label: 'Сетевой скан (быстрый)', tool: 'nmap', profileId: 'fast', kind: 'network' },
-      { label: 'Web-поверхность (быстро)', tool: 'nikto', profileId: 'fast', kind: 'web' },
+      { label: 'Быстрый сетевой обзор', tool: 'nmap', profileId: 'fast', kind: 'network' },
+      { label: 'Подтверждение сервисов', tool: 'nmap', profileId: 'base', kind: 'network' },
+      { label: 'Быстрый web-аудит', tool: 'nikto', profileId: 'fast', kind: 'web' },
     ],
   },
   {
-    id: 'camera_careful_overview',
-    label: 'Осторожный обзор камеры/NVR',
+    id: 'camera_nvr_careful_path',
+    label: 'Осторожный путь для камеры/NVR',
     steps: [
-      { label: 'Сеть (осторожно)', tool: 'nmap', profileId: 'careful', kind: 'camera' },
-      { label: 'Порты/подтверждение', tool: 'masscan', profileId: 'careful', kind: 'camera' },
-      { label: 'Web-панель (быстро)', tool: 'nikto', profileId: 'fast', kind: 'web' },
+      { label: 'Осторожный сетевой обзор', tool: 'nmap', profileId: 'careful', kind: 'camera' },
+      { label: 'Проверка web-панели', tool: 'nikto', profileId: 'fast', kind: 'web' },
+      { label: 'Аккуратный перебор путей', tool: 'ffuf', profileId: 'careful', kind: 'web' },
     ],
   },
   {
-    id: 'web_fast_chain',
-    label: 'Быстрая web-цепочка',
+    id: 'web_quick_triage',
+    label: 'Быстрый web-триаж',
     steps: [
-      { label: 'Web-аудит', tool: 'nikto', profileId: 'fast', kind: 'web' },
-      { label: 'Поиск путей', tool: 'ffuf', profileId: 'base', kind: 'web' },
+      { label: 'Быстрый web-аудит', tool: 'nikto', profileId: 'fast', kind: 'web' },
+      { label: 'Базовый поиск путей', tool: 'ffuf', profileId: 'base', kind: 'web' },
+      { label: 'Уточнение путей (аккуратно)', tool: 'ffuf', profileId: 'careful', kind: 'web' },
     ],
   },
   {
-    id: 'post_network_refine',
+    id: 'post_network_refinement',
     label: 'Уточнение после сетевой находки',
     steps: [
-      { label: 'Подтверждение сервисов', tool: 'nmap', profileId: 'base', kind: 'network' },
+      { label: 'Подтверждение сервисов (база)', tool: 'nmap', profileId: 'base', kind: 'network' },
+      { label: 'Быстрый web-аудит по сервисам', tool: 'nikto', profileId: 'fast', kind: 'web' },
       { label: 'Уточнение web-путей', tool: 'ffuf', profileId: 'careful', kind: 'web' },
     ],
   },
