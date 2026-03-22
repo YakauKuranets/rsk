@@ -298,3 +298,24 @@ Operational guidance:
 
 - **Too early for tightening** when pre-strictness warnings appear repeatedly, especially together with escalation warnings.
 - **Prepare next strictness step** only when pre-strictness warnings become rare/absent over a meaningful observation period and window-level warnings stay low.
+
+### Phase 11 addendum: interpreting `non_json_soft_wrapped_on_save` vs `TARGET_ENVELOPE_NON_JSON_SAVE_FALLBACK_EXCEPTION`
+
+- `non_json_soft_wrapped_on_save`:
+  - means backend received non-JSON on save but successfully converted it into legacy envelope form;
+  - this is the **expected soft-strictness compatibility path** in Phase 11.
+
+- `TARGET_ENVELOPE_NON_JSON_SAVE_FALLBACK_EXCEPTION`:
+  - means soft-wrap for non-JSON save did not complete and backend had to fall back to true passthrough behavior;
+  - this is an **exception signal** and should be treated as rare.
+
+How to interpret the difference:
+
+1. Soft-wrap marker = compatibility path worked (still not ideal input quality, but normalized).
+2. Fallback exception = compatibility safety net was needed (higher risk for future strictness).
+
+Policy readiness guidance:
+
+- Fallback exception is still acceptable occasionally during transition.
+- If fallback exceptions are recurrent (or trending up), it is a sign to postpone stricter enforcement and focus on upstream payload hygiene.
+- If fallback exceptions are consistently absent and soft-wrap volume trends down, it is reasonable to prepare the next strictness increment.
