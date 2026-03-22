@@ -372,11 +372,11 @@ export default function ToolExecutorPanel({ onSessionAuditStatus, selectedTarget
       evidenceRefsCount: Array.isArray(session?.evidenceRefs) ? session.evidenceRefs.length : null,
     });
     if (!session.ok) {
-      setSessionResult(`Ошибка проверки: ${session.message || 'unknown error'}`);
+      setSessionResult(`Ошибка проверки: ${session.message || 'неизвестная ошибка'}`);
       return;
     }
     if (session.secure) {
-      setSessionResult(`✅ Session cookie flags выглядят безопасно (${target})`);
+      setSessionResult(`✅ Сессионные флаги выглядят безопасно (${target})`);
     } else {
       setSessionResult(`⚠️ Найдены проблемы: ${(session.issues || []).join(' | ')}`);
     }
@@ -583,7 +583,7 @@ export default function ToolExecutorPanel({ onSessionAuditStatus, selectedTarget
 
   return(
     <div style={S.wrap}>
-      <h3 style={S.h}>🔧 ИНСТРУМЕНТЫ (UNIFIED API)</h3>
+      <h3 style={S.h}>🔧 Инструменты: запуск и проверка</h3>
       <div style={{background:'#09111b',border:'1px solid #233247',padding:'6px',marginBottom:'6px',fontSize:'10px',borderRadius:'3px'}}>
         <div style={{color:'#7f93a4',marginBottom:'4px'}}>
           {selectedTarget
@@ -602,7 +602,7 @@ export default function ToolExecutorPanel({ onSessionAuditStatus, selectedTarget
         </button>
       </div>
       <div style={{background:'#101218',border:'1px solid #2a3240',padding:'6px',marginBottom:'6px',fontSize:'10px',borderRadius:'3px'}}>
-        <div style={{color:'#7f93a4',marginBottom:'4px'}}>Рекомендация по запуску</div>
+        <div style={{color:'#7f93a4',marginBottom:'4px'}}>Рекомендованный старт</div>
         {recommendedPlan
           ? (
             <>
@@ -611,11 +611,11 @@ export default function ToolExecutorPanel({ onSessionAuditStatus, selectedTarget
               </div>
               <div style={{color:'#768aa0',marginBottom:'6px'}}>{recommendedPlan.reason}</div>
               <button style={{...S.btn('#7bc3ff'),marginBottom:0,fontSize:'10px'}} onClick={applyRecommendation}>
-                Применить рекомендацию
+                Применить настройки
               </button>
             </>
           )
-          : <div style={{color:'#768aa0'}}>Рекомендация недоступна: цель не выбрана.</div>}
+          : <div style={{color:'#768aa0'}}>Рекомендация пока недоступна: сначала выберите цель.</div>}
       </div>
       <div style={{background:'#10141b',border:'1px solid #2a3342',padding:'6px',marginBottom:'6px',fontSize:'10px',borderRadius:'3px'}}>
         <div style={{color:'#7f93a4',marginBottom:'4px'}}>Избранные сценарии</div>
@@ -639,7 +639,7 @@ export default function ToolExecutorPanel({ onSessionAuditStatus, selectedTarget
         ) : (
           <div style={{color:'#6f8398',marginBottom:'4px'}}>Нет избранных сценариев. Отметь звёздочкой нужные ниже.</div>
         )}
-        <div style={{color:'#7f93a4',marginBottom:'4px'}}>Быстрые рабочие сценарии</div>
+        <div style={{color:'#7f93a4',marginBottom:'4px'}}>Быстрые сценарии запуска</div>
         <div style={{display:'flex',gap:'4px',flexWrap:'wrap'}}>
           {QUICK_SCENARIOS.map((scenario)=>(
             <div key={scenario.id} style={{display:'flex',gap:'2px'}}>
@@ -668,9 +668,9 @@ export default function ToolExecutorPanel({ onSessionAuditStatus, selectedTarget
         </div>
       </div>
       <div style={{background:'#10131a',border:'1px solid #2a3342',padding:'6px',marginBottom:'6px',fontSize:'10px',borderRadius:'3px'}}>
-        <div style={{color:'#7f93a4',marginBottom:'4px'}}>Пользовательские сценарии</div>
+        <div style={{color:'#7f93a4',marginBottom:'4px'}}>Мои сценарии</div>
         {userScenarios.length === 0 ? (
-          <div style={{color:'#6f8398'}}>Пока пусто. Сохрани удачный запуск из блока «Недавние запуски».</div>
+          <div style={{color:'#6f8398'}}>Сценариев пока нет. Сохраните удачный запуск из истории.</div>
         ) : (
           <div style={{display:'flex',gap:'4px',flexWrap:'wrap'}}>
             {userScenarios.map((scenario) => (
@@ -712,7 +712,7 @@ export default function ToolExecutorPanel({ onSessionAuditStatus, selectedTarget
         )}
       </div>
       <div style={{background:'#101318',border:'1px solid #2b3442',padding:'6px',marginBottom:'6px',fontSize:'10px',borderRadius:'3px'}}>
-        <div style={{color:'#7f93a4',marginBottom:'4px'}}>Рабочие цепочки</div>
+        <div style={{color:'#7f93a4',marginBottom:'4px'}}>Рабочие цепочки действий</div>
         <div style={{display:'flex',flexDirection:'column',gap:'4px',marginBottom:'4px'}}>
           {WORK_CHAINS.map((chain) => {
             const currentIdx = Number(chainStepIndexById?.[chain.id] || 0);
@@ -760,9 +760,9 @@ export default function ToolExecutorPanel({ onSessionAuditStatus, selectedTarget
             );
           })}
         </div>
-        <div style={{color:'#7f93a4',marginBottom:'4px'}}>Недавние запуски</div>
+        <div style={{color:'#7f93a4',marginBottom:'4px'}}>История запусков</div>
         {recentRuns.length === 0 ? (
-          <div style={{color:'#6f8398'}}>Пока пусто. Запусти инструмент — здесь появится история.</div>
+          <div style={{color:'#6f8398'}}>История пока пуста. После запуска здесь появятся последние действия.</div>
         ) : (
           <div style={{display:'flex',flexDirection:'column',gap:'4px'}}>
             {recentRuns.map((entry) => (
@@ -846,12 +846,12 @@ export default function ToolExecutorPanel({ onSessionAuditStatus, selectedTarget
           <input style={{...S.inp,marginBottom:0}} type='number' value={timeout} onChange={e=>setTo(e.target.value)}/></div>
         <div style={{flex:2,display:'flex',flexDirection:'column',gap:'3px'}}>
           <button style={{...S.btn(),flex:1,marginBottom:0}} onClick={run} disabled={load}>{load?'⚙...':'▶ '+tool}</button>
-          <button style={{...S.btn('#555'),flex:1,marginBottom:0,fontSize:'10px'}} onClick={()=>invoke('check_tools_available').then(setAvail).catch(()=>{})}>Проверить доступность</button>
+          <button style={{...S.btn('#555'),flex:1,marginBottom:0,fontSize:'10px'}} onClick={()=>invoke('check_tools_available').then(setAvail).catch(()=>{})}>Проверить доступность инструментов</button>
           <button
             style={{...S.btn('#44cc88'),flex:1,marginBottom:0,fontSize:'10px'}}
             onClick={runSessionCapability}
           >
-            Аудит сессии через capability
+            Проверить сессионные флаги
           </button>
         </div>
       </div>
@@ -862,14 +862,14 @@ export default function ToolExecutorPanel({ onSessionAuditStatus, selectedTarget
       )}
       {sessionDebug && (
         <div style={{background:'#0f1318',border:'1px solid #2f3d4a',padding:'6px',marginBottom:'6px',fontSize:'9px',color:'#8ea3b6',borderRadius:'3px'}}>
-          <div style={{marginBottom:'4px',color:'#7f93a4'}}>Отладка сессии</div>
+          <div style={{marginBottom:'4px',color:'#7f93a4'}}>Технические детали проверки сессии</div>
           {sessionDebug.source && <div>Источник: <b style={{color:'#a9bfd1'}}>{sessionDebug.source}</b></div>}
-          {typeof sessionDebug.fallbackUsed === 'boolean' && <div>Использован fallback: <b style={{color:'#a9bfd1'}}>{String(sessionDebug.fallbackUsed)}</b></div>}
+          {typeof sessionDebug.fallbackUsed === 'boolean' && <div>Использован резервный путь: <b style={{color:'#a9bfd1'}}>{String(sessionDebug.fallbackUsed)}</b></div>}
           {typeof sessionDebug.inconclusive === 'boolean' && <div>Неопределённый результат: <b style={{color:'#a9bfd1'}}>{String(sessionDebug.inconclusive)}</b></div>}
           {sessionDebug.runId && <div>ID запуска: <b style={{color:'#a9bfd1'}}>{sessionDebug.runId}</b></div>}
           {typeof sessionDebug.issuesCount === 'number' && <div>Количество проблем: <b style={{color:'#a9bfd1'}}>{sessionDebug.issuesCount}</b></div>}
           {typeof sessionDebug.evidenceRefsCount === 'number' && <div>Ссылок на доказательства: <b style={{color:'#a9bfd1'}}>{sessionDebug.evidenceRefsCount}</b></div>}
-          {sessionDebug.reporterSummary && <div style={{marginTop:'4px'}}>Сводка отчёта: <span style={{color:'#a9bfd1'}}>{sessionDebug.reporterSummary}</span></div>}
+          {sessionDebug.reporterSummary && <div style={{marginTop:'4px'}}>Краткая сводка: <span style={{color:'#a9bfd1'}}>{sessionDebug.reporterSummary}</span></div>}
         </div>
       )}
       {avail.length>0&&<div style={{display:'flex',flexWrap:'wrap',gap:'4px',margin:'6px 0'}}>
@@ -879,7 +879,7 @@ export default function ToolExecutorPanel({ onSessionAuditStatus, selectedTarget
         <div style={{display:'flex',gap:'8px',fontSize:'10px',color:'#666',marginBottom:'4px'}}>
           <span>Код: <b style={{color:result.exitCode===0?'#00aa44':'#ff4444'}}>{result.exitCode}</b></span>
           <span>Время: <b style={{color:'#aaa'}}>{((result.durationMs||0)/1000).toFixed(1)}с</b></span>
-          <span>Найдено: <b style={{color:result.findingsExtracted?.length>0?'#ffaa00':'#444'}}>{result.findingsExtracted?.length||0}</b></span>
+          <span>Находок: <b style={{color:result.findingsExtracted?.length>0?'#ffaa00':'#444'}}>{result.findingsExtracted?.length||0}</b></span>
         </div>
         <div style={{fontSize:'10px',color:result.exitCode===0?'#8fd3a5':'#ff9b9b',marginBottom:'4px'}}>
           {result.exitCode===0
@@ -887,7 +887,7 @@ export default function ToolExecutorPanel({ onSessionAuditStatus, selectedTarget
             : 'Запуск завершился с ошибкой. Проверь параметры и вывод ниже.'}
         </div>
         <div style={{border:'1px solid #2b3b4d',background:'#0d1520',padding:'6px',borderRadius:'3px',marginBottom:'4px'}}>
-          <div style={{fontSize:'10px',color:'#8eb6d7',marginBottom:'3px'}}>Смысловая сводка</div>
+          <div style={{fontSize:'10px',color:'#8eb6d7',marginBottom:'3px'}}>Краткий вывод</div>
           <div style={{fontSize:'10px',color:'#9fb8cd'}}>{semanticSummary}</div>
         </div>
         {activeChain && activeChainStepIndex != null && (
@@ -908,7 +908,7 @@ export default function ToolExecutorPanel({ onSessionAuditStatus, selectedTarget
                 </button>
               </div>
             ) : (
-              <div style={{fontSize:'10px',color:'#9ec58f'}}>Цепочка завершена. Можно перейти к другой цепочке или запустить ручной шаг.</div>
+              <div style={{fontSize:'10px',color:'#9ec58f'}}>Цепочка завершена. Можно выбрать другую цепочку или продолжить вручную.</div>
             )}
           </div>
         )}
