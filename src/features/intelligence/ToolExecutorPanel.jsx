@@ -115,6 +115,8 @@ const WORK_CHAINS = [
 const TOOL_EXEC_RECENT_RUNS_LIMIT = 6;
 const TOOL_EXEC_USER_SCENARIOS_LIMIT = 10;
 const TOOL_EXEC_FAVORITE_CHAINS_KEY = 'hyperion_tool_executor_favorite_chains_v1';
+const TOOL_EXEC_USER_WORK_CHAINS_KEY = 'hyperion_tool_executor_user_work_chains_v1';
+const TOOL_EXEC_USER_WORK_CHAINS_LIMIT = 8;
 
 function getRecommendedToolPlan(selectedTarget) {
   if (!selectedTarget) return null;
@@ -244,6 +246,7 @@ export default function ToolExecutorPanel({ onSessionAuditStatus, selectedTarget
   const [favoriteChainIds, setFavoriteChainIds] = useState([]);
   const [recentRuns, setRecentRuns] = useState([]);
   const [userScenarios, setUserScenarios] = useState([]);
+  const [userWorkChains, setUserWorkChains] = useState([]);
   const [chainStepIndexById, setChainStepIndexById] = useState({});
   const [activeChainProgress, setActiveChainProgress] = useState({ chainId: null, stepIndex: null });
   const selectedTargetLabel = selectedTarget
@@ -298,6 +301,10 @@ export default function ToolExecutorPanel({ onSessionAuditStatus, selectedTarget
   }, []);
 
   useEffect(() => {
+    setUserWorkChains(restoreObjectArray(localStorage.getItem(TOOL_EXEC_USER_WORK_CHAINS_KEY), TOOL_EXEC_USER_WORK_CHAINS_LIMIT));
+  }, []);
+
+  useEffect(() => {
     setArgsByTool((prev) => ({ ...prev, [tool]: args }));
   }, [tool, args]);
 
@@ -335,6 +342,12 @@ export default function ToolExecutorPanel({ onSessionAuditStatus, selectedTarget
       localStorage.setItem(TOOL_EXEC_USER_SCENARIOS_KEY, JSON.stringify(userScenarios.slice(0, TOOL_EXEC_USER_SCENARIOS_LIMIT)));
     } catch {}
   }, [userScenarios]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(TOOL_EXEC_USER_WORK_CHAINS_KEY, JSON.stringify(userWorkChains.slice(0, TOOL_EXEC_USER_WORK_CHAINS_LIMIT)));
+    } catch {}
+  }, [userWorkChains]);
 
   const appendRecentRun = (entry) => {
     if (!entry) return;
@@ -468,6 +481,34 @@ export default function ToolExecutorPanel({ onSessionAuditStatus, selectedTarget
         ? prev.filter((id) => id !== chainId)
         : [...prev, chainId]
     ));
+  };
+  const saveWorkChainAsUser = (chain) => {
+    if (!chain?.steps?.length) return;
+    const normalizedSteps = chain.steps
+      .filter((step) => step && typeof step === 'object')
+      .map((step) => ({
+        label: String(step.label || 'Шаг').trim() || 'Шаг',
+        tool: step.tool || null,
+        profileId: step.profileId || null,
+        kind: step.kind || null,
+      }));
+    if (normalizedSteps.length === 0) return;
+    const next = {
+      id: `user_chain_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+      label: `${chain.label || 'Цепочка'} · моя`,
+      steps: normalizedSteps,
+      createdAt: new Date().toISOString(),
+    };
+    setUserWorkChains((prev) => {
+      const dedup = prev.filter((item) => !(item.label === next.label && JSON.stringify(item.steps) === JSON.stringify(next.steps)));
+      return [next, ...dedup].slice(0, TOOL_EXEC_USER_WORK_CHAINS_LIMIT);
+    });
+  };
+  const removeUserWorkChain = (chainId) => {
+    if (!chainId) return;
+    const ok = window.confirm('Удалить пользовательскую цепочку?');
+    if (!ok) return;
+    setUserWorkChains((prev) => prev.filter((chain) => chain.id !== chainId));
   };
 
   const favoriteScenarios = QUICK_SCENARIOS.filter((scenario) => favoriteScenarioIds.includes(scenario.id));
@@ -801,6 +842,32 @@ export default function ToolExecutorPanel({ onSessionAuditStatus, selectedTarget
             </div>
           </div>
         )}
+        <div style={{marginBottom:'6px',padding:'5px',border:'1px solid #2f3b4d',background:'#0d1219',borderRadius:'3px'}}>
+          <div style={{color:'#7f93a4',marginBottom:'4px'}}>Мои рабочие цепочки</div>
+          {userWorkChains.length === 0 ? (
+            <div style={{fontSize:'9px',color:'#6f8398'}}>Пока пусто. Сохраните нужную цепочку из списка ниже.</div>
+          ) : (
+            <div style={{display:'grid',gap:'4px'}}>
+              {userWorkChains.map((chain) => (
+                <div key={chain.id} style={{display:'flex',gap:'4px',flexWrap:'wrap',alignItems:'center'}}>
+                  <span style={{fontSize:'10px',color:'#9fc6d5',minWidth:'180px'}}>{chain.label}</span>
+                  <button
+                    style={{...S.btn('#8fd3a5'),width:'auto',padding:'4px 8px',marginBottom:0,fontSize:'10px'}}
+                    onClick={() => applyChainStep(chain, 0)}
+                  >
+                    Старт (шаг 1)
+                  </button>
+                  <button
+                    style={{...S.btn('#d98f8f'),width:'auto',padding:'4px 8px',marginBottom:0,fontSize:'10px'}}
+                    onClick={() => removeUserWorkChain(chain.id)}
+                  >
+                    Удалить
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
         <div style={{display:'flex',flexDirection:'column',gap:'4px',marginBottom:'4px'}}>
           {WORK_CHAINS.map((chain) => {
             const currentIdx = Number(chainStepIndexById?.[chain.id] || 0);
@@ -849,6 +916,13 @@ export default function ToolExecutorPanel({ onSessionAuditStatus, selectedTarget
                     }}
                   >
                     Сброс
+                  </button>
+                  <button
+                    style={{...S.btn('#9cb8ff'),width:'auto',padding:'4px 8px',marginBottom:0,fontSize:'10px'}}
+                    onClick={() => saveWorkChainAsUser(chain)}
+                    title='Сохранить цепочку в раздел «Мои рабочие цепочки»'
+                  >
+                    Сохранить как мою цепочку
                   </button>
                 </div>
               </div>
