@@ -42,6 +42,7 @@ const QUICK_SCENARIOS = [
   { id: 'web_paths', label: 'Проверка web-путей', tool: 'ffuf', profileId: 'base', kind: 'web' },
 ];
 const TOOL_EXEC_STATE_KEY = 'hyperion_tool_executor_state_v1';
+const TOOL_EXEC_FAVORITE_SCENARIOS_KEY = 'hyperion_tool_executor_favorite_scenarios_v1';
 
 function getRecommendedToolPlan(selectedTarget) {
   if (!selectedTarget) return null;
@@ -116,6 +117,7 @@ export default function ToolExecutorPanel({ onSessionAuditStatus, selectedTarget
   const [avail,setAvail]=useState([]);
   const [sessionResult, setSessionResult] = useState('');
   const [sessionDebug, setSessionDebug] = useState(null);
+  const [favoriteScenarioIds, setFavoriteScenarioIds] = useState([]);
   const selectedTargetLabel = selectedTarget
     ? (selectedTarget.name || selectedTarget.host || selectedTarget.id || 'Без имени')
     : '';
@@ -154,6 +156,17 @@ export default function ToolExecutorPanel({ onSessionAuditStatus, selectedTarget
   }, []);
 
   useEffect(() => {
+    try {
+      const raw = localStorage.getItem(TOOL_EXEC_FAVORITE_SCENARIOS_KEY);
+      if (!raw) return;
+      const saved = JSON.parse(raw);
+      if (!Array.isArray(saved)) return;
+      const allowed = new Set(QUICK_SCENARIOS.map((s) => s.id));
+      setFavoriteScenarioIds(saved.filter((id) => typeof id === 'string' && allowed.has(id)));
+    } catch {}
+  }, []);
+
+  useEffect(() => {
     setArgsByTool((prev) => ({ ...prev, [tool]: args }));
   }, [tool, args]);
 
@@ -167,6 +180,12 @@ export default function ToolExecutorPanel({ onSessionAuditStatus, selectedTarget
       }));
     } catch {}
   }, [tool, timeout, argsByTool, selectedPresetByTool]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(TOOL_EXEC_FAVORITE_SCENARIOS_KEY, JSON.stringify(favoriteScenarioIds));
+    } catch {}
+  }, [favoriteScenarioIds]);
 
   const run=async()=>{
     if (!launchReadiness.canRun) return alert(launchReadiness.text);
@@ -251,6 +270,17 @@ export default function ToolExecutorPanel({ onSessionAuditStatus, selectedTarget
     setIntelligenceTarget(selectedTargetEndpoint);
   };
 
+  const toggleFavoriteScenario = (scenarioId) => {
+    if (!scenarioId) return;
+    setFavoriteScenarioIds((prev) => (
+      prev.includes(scenarioId)
+        ? prev.filter((id) => id !== scenarioId)
+        : [...prev, scenarioId]
+    ));
+  };
+
+  const favoriteScenarios = QUICK_SCENARIOS.filter((scenario) => favoriteScenarioIds.includes(scenario.id));
+
   return(
     <div style={S.wrap}>
       <h3 style={S.h}>🔧 ИНСТРУМЕНТЫ (UNIFIED API)</h3>
@@ -288,17 +318,42 @@ export default function ToolExecutorPanel({ onSessionAuditStatus, selectedTarget
           : <div style={{color:'#768aa0'}}>Рекомендация недоступна: цель не выбрана.</div>}
       </div>
       <div style={{background:'#10141b',border:'1px solid #2a3342',padding:'6px',marginBottom:'6px',fontSize:'10px',borderRadius:'3px'}}>
+        <div style={{color:'#7f93a4',marginBottom:'4px'}}>Избранные сценарии</div>
+        {favoriteScenarios.length > 0 ? (
+          <div style={{display:'flex',gap:'4px',flexWrap:'wrap',marginBottom:'4px'}}>
+            {favoriteScenarios.map((scenario)=>(
+              <button
+                key={`fav_${scenario.id}`}
+                style={{...S.btn('#92cfff'),width:'auto',padding:'4px 8px',marginBottom:0,fontSize:'10px'}}
+                onClick={()=>applyQuickScenario(scenario)}
+                title='Быстрый запуск избранного сценария'
+              >
+                ★ {scenario.label}
+              </button>
+            ))}
+          </div>
+        ) : (
+          <div style={{color:'#6f8398',marginBottom:'4px'}}>Нет избранных сценариев. Отметь звёздочкой нужные ниже.</div>
+        )}
         <div style={{color:'#7f93a4',marginBottom:'4px'}}>Быстрые рабочие сценарии</div>
         <div style={{display:'flex',gap:'4px',flexWrap:'wrap'}}>
           {QUICK_SCENARIOS.map((scenario)=>(
-            <button
-              key={scenario.id}
-              style={{...S.btn('#7bb7ff'),width:'auto',padding:'4px 8px',marginBottom:0,fontSize:'10px'}}
-              onClick={()=>applyQuickScenario(scenario)}
-              title={scenario.kind === 'web' ? 'Web-сценарий: цель будет подставлена как http://...' : 'Общий сетевой сценарий'}
-            >
-              {scenario.label}
-            </button>
+            <div key={scenario.id} style={{display:'flex',gap:'2px'}}>
+              <button
+                style={{...S.btn('#7bb7ff'),width:'auto',padding:'4px 8px',marginBottom:0,fontSize:'10px'}}
+                onClick={()=>applyQuickScenario(scenario)}
+                title={scenario.kind === 'web' ? 'Web-сценарий: цель будет подставлена как http://...' : 'Общий сетевой сценарий'}
+              >
+                {scenario.label}
+              </button>
+              <button
+                style={{...S.btn(favoriteScenarioIds.includes(scenario.id) ? '#ffd27d' : '#6f7f94'),width:'auto',padding:'4px 6px',marginBottom:0,fontSize:'10px'}}
+                onClick={()=>toggleFavoriteScenario(scenario.id)}
+                title={favoriteScenarioIds.includes(scenario.id) ? 'Убрать из избранного' : 'Добавить в избранное'}
+              >
+                {favoriteScenarioIds.includes(scenario.id) ? '★' : '☆'}
+              </button>
+            </div>
           ))}
         </div>
         <div style={{marginTop:'4px',color:'#6f8398'}}>
