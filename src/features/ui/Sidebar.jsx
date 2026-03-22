@@ -161,10 +161,15 @@ function buildPolicyRuntimeSummary(runtimeLogs) {
   return { mode, text, warningCount, escalationCount, preStrictnessCount, strictRejectCount };
 }
 
-function UnifiedTargetStatusBlock({ targetSaveStatus, sessionAuditStatus, runtimeLogs }) {
-  const targetContext = targetSaveStatus?.text
-    ? 'Последняя операция сохранения'
-    : 'Цель ещё не сохранялась в этой сессии';
+function UnifiedTargetStatusBlock({ targetSaveStatus, sessionAuditStatus, runtimeLogs, form, activeTargetId }) {
+  const formTarget = [form?.name, form?.host].map((x) => String(x || '').trim()).filter(Boolean).join(' / ');
+  const targetContext = activeTargetId
+    ? `Последняя активная цель: ${activeTargetId}`
+    : formTarget
+      ? `Для цели (форма): ${formTarget}`
+      : targetSaveStatus?.text
+        ? 'Последняя операция сохранения (цель определена по сохранению)'
+        : 'Цель ещё не выбрана';
   const saveText = !targetSaveStatus
     ? 'Нет данных'
     : targetSaveStatus.level === 'error'
@@ -284,6 +289,8 @@ function TargetsPanel({
             targetSaveStatus={targetSaveStatus}
             sessionAuditStatus={sessionAuditStatus}
             runtimeLogs={runtimeLogs}
+            form={form}
+            activeTargetId={activeTargetId}
           />
         </Section>
 
