@@ -30,10 +30,24 @@ export default function ToolExecutorPanel({ onSessionAuditStatus, selectedTarget
     ? (selectedTarget.name || selectedTarget.host || selectedTarget.id || 'Без имени')
     : '';
   const selectedTargetEndpoint = selectedTarget?.host || selectedTarget?.ip || '';
+  const normalizedArgs = String(args || '').trim();
+  const hasTemplatePlaceholders = /(^|\b)(TARGET|FUZZ|example\.com)(\b|$)/i.test(normalizedArgs);
+  const launchReadiness = !intelligenceTarget.trim()
+    ? { level: 'error', text: 'Нужно указать цель', canRun: false }
+    : permit.trim().length < 8
+      ? { level: 'error', text: 'Нужен токен', canRun: false }
+      : !normalizedArgs
+        ? { level: 'error', text: 'Проверь аргументы', canRun: false }
+        : hasTemplatePlaceholders
+          ? { level: 'warn', text: 'Проверь аргументы', canRun: true }
+          : { level: 'ok', text: 'Готово к запуску', canRun: true };
 
   const run=async()=>{
-    if(!intelligenceTarget.trim())return alert('Введите цель');
-    if(permit.trim().length<8)return alert('Нужен токен');
+    if (!launchReadiness.canRun) return alert(launchReadiness.text);
+    if (launchReadiness.level === 'warn') {
+      const proceed = window.confirm('⚠ Обнаружены шаблонные заглушки в аргументах (TARGET/FUZZ/example.com). Запустить всё равно?');
+      if (!proceed) return;
+    }
     setLoad(true);setResult(null);
     try{setResult(await invoke('execute_tool',{req:{tool,target:intelligenceTarget.trim(),args:args.trim().split(/\s+/).filter(Boolean),timeoutSecs:+timeout,permitToken:permit.trim()}}));}
     catch(e){alert('Ошибка: '+e);}
@@ -100,6 +114,14 @@ export default function ToolExecutorPanel({ onSessionAuditStatus, selectedTarget
               color:tool===t?'#eee':'#555',border:'1px solid '+(tool===t?'#555':'#1a1a1a'),
               cursor:'pointer',fontSize:'10px',borderRadius:'3px'}}>{t}</button>
         ))}
+      </div>
+      <div style={{
+        border:'1px solid ' + (launchReadiness.level === 'error' ? '#7a2a2a' : launchReadiness.level === 'warn' ? '#6c5a24' : '#245a3c'),
+        background: launchReadiness.level === 'error' ? '#1a0b0b' : launchReadiness.level === 'warn' ? '#17130a' : '#0b1710',
+        color: launchReadiness.level === 'error' ? '#ff9b9b' : launchReadiness.level === 'warn' ? '#ffd27d' : '#9fe0b7',
+        padding:'6px',marginBottom:'6px',fontSize:'10px',borderRadius:'3px',
+      }}>
+        Статус запуска: <b>{launchReadiness.text}</b>
       </div>
       <input style={S.inp} value={intelligenceTarget} onChange={e=>setIntelligenceTarget(e.target.value)} placeholder='192.168.1.0/24 или example.com'/>
       <input style={S.inp} value={args} onChange={e=>setArgs(e.target.value)} placeholder='Аргументы: -sV -sC -p 80,443'/>
