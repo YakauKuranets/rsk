@@ -45,6 +45,8 @@ const TOOL_EXEC_STATE_KEY = 'hyperion_tool_executor_state_v1';
 const TOOL_EXEC_FAVORITE_SCENARIOS_KEY = 'hyperion_tool_executor_favorite_scenarios_v1';
 const TOOL_EXEC_RECENT_RUNS_KEY = 'hyperion_tool_executor_recent_runs_v1';
 const TOOL_EXEC_RECENT_RUNS_LIMIT = 6;
+const TOOL_EXEC_USER_SCENARIOS_KEY = 'hyperion_tool_executor_user_scenarios_v1';
+const TOOL_EXEC_USER_SCENARIOS_LIMIT = 10;
 
 function getRecommendedToolPlan(selectedTarget) {
   if (!selectedTarget) return null;
@@ -121,6 +123,7 @@ export default function ToolExecutorPanel({ onSessionAuditStatus, selectedTarget
   const [sessionDebug, setSessionDebug] = useState(null);
   const [favoriteScenarioIds, setFavoriteScenarioIds] = useState([]);
   const [recentRuns, setRecentRuns] = useState([]);
+  const [userScenarios, setUserScenarios] = useState([]);
   const selectedTargetLabel = selectedTarget
     ? (selectedTarget.name || selectedTarget.host || selectedTarget.id || 'Без имени')
     : '';
@@ -155,6 +158,16 @@ export default function ToolExecutorPanel({ onSessionAuditStatus, selectedTarget
       setTool(savedTool);
       if (Number.isFinite(savedTimeout) && savedTimeout > 0) setTo(savedTimeout);
       setArgs(nextArgsByTool[savedTool] || PRESETS[savedTool] || '');
+    } catch {}
+  }, []);
+
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem(TOOL_EXEC_USER_SCENARIOS_KEY);
+      if (!raw) return;
+      const saved = JSON.parse(raw);
+      if (!Array.isArray(saved)) return;
+      setUserScenarios(saved.filter((item) => item && typeof item === 'object').slice(0, TOOL_EXEC_USER_SCENARIOS_LIMIT));
     } catch {}
   }, []);
 
@@ -205,6 +218,12 @@ export default function ToolExecutorPanel({ onSessionAuditStatus, selectedTarget
       localStorage.setItem(TOOL_EXEC_RECENT_RUNS_KEY, JSON.stringify(recentRuns.slice(0, TOOL_EXEC_RECENT_RUNS_LIMIT)));
     } catch {}
   }, [recentRuns]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(TOOL_EXEC_USER_SCENARIOS_KEY, JSON.stringify(userScenarios.slice(0, TOOL_EXEC_USER_SCENARIOS_LIMIT)));
+    } catch {}
+  }, [userScenarios]);
 
   const appendRecentRun = (entry) => {
     if (!entry) return;
@@ -383,6 +402,30 @@ export default function ToolExecutorPanel({ onSessionAuditStatus, selectedTarget
       profileId: entry.profileId || null,
     });
   };
+  const applyUserScenario = (scenario) => {
+    if (!scenario) return;
+    if (scenario.tool) setTool(scenario.tool);
+    if (typeof scenario.args === 'string') setArgs(scenario.args);
+    if (scenario.tool && scenario.profileId) {
+      setSelectedPresetByTool((prev) => ({ ...prev, [scenario.tool]: scenario.profileId }));
+    }
+    if (selectedTargetEndpoint) setIntelligenceTarget(selectedTargetEndpoint);
+  };
+  const saveRecentRunAsUserScenario = (entry) => {
+    if (!entry) return;
+    const scenario = {
+      id: `${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+      title: `${entry.tool || 'tool'}${entry.profileId ? ` · ${entry.profileId}` : ''} · мой сценарий`,
+      tool: entry.tool || tool,
+      args: typeof entry.args === 'string' ? entry.args : '',
+      profileId: entry.profileId || null,
+      createdAt: new Date().toISOString(),
+    };
+    setUserScenarios((prev) => {
+      const dedup = prev.filter((item) => !(item.tool === scenario.tool && item.args === scenario.args && item.profileId === scenario.profileId));
+      return [scenario, ...dedup].slice(0, TOOL_EXEC_USER_SCENARIOS_LIMIT);
+    });
+  };
 
   return(
     <div style={S.wrap}>
@@ -463,6 +506,25 @@ export default function ToolExecutorPanel({ onSessionAuditStatus, selectedTarget
           Один клик: инструмент + профиль + цель (если выбрана). Затем можно вручную скорректировать args/цель.
         </div>
       </div>
+      <div style={{background:'#10131a',border:'1px solid #2a3342',padding:'6px',marginBottom:'6px',fontSize:'10px',borderRadius:'3px'}}>
+        <div style={{color:'#7f93a4',marginBottom:'4px'}}>Пользовательские сценарии</div>
+        {userScenarios.length === 0 ? (
+          <div style={{color:'#6f8398'}}>Пока пусто. Сохрани удачный запуск из блока «Недавние запуски».</div>
+        ) : (
+          <div style={{display:'flex',gap:'4px',flexWrap:'wrap'}}>
+            {userScenarios.map((scenario) => (
+              <button
+                key={scenario.id}
+                style={{...S.btn('#9cb8ff'),width:'auto',padding:'4px 8px',marginBottom:0,fontSize:'10px'}}
+                onClick={() => applyUserScenario(scenario)}
+                title='Применить сценарий (инструмент + args + профиль + текущая выбранная цель при наличии)'
+              >
+                {scenario.title}
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
       <div style={{background:'#101318',border:'1px solid #2b3442',padding:'6px',marginBottom:'6px',fontSize:'10px',borderRadius:'3px'}}>
         <div style={{color:'#7f93a4',marginBottom:'4px'}}>Недавние запуски</div>
         {recentRuns.length === 0 ? (
@@ -492,6 +554,13 @@ export default function ToolExecutorPanel({ onSessionAuditStatus, selectedTarget
                     title={selectedTargetEndpoint ? 'Запустить этот набор на текущей выбранной цели' : 'Сначала выберите цель'}
                   >
                     На текущую цель
+                  </button>
+                  <button
+                    style={{...S.btn('#d0b67a'),width:'auto',padding:'4px 8px',marginBottom:0,fontSize:'10px'}}
+                    onClick={()=>saveRecentRunAsUserScenario(entry)}
+                    title='Сохранить этот запуск как пользовательский сценарий'
+                  >
+                    Сохранить как сценарий
                   </button>
                 </div>
               </div>
