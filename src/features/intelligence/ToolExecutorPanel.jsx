@@ -114,6 +114,7 @@ const WORK_CHAINS = [
 ];
 const TOOL_EXEC_RECENT_RUNS_LIMIT = 6;
 const TOOL_EXEC_USER_SCENARIOS_LIMIT = 10;
+const TOOL_EXEC_FAVORITE_CHAINS_KEY = 'hyperion_tool_executor_favorite_chains_v1';
 
 function getRecommendedToolPlan(selectedTarget) {
   if (!selectedTarget) return null;
@@ -240,6 +241,7 @@ export default function ToolExecutorPanel({ onSessionAuditStatus, selectedTarget
   const [sessionResult, setSessionResult] = useState('');
   const [sessionDebug, setSessionDebug] = useState(null);
   const [favoriteScenarioIds, setFavoriteScenarioIds] = useState([]);
+  const [favoriteChainIds, setFavoriteChainIds] = useState([]);
   const [recentRuns, setRecentRuns] = useState([]);
   const [userScenarios, setUserScenarios] = useState([]);
   const [chainStepIndexById, setChainStepIndexById] = useState({});
@@ -287,6 +289,15 @@ export default function ToolExecutorPanel({ onSessionAuditStatus, selectedTarget
   }, []);
 
   useEffect(() => {
+    setFavoriteChainIds(
+      restoreFavoriteScenarioIds(
+        localStorage.getItem(TOOL_EXEC_FAVORITE_CHAINS_KEY),
+        WORK_CHAINS.map((chain) => chain.id),
+      ),
+    );
+  }, []);
+
+  useEffect(() => {
     setArgsByTool((prev) => ({ ...prev, [tool]: args }));
   }, [tool, args]);
 
@@ -306,6 +317,12 @@ export default function ToolExecutorPanel({ onSessionAuditStatus, selectedTarget
       localStorage.setItem(TOOL_EXEC_FAVORITE_SCENARIOS_KEY, JSON.stringify(favoriteScenarioIds));
     } catch {}
   }, [favoriteScenarioIds]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(TOOL_EXEC_FAVORITE_CHAINS_KEY, JSON.stringify(favoriteChainIds));
+    } catch {}
+  }, [favoriteChainIds]);
 
   useEffect(() => {
     try {
@@ -444,8 +461,17 @@ export default function ToolExecutorPanel({ onSessionAuditStatus, selectedTarget
         : [...prev, scenarioId]
     ));
   };
+  const toggleFavoriteChain = (chainId) => {
+    if (!chainId) return;
+    setFavoriteChainIds((prev) => (
+      prev.includes(chainId)
+        ? prev.filter((id) => id !== chainId)
+        : [...prev, chainId]
+    ));
+  };
 
   const favoriteScenarios = QUICK_SCENARIOS.filter((scenario) => favoriteScenarioIds.includes(scenario.id));
+  const favoriteChains = WORK_CHAINS.filter((chain) => favoriteChainIds.includes(chain.id));
   const getScenarioCompatibility = (scenario) => {
     const scenarioKind = inferScenarioHintKind(scenario?.tool, scenario?.args, scenario?.kind || null);
     return buildScenarioCompatibilityHint(scenarioKind, selectedTargetHintKind);
@@ -737,6 +763,23 @@ export default function ToolExecutorPanel({ onSessionAuditStatus, selectedTarget
       </div>
       <div style={{background:'#101318',border:'1px solid #2b3442',padding:'6px',marginBottom:'6px',fontSize:'10px',borderRadius:'3px'}}>
         <div style={{color:'#7f93a4',marginBottom:'4px'}}>Рабочие цепочки действий</div>
+        {favoriteChains.length > 0 && (
+          <div style={{marginBottom:'6px',padding:'5px',border:'1px solid #2f3b4d',background:'#0d1219',borderRadius:'3px'}}>
+            <div style={{color:'#7f93a4',marginBottom:'4px'}}>Избранные цепочки</div>
+            <div style={{display:'flex',gap:'4px',flexWrap:'wrap'}}>
+              {favoriteChains.map((chain) => (
+                <button
+                  key={`fav_chain_${chain.id}`}
+                  style={{...S.btn('#9fcfff'),width:'auto',padding:'4px 8px',marginBottom:0,fontSize:'10px'}}
+                  onClick={() => applyChainStep(chain, 0)}
+                  title='Быстро применить первый шаг избранной цепочки'
+                >
+                  ★ {chain.label}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
         <div style={{display:'flex',flexDirection:'column',gap:'4px',marginBottom:'4px'}}>
           {WORK_CHAINS.map((chain) => {
             const currentIdx = Number(chainStepIndexById?.[chain.id] || 0);
@@ -756,6 +799,13 @@ export default function ToolExecutorPanel({ onSessionAuditStatus, selectedTarget
                   {chain.steps.map((step, idx) => `${idx + 1}. ${step.label}`).join(' → ')}
                 </div>
                 <div style={{display:'flex',gap:'4px',flexWrap:'wrap'}}>
+                  <button
+                    style={{...S.btn(favoriteChainIds.includes(chain.id) ? '#ffd27d' : '#6f7f94'),width:'auto',padding:'4px 8px',marginBottom:0,fontSize:'10px'}}
+                    onClick={() => toggleFavoriteChain(chain.id)}
+                    title={favoriteChainIds.includes(chain.id) ? 'Убрать из избранных цепочек' : 'Добавить в избранные цепочки'}
+                  >
+                    {favoriteChainIds.includes(chain.id) ? '★ В избранном' : '☆ В избранное'}
+                  </button>
                   <button
                     style={{...S.btn('#7bb7ff'),width:'auto',padding:'4px 8px',marginBottom:0,fontSize:'10px'}}
                     onClick={() => applyChainStep(chain, 0)}
