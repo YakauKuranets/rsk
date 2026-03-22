@@ -577,6 +577,12 @@ export default function ToolExecutorPanel({ onSessionAuditStatus, selectedTarget
     const nextIndex = Math.min(current + 1, chain.steps.length - 1);
     applyChainStep(chain, nextIndex);
   };
+  const applyFavoriteChainToSelectedTarget = (chain) => {
+    if (!chain?.steps?.length) return;
+    if (!selectedTargetEndpoint) return alert('Сначала выберите цель');
+    setIntelligenceTarget(selectedTargetEndpoint);
+    applyChainStep(chain, 0);
+  };
   const activeChain = WORK_CHAINS.find((chain) => chain.id === activeChainProgress?.chainId) || null;
   const activeChainStepIndex = Number.isFinite(Number(activeChainProgress?.stepIndex))
     ? Number(activeChainProgress.stepIndex)
@@ -766,16 +772,31 @@ export default function ToolExecutorPanel({ onSessionAuditStatus, selectedTarget
         {favoriteChains.length > 0 && (
           <div style={{marginBottom:'6px',padding:'5px',border:'1px solid #2f3b4d',background:'#0d1219',borderRadius:'3px'}}>
             <div style={{color:'#7f93a4',marginBottom:'4px'}}>Избранные цепочки</div>
-            <div style={{display:'flex',gap:'4px',flexWrap:'wrap'}}>
+            <div style={{fontSize:'9px',color:'#6f8398',marginBottom:'4px'}}>
+              {selectedTargetEndpoint
+                ? <>Применение пойдёт к выбранной цели: <b style={{color:'#9fc6d5'}}>{selectedTargetLabel}</b></>
+                : 'Цель не выбрана: можно применить цепочку и затем вручную задать цель.'}
+            </div>
+            <div style={{display:'grid',gap:'4px'}}>
               {favoriteChains.map((chain) => (
-                <button
-                  key={`fav_chain_${chain.id}`}
-                  style={{...S.btn('#9fcfff'),width:'auto',padding:'4px 8px',marginBottom:0,fontSize:'10px'}}
-                  onClick={() => applyChainStep(chain, 0)}
-                  title='Быстро применить первый шаг избранной цепочки'
-                >
-                  ★ {chain.label}
-                </button>
+                <div key={`fav_chain_${chain.id}`} style={{display:'flex',gap:'4px',flexWrap:'wrap',alignItems:'center'}}>
+                  <span style={{fontSize:'10px',color:'#9fc6d5',minWidth:'160px'}}>★ {chain.label}</span>
+                  <button
+                    style={{...S.btn('#9fcfff'),width:'auto',padding:'4px 8px',marginBottom:0,fontSize:'10px'}}
+                    onClick={() => applyChainStep(chain, 0)}
+                    title='Применить шаг 1 цепочки'
+                  >
+                    Старт
+                  </button>
+                  <button
+                    style={{...S.btn('#8fd3a5'),width:'auto',padding:'4px 8px',marginBottom:0,fontSize:'10px'}}
+                    onClick={() => applyFavoriteChainToSelectedTarget(chain)}
+                    disabled={!selectedTargetEndpoint}
+                    title={selectedTargetEndpoint ? 'Применить шаг 1 к текущей выбранной цели' : 'Сначала выберите цель'}
+                  >
+                    Старт на текущую цель
+                  </button>
+                </div>
               ))}
             </div>
           </div>
