@@ -106,6 +106,45 @@ function buildSemanticSummary(tool, result) {
   return 'Нейтральная сводка: данных для уверенного вывода мало.';
 }
 
+function inferTargetHintKind(selectedTarget) {
+  if (!selectedTarget) return 'unknown';
+  const text = `${selectedTarget?.type || ''} ${selectedTarget?.name || ''} ${selectedTarget?.host || ''} ${selectedTarget?.ip || ''}`.toLowerCase();
+  const looksCamera = /(cam|camera|nvr|dvr|rtsp|554|onvif|hik|xmeye|ipcam)/.test(text);
+  const looksWeb = /(http|https|www|web|:80|:443|site|portal)/.test(text);
+  if (looksCamera) return 'camera';
+  if (looksWeb) return 'web';
+  return 'generic';
+}
+
+function inferScenarioHintKind(tool, args = '', fallbackKind = null) {
+  if (fallbackKind) return fallbackKind;
+  const t = String(tool || '').toLowerCase();
+  const a = String(args || '').toLowerCase();
+  if (t === 'nikto' || t === 'ffuf' || t === 'sqlmap' || t === 'gobuster') return 'web';
+  if (t === 'nmap' || t === 'masscan') {
+    if (/(554|rtsp|onvif|camera|nvr|dvr)/.test(a)) return 'camera';
+    return 'network';
+  }
+  return 'generic';
+}
+
+function buildScenarioCompatibilityHint(scenarioKind, targetKind) {
+  if (targetKind === 'unknown') return { text: 'Сомнительно', color: '#9a8f79' };
+  if (scenarioKind === 'web') {
+    if (targetKind === 'web') return { text: 'Подходит', color: '#76c893' };
+    return { text: 'Лучше для web-цели', color: '#d4a373' };
+  }
+  if (scenarioKind === 'camera') {
+    if (targetKind === 'camera') return { text: 'Подходит', color: '#76c893' };
+    return { text: 'Лучше для камеры/NVR', color: '#d4a373' };
+  }
+  if (scenarioKind === 'network') {
+    if (targetKind === 'generic' || targetKind === 'camera') return { text: 'Подходит', color: '#76c893' };
+    return { text: 'Сомнительно', color: '#9a8f79' };
+  }
+  return { text: 'Сомнительно', color: '#9a8f79' };
+}
+
 export default function ToolExecutorPanel({ onSessionAuditStatus, selectedTarget }){
   const intelligenceTarget = useAppStore((s)=>s.intelligenceTarget);
   const setIntelligenceTarget = useAppStore((s)=>s.setIntelligenceTarget);
@@ -130,6 +169,7 @@ export default function ToolExecutorPanel({ onSessionAuditStatus, selectedTarget
   const selectedTargetEndpoint = selectedTarget?.host || selectedTarget?.ip || '';
   const recommendedPlan = getRecommendedToolPlan(selectedTarget);
   const semanticSummary = buildSemanticSummary(tool, result);
+  const selectedTargetHintKind = inferTargetHintKind(selectedTarget);
   const normalizedArgs = String(args || '').trim();
   const profiles = RUN_PROFILES[tool] || RUN_PROFILES.default;
   const activePresetId = selectedPresetByTool?.[tool] || null;
@@ -359,6 +399,10 @@ export default function ToolExecutorPanel({ onSessionAuditStatus, selectedTarget
   };
 
   const favoriteScenarios = QUICK_SCENARIOS.filter((scenario) => favoriteScenarioIds.includes(scenario.id));
+  const getScenarioCompatibility = (scenario) => {
+    const scenarioKind = inferScenarioHintKind(scenario?.tool, scenario?.args, scenario?.kind || null);
+    return buildScenarioCompatibilityHint(scenarioKind, selectedTargetHintKind);
+  };
   const formatRecentRunTime = (iso) => {
     if (!iso) return 'время неизвестно';
     const parsed = new Date(iso);
@@ -495,14 +539,18 @@ export default function ToolExecutorPanel({ onSessionAuditStatus, selectedTarget
         {favoriteScenarios.length > 0 ? (
           <div style={{display:'flex',gap:'4px',flexWrap:'wrap',marginBottom:'4px'}}>
             {favoriteScenarios.map((scenario)=>(
-              <button
-                key={`fav_${scenario.id}`}
-                style={{...S.btn('#92cfff'),width:'auto',padding:'4px 8px',marginBottom:0,fontSize:'10px'}}
-                onClick={()=>applyQuickScenario(scenario)}
-                title='Быстрый запуск избранного сценария'
-              >
-                ★ {scenario.label}
-              </button>
+              <div key={`fav_${scenario.id}`} style={{display:'flex',gap:'2px',alignItems:'center'}}>
+                <button
+                  style={{...S.btn('#92cfff'),width:'auto',padding:'4px 8px',marginBottom:0,fontSize:'10px'}}
+                  onClick={()=>applyQuickScenario(scenario)}
+                  title='Быстрый запуск избранного сценария'
+                >
+                  ★ {scenario.label}
+                </button>
+                <span style={{fontSize:'9px',color:getScenarioCompatibility(scenario).color}}>
+                  {getScenarioCompatibility(scenario).text}
+                </span>
+              </div>
             ))}
           </div>
         ) : (
@@ -526,6 +574,9 @@ export default function ToolExecutorPanel({ onSessionAuditStatus, selectedTarget
               >
                 {favoriteScenarioIds.includes(scenario.id) ? '★' : '☆'}
               </button>
+              <span style={{fontSize:'9px',color:getScenarioCompatibility(scenario).color,alignSelf:'center'}}>
+                {getScenarioCompatibility(scenario).text}
+              </span>
             </div>
           ))}
         </div>
@@ -569,6 +620,9 @@ export default function ToolExecutorPanel({ onSessionAuditStatus, selectedTarget
                 >
                   Удалить
                 </button>
+                <span style={{fontSize:'9px',color:getScenarioCompatibility(scenario).color,alignSelf:'center'}}>
+                  {getScenarioCompatibility(scenario).text}
+                </span>
               </div>
             ))}
           </div>
