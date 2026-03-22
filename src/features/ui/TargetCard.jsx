@@ -89,10 +89,7 @@ export default function TargetCard({
     }}>
       <button
         type="button"
-        onClick={() => {
-          onSelect?.(t);
-          setOpen((v) => !v);
-        }}
+        onClick={() => setOpen((v) => !v)}
         style={{
           all: 'unset',
           display: 'grid',
@@ -101,6 +98,7 @@ export default function TargetCard({
           alignItems: 'center',
           width: '100%',
           cursor: 'pointer',
+          marginBottom: '6px',
         }}
       >
         <div style={{ fontSize: '18px' }}>{icon}</div>
@@ -115,6 +113,34 @@ export default function TargetCard({
           <div style={{ fontSize: '9px', color: T.dim }}>cams</div>
         </div>
       </button>
+      <div style={{display:'flex',gap:'4px'}}>
+        <button
+          type="button"
+          style={{
+            ...btn(selected ? T.grn : T.cyan),
+            flex: 1,
+            marginBottom: 0,
+            textAlign: 'center',
+            padding: '4px',
+          }}
+          onClick={() => onSelect?.(t)}
+        >
+          {selected ? '✓ Выбрана' : 'Выбрать'}
+        </button>
+        <button
+          type="button"
+          style={{
+            ...btn(T.dim),
+            width: '72px',
+            marginBottom: 0,
+            textAlign: 'center',
+            padding: '4px',
+          }}
+          onClick={() => setOpen((v) => !v)}
+        >
+          {open ? 'Свернуть' : 'Детали'}
+        </button>
+      </div>
 
       {open && (
         <div style={{ marginTop: '8px', borderTop: `1px solid ${T.line}`, paddingTop: '8px' }}>
