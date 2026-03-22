@@ -145,6 +145,13 @@ function buildScenarioCompatibilityHint(scenarioKind, targetKind) {
   return { text: 'Сомнительно', color: '#9a8f79' };
 }
 
+function normalizeTargetByScenarioKind(rawTarget, scenarioKind) {
+  const target = String(rawTarget || '').trim();
+  if (!target) return '';
+  if (scenarioKind === 'web' && !/^https?:\/\//i.test(target)) return `http://${target}`;
+  return target;
+}
+
 export default function ToolExecutorPanel({ onSessionAuditStatus, selectedTarget }){
   const intelligenceTarget = useAppStore((s)=>s.intelligenceTarget);
   const setIntelligenceTarget = useAppStore((s)=>s.setIntelligenceTarget);
@@ -382,11 +389,8 @@ export default function ToolExecutorPanel({ onSessionAuditStatus, selectedTarget
     setArgs(profile.args || PRESETS[nextTool] || '');
     setSelectedPresetByTool((prev) => ({ ...prev, [nextTool]: profile.id }));
     if (!selectedTargetEndpoint) return;
-    if (scenario.kind === 'web' && !/^https?:\/\//i.test(selectedTargetEndpoint)) {
-      setIntelligenceTarget(`http://${selectedTargetEndpoint}`);
-      return;
-    }
-    setIntelligenceTarget(selectedTargetEndpoint);
+    const normalizedTarget = getNormalizedSelectedTargetForScenario(scenario);
+    setIntelligenceTarget(normalizedTarget || selectedTargetEndpoint);
   };
 
   const toggleFavoriteScenario = (scenarioId) => {
@@ -402,6 +406,10 @@ export default function ToolExecutorPanel({ onSessionAuditStatus, selectedTarget
   const getScenarioCompatibility = (scenario) => {
     const scenarioKind = inferScenarioHintKind(scenario?.tool, scenario?.args, scenario?.kind || null);
     return buildScenarioCompatibilityHint(scenarioKind, selectedTargetHintKind);
+  };
+  const getNormalizedSelectedTargetForScenario = (scenario) => {
+    const scenarioKind = inferScenarioHintKind(scenario?.tool, scenario?.args, scenario?.kind || null);
+    return normalizeTargetByScenarioKind(selectedTargetEndpoint, scenarioKind);
   };
   const formatRecentRunTime = (iso) => {
     if (!iso) return 'время неизвестно';
@@ -435,13 +443,14 @@ export default function ToolExecutorPanel({ onSessionAuditStatus, selectedTarget
     if (!permit.trim()) return alert('Для запуска нужен разрешительный токен');
     if (entry.tool) setTool(entry.tool);
     if (typeof entry.args === 'string') setArgs(entry.args);
-    setIntelligenceTarget(selectedTargetEndpoint);
+    const normalizedTarget = getNormalizedSelectedTargetForScenario(entry);
+    setIntelligenceTarget(normalizedTarget || selectedTargetEndpoint);
     if (entry.tool && entry.profileId) {
       setSelectedPresetByTool((prev) => ({ ...prev, [entry.tool]: entry.profileId }));
     }
     await executeToolLaunch({
       tool: entry.tool || tool,
-      target: selectedTargetEndpoint,
+      target: normalizedTarget || selectedTargetEndpoint,
       args: entry.args || args,
       profileId: entry.profileId || null,
     });
@@ -453,7 +462,10 @@ export default function ToolExecutorPanel({ onSessionAuditStatus, selectedTarget
     if (scenario.tool && scenario.profileId) {
       setSelectedPresetByTool((prev) => ({ ...prev, [scenario.tool]: scenario.profileId }));
     }
-    if (selectedTargetEndpoint) setIntelligenceTarget(selectedTargetEndpoint);
+    if (selectedTargetEndpoint) {
+      const normalizedTarget = getNormalizedSelectedTargetForScenario(scenario);
+      setIntelligenceTarget(normalizedTarget || selectedTargetEndpoint);
+    }
   };
   const saveRecentRunAsUserScenario = (entry) => {
     if (!entry) return;
@@ -639,6 +651,9 @@ export default function ToolExecutorPanel({ onSessionAuditStatus, selectedTarget
                 <div style={{color:'#9fc6d5',marginBottom:'3px'}}>
                   <b>{entry.tool || 'tool'}</b> · {entry.target || 'без цели'} · {formatRecentRunTime(entry.executedAt)}
                   {entry.profileId ? <> · профиль: <b>{entry.profileId}</b></> : null}
+                  <span style={{marginLeft:'6px',fontSize:'9px',color:getScenarioCompatibility(entry).color}}>
+                    {getScenarioCompatibility(entry).text}
+                  </span>
                 </div>
                 <div style={{color:'#7d91a5',fontFamily:'monospace',marginBottom:'4px',whiteSpace:'pre-wrap',wordBreak:'break-word'}}>
                   {entry.args || '(без аргументов)'}
