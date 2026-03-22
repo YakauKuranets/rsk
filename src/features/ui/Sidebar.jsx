@@ -534,7 +534,12 @@ function TargetsPanel({
                 </div>
               </div>
             )}
-            <div style={{fontSize:'10px',color:T.muted,marginBottom:'5px'}}>Быстрые действия для выбранной цели</div>
+            <div style={{fontSize:'10px',color:T.muted,marginBottom:'2px'}}>Быстрые действия для выбранной цели</div>
+            {selectedTargetCompatibilityProfile && (
+              <div style={{fontSize:'10px',color:'#7f93a4',marginBottom:'5px'}}>
+                Контур: <b style={{color:T.text}}>{selectedTargetCompatibilityProfile.label}</b> · сигнал: <b style={{color:T.amb}}>{selectedTargetCompatibilityProfile.note}</b>
+              </div>
+            )}
             <div style={{display:'grid',gridTemplateColumns:'repeat(2,minmax(0,1fr))',gap:'4px'}}>
               {String(selectedTarget?.type || '').toLowerCase() !== 'hub' && (
                 <button style={css.btn(T.cyan)} onClick={()=>withNormalizedTarget('stream', onQuickStartStream, selectedTarget)}>Открыть поток (канал 1)</button>
@@ -585,19 +590,25 @@ function TargetsPanel({
             </div>
           </div>
         )}
-        {filteredTargets.map(t=>(
-          <TargetCard key={t.id} target={t}
-            selected={selectedTarget?.id === t.id}
-            onSelect={setSelectedTarget}
-            onNemesis={onNemesis} onMemoryRequest={onMemoryRequest}
-            onIsapiInfo={(x)=>withNormalizedTarget('isapi_info', onIsapiInfo, x)}
-            onIsapiSearch={(x)=>withNormalizedTarget('archive_search', onIsapiSearch, x)}
-            onOnvifInfo={(x)=>withNormalizedTarget('onvif_info', onOnvifInfo, x)}
-            onOnvifRecordings={(x)=>withNormalizedTarget('onvif_recordings', onOnvifRecordings, x)}
-            onArchiveEndpoints={(x)=>withNormalizedTarget('archive_endpoints', onArchiveEndpoints, x)}
-            onOpenHubArchive={(x)=>withNormalizedTarget('hub_archive', onOpenHubArchive, x)}
-            onDelete={handleDeleteTarget}/>
-        ))}
+        {filteredTargets.map(t=>{
+          const cardAvailability = getSelectedTargetActionAvailability(t);
+          const cardActionStatuses = buildLinkedActionStatuses(t, cardAvailability);
+          const cardCompatibilityProfile = buildTargetCompatibilityProfile(t, cardAvailability, cardActionStatuses);
+          return (
+            <TargetCard key={t.id} target={t}
+              selected={selectedTarget?.id === t.id}
+              compatibilityProfile={cardCompatibilityProfile}
+              onSelect={setSelectedTarget}
+              onNemesis={onNemesis} onMemoryRequest={onMemoryRequest}
+              onIsapiInfo={(x)=>withNormalizedTarget('isapi_info', onIsapiInfo, x)}
+              onIsapiSearch={(x)=>withNormalizedTarget('archive_search', onIsapiSearch, x)}
+              onOnvifInfo={(x)=>withNormalizedTarget('onvif_info', onOnvifInfo, x)}
+              onOnvifRecordings={(x)=>withNormalizedTarget('onvif_recordings', onOnvifRecordings, x)}
+              onArchiveEndpoints={(x)=>withNormalizedTarget('archive_endpoints', onArchiveEndpoints, x)}
+              onOpenHubArchive={(x)=>withNormalizedTarget('hub_archive', onOpenHubArchive, x)}
+              onDelete={handleDeleteTarget}/>
+          );
+        })}
 
         <Section icon='📦' title='Захват архива' color={T.amb} defaultOpen={false}>
           <CapturePanel

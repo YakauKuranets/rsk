@@ -48,6 +48,7 @@ function normalizeChannels(target) {
 export default function TargetCard({
   target: t,
   selected = false,
+  compatibilityProfile = null,
   onSelect,
   onNemesis,
   onMemoryRequest,
@@ -103,6 +104,14 @@ export default function TargetCard({
             {t?.name || t?.host || 'Неизвестная цель'}
           </div>
           <div style={{ fontSize: '10px', color: T.muted }}>{t?.host || t?.ip || 'без IP'}</div>
+          {compatibilityProfile?.label && (
+            <div style={{ marginTop: '3px', display: 'inline-flex', alignItems: 'center', gap: '4px', fontSize: '9px', color: '#9db7ca' }}>
+              <span style={{ padding: '1px 5px', borderRadius: '999px', border: '1px solid #34506a', background: '#0b1a2b' }}>
+                {compatibilityProfile.label}
+              </span>
+              {selected && <span style={{ color: '#88a8bf' }}>· {compatibilityProfile.note || 'без сигнала'}</span>}
+            </div>
+          )}
         </div>
         <div style={{ textAlign: 'right' }}>
           <div style={{ fontSize: '10px', color: T.cyan, fontWeight: 700 }}>{cameraCount}</div>
@@ -150,6 +159,17 @@ export default function TargetCard({
               <div style={{ color: T.text }}>{cameraCount || 'n/a'}</div>
             </div>
           </div>
+          {compatibilityProfile?.label && (
+            <div style={{ marginBottom: '8px', padding: '6px', border: `1px solid ${T.line}`, background: '#091321', borderRadius: '4px' }}>
+              <div style={{ fontSize: '10px', color: T.muted, marginBottom: '3px' }}>Профиль совместимости</div>
+              <div style={{ fontSize: '10px', color: T.text, marginBottom: '2px' }}>
+                <b>{compatibilityProfile.label}</b> · поток: <span style={{ color: '#9ec58f' }}>{compatibilityProfile.stream}</span>
+              </div>
+              <div style={{ fontSize: '10px', color: T.dim }}>
+                web-info: <span style={{ color: '#9ec58f' }}>{compatibilityProfile.web}</span> · архив: <span style={{ color: '#9ec58f' }}>{compatibilityProfile.archive}</span>
+              </div>
+            </div>
+          )}
 
           <div style={{ marginBottom: '8px' }}>
             <div style={{ fontSize: '10px', color: T.dim, marginBottom: '4px' }}>Доступные каналы</div>
