@@ -37,6 +37,32 @@ const RUN_PROFILES={
 };
 const TOOL_EXEC_STATE_KEY = 'hyperion_tool_executor_state_v1';
 
+function getRecommendedToolPlan(selectedTarget) {
+  if (!selectedTarget) return null;
+  const text = `${selectedTarget?.type || ''} ${selectedTarget?.name || ''} ${selectedTarget?.host || ''} ${selectedTarget?.ip || ''}`.toLowerCase();
+  const looksCamera = /(cam|camera|nvr|dvr|rtsp|554|onvif|hub)/.test(text);
+  const looksWeb = /(http|https|www|web|:80|:443|\.[a-z]{2,})/.test(text);
+  if (looksCamera) {
+    return {
+      tool: 'nmap',
+      profileId: 'careful',
+      reason: 'Похоже на камеру/NVR/HUB: начни с осторожного сетевого профиля.',
+    };
+  }
+  if (looksWeb) {
+    return {
+      tool: 'nikto',
+      profileId: 'fast',
+      reason: 'Похоже на web-цель: сначала быстрый web-аудит.',
+    };
+  }
+  return {
+    tool: 'nmap',
+    profileId: 'base',
+    reason: 'Тип цели неочевиден: начни с базового сетевого профиля.',
+  };
+}
+
 export default function ToolExecutorPanel({ onSessionAuditStatus, selectedTarget }){
   const intelligenceTarget = useAppStore((s)=>s.intelligenceTarget);
   const setIntelligenceTarget = useAppStore((s)=>s.setIntelligenceTarget);
@@ -56,6 +82,7 @@ export default function ToolExecutorPanel({ onSessionAuditStatus, selectedTarget
     ? (selectedTarget.name || selectedTarget.host || selectedTarget.id || 'Без имени')
     : '';
   const selectedTargetEndpoint = selectedTarget?.host || selectedTarget?.ip || '';
+  const recommendedPlan = getRecommendedToolPlan(selectedTarget);
   const normalizedArgs = String(args || '').trim();
   const profiles = RUN_PROFILES[tool] || RUN_PROFILES.default;
   const activePresetId = selectedPresetByTool?.[tool] || null;
@@ -158,6 +185,17 @@ export default function ToolExecutorPanel({ onSessionAuditStatus, selectedTarget
     }
   };
 
+  const applyRecommendation = () => {
+    if (!recommendedPlan) return;
+    const nextTool = recommendedPlan.tool;
+    const nextProfiles = RUN_PROFILES[nextTool] || RUN_PROFILES.default;
+    const profile = nextProfiles.find((p) => p.id === recommendedPlan.profileId) || nextProfiles[0] || { id: 'base', args: PRESETS[nextTool] || '' };
+    setTool(nextTool);
+    setArgs(profile.args || PRESETS[nextTool] || '');
+    setSelectedPresetByTool((prev) => ({ ...prev, [nextTool]: profile.id }));
+    if (selectedTargetEndpoint) setIntelligenceTarget(selectedTargetEndpoint);
+  };
+
   return(
     <div style={S.wrap}>
       <h3 style={S.h}>🔧 ИНСТРУМЕНТЫ (UNIFIED API)</h3>
@@ -177,6 +215,22 @@ export default function ToolExecutorPanel({ onSessionAuditStatus, selectedTarget
         >
           Подставить выбранную цель
         </button>
+      </div>
+      <div style={{background:'#101218',border:'1px solid #2a3240',padding:'6px',marginBottom:'6px',fontSize:'10px',borderRadius:'3px'}}>
+        <div style={{color:'#7f93a4',marginBottom:'4px'}}>Рекомендация по запуску</div>
+        {recommendedPlan
+          ? (
+            <>
+              <div style={{color:'#9fc6d5',marginBottom:'4px'}}>
+                Инструмент: <b>{recommendedPlan.tool}</b> · Профиль: <b>{recommendedPlan.profileId}</b>
+              </div>
+              <div style={{color:'#768aa0',marginBottom:'6px'}}>{recommendedPlan.reason}</div>
+              <button style={{...S.btn('#7bc3ff'),marginBottom:0,fontSize:'10px'}} onClick={applyRecommendation}>
+                Применить рекомендацию
+              </button>
+            </>
+          )
+          : <div style={{color:'#768aa0'}}>Рекомендация недоступна: цель не выбрана.</div>}
       </div>
       <div style={{display:'flex',gap:'4px',flexWrap:'wrap',marginBottom:'8px'}}>
         {TOOLS.map(t=>(
