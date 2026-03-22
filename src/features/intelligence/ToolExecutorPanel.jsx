@@ -156,6 +156,14 @@ function buildSemanticSummary(tool, result) {
   const warningSignals = mergedOutput.match(/(warn|notice|retry|slow|fallback)/gi) || [];
   const uniquePorts = new Set(openPorts.map((item) => (String(item).match(/\d{1,5}/) || [''])[0]).filter(Boolean));
   const uniquePaths = new Set(pathSignals.slice(0, 20));
+  const serviceNames = new Set(
+    openServices
+      .map((item) => {
+        const matched = String(item).match(/\b(open|filtered)\s+([a-z0-9_.-]{2,20})\b/i);
+        return matched?.[2] || '';
+      })
+      .filter(Boolean),
+  );
 
   const noiseLevel = errorSignals.length + warningSignals.length;
   const noiseText = noiseLevel >= 8 ? 'Шум высокий' : noiseLevel >= 3 ? 'Шум умеренный' : 'Шум низкий';
@@ -163,7 +171,8 @@ function buildSemanticSummary(tool, result) {
   if (tool === 'nmap') {
     if (uniquePorts.size > 0) {
       const topPorts = [...uniquePorts].slice(0, 3).join(', ');
-      return `Сетевые сигналы: открытые порты (${uniquePorts.size}), ключевые: ${topPorts}. Сервисы: ${openServices.length > 0 ? 'есть признаки' : 'мало данных'}. ${noiseText}.`;
+      const topServices = [...serviceNames].slice(0, 2).join(', ');
+      return `Сетевые сигналы: открытые порты (${uniquePorts.size}), ключевые: ${topPorts}. Сервисы: ${topServices || (openServices.length > 0 ? 'есть признаки' : 'мало данных')}. ${noiseText}.`;
     }
     return `Сетевые сигналы слабые: открытых портов не видно, сервисы не подтверждены. ${noiseText}.`;
   }
@@ -183,7 +192,8 @@ function buildSemanticSummary(tool, result) {
   if (tool === 'masscan') {
     if (uniquePorts.size > 0) {
       const topPorts = [...uniquePorts].slice(0, 3).join(', ');
-      return `Быстрый сетевой обзор: открытых портов ${uniquePorts.size}, ключевые: ${topPorts}. ${noiseText}.`;
+      const topServices = [...serviceNames].slice(0, 2).join(', ');
+      return `Быстрый сетевой обзор: открытых портов ${uniquePorts.size}, ключевые: ${topPorts}. ${topServices ? `Сервисы: ${topServices}. ` : ''}${noiseText}.`;
     }
     return `Быстрый сетевой обзор: открытые порты не зафиксированы. ${noiseText}.`;
   }
