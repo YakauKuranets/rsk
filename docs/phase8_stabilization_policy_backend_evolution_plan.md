@@ -247,3 +247,32 @@ It is reasonable to prepare the next strictness increment when all are true for 
 2. `legacy_ratio` remains well below warning threshold.
 3. `non_json_ratio` remains near zero or consistently below warning threshold.
 4. No new spikes in warning logs after routine operational activity.
+
+### Phase 9 addendum: interpreting `TARGET_ENVELOPE_POLICY_WARNING` vs `...ESCALATION_WARNING`
+
+Use these runtime signals as follows:
+
+- `TARGET_ENVELOPE_POLICY_WARNING`:
+  - means the current summary window crossed warning thresholds (`legacy_ratio` and/or `non_json_ratio`)
+  - treat this as an **early caution signal**, not an immediate rollback or enforcement trigger.
+
+- `TARGET_ENVELOPE_POLICY_ESCALATION_WARNING`:
+  - means warning condition persisted for multiple consecutive summary windows (streak-based escalation)
+  - treat this as a **sustained degradation signal** and pause strictness increases until trend improves.
+
+Practical interpretation guide:
+
+1. **Likely random/noisy case**:
+   - isolated single warning window,
+   - no repeat in the next windows,
+   - no escalation warning.
+
+2. **Likely sustained bad trend**:
+   - repeated warning windows,
+   - escalation warning appears,
+   - legacy/non-json ratios remain elevated across windows.
+
+Policy action guidance:
+
+- **Too early for tightening** when escalation warning is present or warning windows repeat frequently.
+- **Reasonable to prepare next strictness step** when warnings are rare, no escalation appears for a meaningful observation period, and ratios remain consistently low.
