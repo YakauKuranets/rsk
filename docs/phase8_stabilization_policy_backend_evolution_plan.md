@@ -276,3 +276,25 @@ Policy action guidance:
 
 - **Too early for tightening** when escalation warning is present or warning windows repeat frequently.
 - **Reasonable to prepare next strictness step** when warnings are rare, no escalation appears for a meaningful observation period, and ratios remain consistently low.
+
+### Phase 10 addendum: interpreting `TARGET_ENVELOPE_PRE_STRICTNESS_WARNING`
+
+`TARGET_ENVELOPE_PRE_STRICTNESS_WARNING` is a stronger **case-level** caution signal than baseline policy warning:
+
+- `TARGET_ENVELOPE_POLICY_WARNING`:
+  - window-level ratio threshold crossed (early caution).
+- `TARGET_ENVELOPE_POLICY_ESCALATION_WARNING`:
+  - warning condition persisted across consecutive windows (trend-level caution).
+- `TARGET_ENVELOPE_PRE_STRICTNESS_WARNING`:
+  - particularly risky event pattern for future strictness (e.g. non-json on save, or legacy-on-save while warning streak is sustained).
+
+How they differ:
+
+1. **Policy warning** answers: “Did this window look risky by ratio?”
+2. **Escalation warning** answers: “Is risky behavior persistent across windows?”
+3. **Pre-strictness warning** answers: “Did we just observe an especially problematic event for tightening readiness?”
+
+Operational guidance:
+
+- **Too early for tightening** when pre-strictness warnings appear repeatedly, especially together with escalation warnings.
+- **Prepare next strictness step** only when pre-strictness warnings become rare/absent over a meaningful observation period and window-level warnings stay low.
