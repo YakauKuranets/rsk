@@ -15,6 +15,7 @@ import HubReconPanel from '../archive/HubReconPanel';
 import CapturePanel from '../archive/CapturePanel';
 import NvrProbePanel from '../archive/NvrProbePanel';
 import SpiderControl from '../spider/SpiderControl';
+import { canRunArchiveExport, canRunStreamVerification } from '../targets/cardKindAdapter';
 
 const T={
   bg0:'#07070f',bg1:'#0c0c1a',bg2:'#111122',bg3:'#171730',
@@ -319,6 +320,14 @@ function TargetsPanel({
         <div style={{fontSize:'10px',color:T.muted,marginBottom:'8px'}}>Показано: {filteredTargets.length} из {targets.length}</div>
         {selectedTarget && (
           <div style={{marginBottom:'8px',padding:'6px',border:'1px solid '+T.line,borderRadius:'4px',background:T.bg1}}>
+            {(() => {
+              const isHub = String(selectedTarget?.type || '').toLowerCase() === 'hub';
+              const streamAvailable = !isHub && canRunStreamVerification(selectedTarget);
+              const archiveAvailable = isHub ? true : canRunArchiveExport(selectedTarget);
+              const isapiAvailable = !isHub && canRunStreamVerification(selectedTarget);
+              const onvifAvailable = !isHub && canRunStreamVerification(selectedTarget);
+              const statusColor = (ok) => (ok ? T.grn : T.amb);
+              return (
             <div style={{border:'1px solid '+T.line,borderRadius:'4px',padding:'6px',background:T.bg0,marginBottom:'6px'}}>
               <div style={{fontSize:'10px',color:T.muted,marginBottom:'4px'}}>Контекст выбранной цели</div>
               <div style={{fontSize:'11px',color:T.text,fontWeight:700,marginBottom:'3px'}}>
@@ -328,9 +337,14 @@ function TargetsPanel({
                 <div>IP/хост: <span style={{color:T.text}}>{selectedTarget.host || selectedTarget.ip || 'не указан'}</span></div>
                 <div>Тип: <span style={{color:T.text}}>{String(selectedTarget.type || 'локальная').toUpperCase()}</span></div>
                 <div>Каналы: <span style={{color:T.text}}>{Array.isArray(selectedTarget.channels) ? selectedTarget.channels.length : Number(selectedTarget.channelCount || selectedTarget.cameraCount || 0)}</span></div>
-                <div>Действия: <span style={{color:String(selectedTarget?.type||'').toLowerCase()==='hub'?T.amb:T.grn}}>{String(selectedTarget?.type||'').toLowerCase()==='hub'?'ограничены (HUB)':'доступны'}</span></div>
+                <div>Поток: <span style={{color:statusColor(streamAvailable)}}>{streamAvailable ? 'доступен' : 'ограничен'}</span></div>
+                <div>Архив: <span style={{color:statusColor(archiveAvailable)}}>{archiveAvailable ? 'доступен' : 'ограничен'}</span></div>
+                <div>ISAPI: <span style={{color:statusColor(isapiAvailable)}}>{isapiAvailable ? 'доступен' : 'ограничен'}</span></div>
+                <div>ONVIF: <span style={{color:statusColor(onvifAvailable)}}>{onvifAvailable ? 'доступен' : 'ограничен'}</span></div>
               </div>
             </div>
+              );
+            })()}
             <div style={{fontSize:'10px',color:T.cyan,marginBottom:'6px'}}>
               Выбранная цель: <b>{selectedTarget.name || selectedTarget.host || selectedTarget.id}</b>
             </div>
