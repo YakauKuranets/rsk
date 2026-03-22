@@ -232,6 +232,7 @@ function TargetsPanel({
   handleSmartSave,handleDeleteTarget,handleGeocode,
   onNemesis,onMemoryRequest,onIsapiInfo,onIsapiSearch,
   onOnvifInfo,onOnvifRecordings,onArchiveEndpoints,onOpenHubArchive,
+  onQuickStartStream,
   labels,setLabels,onLabelClick,labelEditRequest,
   capture,nvr,auditResults,handlePortScan,handleSecurityAudit,
   handleDownloadIsapiPlayback,handleCaptureIsapiPlayback,handleDownloadOnvifToken,
@@ -323,6 +324,9 @@ function TargetsPanel({
             </div>
             <div style={{fontSize:'10px',color:T.muted,marginBottom:'5px'}}>Быстрые действия по выбранной цели</div>
             <div style={{display:'grid',gridTemplateColumns:'repeat(2,minmax(0,1fr))',gap:'4px'}}>
+              {String(selectedTarget?.type || '').toLowerCase() !== 'hub' && (
+                <button style={css.btn(T.cyan)} onClick={()=>onQuickStartStream?.(selectedTarget)}>Открыть поток (канал 1)</button>
+              )}
               <button style={css.btn(T.cyan)} onClick={()=>onIsapiInfo(selectedTarget)}>ISAPI инфо</button>
               <button style={css.btn(T.grn)} onClick={()=>onOnvifInfo(selectedTarget)}>ONVIF инфо</button>
               <button style={css.btn(T.amb)} onClick={()=>onIsapiSearch(selectedTarget)}>Поиск архива</button>
@@ -475,6 +479,7 @@ export default function Sidebar(props){
     handleSmartSave,handleDeleteTarget,handleGeocode,
     onNemesis,onMemoryRequest,onIsapiInfo,onIsapiSearch,
     onOnvifInfo,onOnvifRecordings,onArchiveEndpoints,onOpenHubArchive,
+    onQuickStartStream,
     agentScope,setAgentScope,handleRunReconAgent,agentStatus,agentPacket,handleAgentHandoff,
     fuzzPath,handleAnalyzeSources,handlePlayFuzzedLink,
     isSniffing,handleStartSniffer,interceptLogs,implementationStatus,onPlayCamera,
@@ -536,6 +541,7 @@ export default function Sidebar(props){
           onIsapiInfo={onIsapiInfo} onIsapiSearch={onIsapiSearch}
           onOnvifInfo={onOnvifInfo} onOnvifRecordings={onOnvifRecordings}
           onArchiveEndpoints={onArchiveEndpoints} onOpenHubArchive={onOpenHubArchive}
+          onQuickStartStream={onQuickStartStream}
           labels={labels} setLabels={setLabels} onLabelClick={onLabelClick} labelEditRequest={labelEditRequest}
           capture={capture} nvr={nvr} auditResults={auditResults}
           handlePortScan={handlePortScan} handleSecurityAudit={handleSecurityAudit}

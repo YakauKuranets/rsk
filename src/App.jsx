@@ -1021,6 +1021,22 @@ export default function App() {
     }
   };
 
+  const handleQuickStartSelectedTargetStream = async (target) => {
+    if (!target || String(target?.type || '').toLowerCase() === 'hub') {
+      return toast('Быстрый запуск потока доступен только для локальной не-HUB цели.');
+    }
+    const channels = Array.isArray(target?.channels) && target.channels.length > 0
+      ? target.channels
+      : [{ id: 'ch1', index: 1, name: 'Камера 1' }];
+    const firstRaw = channels[0] || { id: 'ch1', index: 1, name: 'Камера 1' };
+    const firstChannel = {
+      id: firstRaw.id || 'ch1',
+      index: Number(firstRaw.index || firstRaw.id || 1) || 1,
+      name: firstRaw.name || 'Камера 1',
+    };
+    await handleStartStream(target, firstChannel);
+  };
+
   const handleLocalArchive = async (terminal) => {
     const ctx = setArchiveContextFromTarget(terminal, 'handleLocalArchive');
     if (!ensureArchiveEligibility(ctx, 'discovery', 'Discovery action')) return;
@@ -1645,6 +1661,7 @@ const handleSecurityAudit = async () => {
           isDownloadableRecord={isDownloadableRecord}
           handleCaptureArchive={handleCaptureArchive}
           handleDownloadHttp={handleDownloadHttp}
+          onQuickStartStream={handleQuickStartSelectedTargetStream}
           activeTargetId={activeTargetId}
           streamRtspUrl={streamRtspUrl}
           activeCameraName={activeCameraName}
