@@ -308,6 +308,60 @@ function buildLinkedActionAggregate(statuses) {
   return { readyCount, limitedCount, blockedCount, mainReason, total: values.length };
 }
 
+function buildTargetCompatibilityProfile(target, availability, actionStatuses) {
+  const safeTarget = target || {};
+  const typeText = String(safeTarget?.type || '').toLowerCase();
+  const text = `${safeTarget?.name || ''} ${safeTarget?.host || ''} ${safeTarget?.ip || ''} ${safeTarget?.url || ''} ${safeTarget?.endpoint || ''}`.toLowerCase();
+  const isHub = typeText === 'hub';
+  const looksCamera = /(cam|camera|nvr|dvr|rtsp|onvif|554|hik|xmeye|ipcam)/.test(`${typeText} ${text}`);
+  const looksWeb = /https?:\/\/|\bwww\.|:80\b|:443\b|web|portal|admin/.test(text);
+  const hasHost = String(safeTarget?.host || safeTarget?.ip || '').trim().length > 0;
+
+  if (isHub) {
+    return {
+      label: 'HUB',
+      stream: 'ограничен',
+      web: 'частично уместны',
+      archive: 'уместны',
+      note: actionStatuses?.archive || 'Готово',
+    };
+  }
+  if (looksCamera) {
+    return {
+      label: 'Камера / NVR',
+      stream: availability?.stream ? 'уместен' : 'ограничен',
+      web: 'уместны',
+      archive: availability?.archive ? 'уместны' : 'ограничены',
+      note: actionStatuses?.stream || 'Готово',
+    };
+  }
+  if (looksWeb) {
+    return {
+      label: 'Web-цель',
+      stream: availability?.stream ? 'возможен' : 'не приоритет',
+      web: 'уместны',
+      archive: availability?.archive ? 'уместны' : 'зависит от цели',
+      note: actionStatuses?.isapi || actionStatuses?.archiveSearch || 'Готово',
+    };
+  }
+  if (hasHost) {
+    return {
+      label: 'Сетевой узел',
+      stream: availability?.stream ? 'возможен' : 'неочевиден',
+      web: 'по ситуации',
+      archive: availability?.archive ? 'возможны' : 'ограничены',
+      note: actionStatuses?.stream || actionStatuses?.archive || 'Недостаточно данных',
+    };
+  }
+  return {
+    label: 'Неопределённая цель',
+    stream: 'неочевиден',
+    web: 'неочевидны',
+    archive: 'неочевидны',
+    note: 'Недостаточно данных для запуска',
+  };
+}
+
 function TargetsPanel({
   targets,filteredTargets,targetSearch,setTargetSearch,
   targetTypeFilter,setTargetTypeFilter,archiveOnly,setArchiveOnly,
@@ -326,6 +380,9 @@ function TargetsPanel({
   const selectedTargetAvailability = selectedTarget ? getSelectedTargetActionAvailability(selectedTarget) : null;
   const selectedTargetActionStatuses = selectedTarget ? buildLinkedActionStatuses(selectedTarget, selectedTargetAvailability) : null;
   const selectedTargetActionAggregate = selectedTargetActionStatuses ? buildLinkedActionAggregate(selectedTargetActionStatuses) : null;
+  const selectedTargetCompatibilityProfile = selectedTarget
+    ? buildTargetCompatibilityProfile(selectedTarget, selectedTargetAvailability, selectedTargetActionStatuses)
+    : null;
   const withNormalizedTarget = (actionType, handler, target) => {
     if (typeof handler !== 'function') return;
     handler(normalizeTargetForLinkedAction(target, actionType));
@@ -427,6 +484,20 @@ function TargetsPanel({
             <div style={{fontSize:'10px',color:T.cyan,marginBottom:'6px'}}>
               Выбранная цель: <b>{selectedTarget.name || selectedTarget.host || selectedTarget.id}</b>
             </div>
+            {selectedTargetCompatibilityProfile && (
+              <div style={{marginBottom:'6px',border:'1px solid #2a3a4f',background:'#0c1520',borderRadius:'4px',padding:'6px 8px'}}>
+                <div style={{fontSize:'10px',color:'#7f93a4',marginBottom:'3px'}}>Профиль совместимости цели</div>
+                <div style={{fontSize:'10px',color:T.text,marginBottom:'3px'}}>Профиль: <b>{selectedTargetCompatibilityProfile.label}</b></div>
+                <div style={{fontSize:'10px',color:T.muted}}>
+                  Поток: <b style={{color:'#9ec58f'}}>{selectedTargetCompatibilityProfile.stream}</b> ·
+                  Web-info: <b style={{color:'#9ec58f'}}> {selectedTargetCompatibilityProfile.web}</b> ·
+                  Архив: <b style={{color:'#9ec58f'}}> {selectedTargetCompatibilityProfile.archive}</b>
+                </div>
+                <div style={{fontSize:'10px',color:T.muted,marginTop:'3px'}}>
+                  Сейчас ключевой сигнал: <b style={{color:T.amb}}>{selectedTargetCompatibilityProfile.note}</b>
+                </div>
+              </div>
+            )}
             <div style={{fontSize:'10px',color:T.muted,marginBottom:'5px'}}>Быстрые действия для выбранной цели</div>
             <div style={{display:'grid',gridTemplateColumns:'repeat(2,minmax(0,1fr))',gap:'4px'}}>
               {String(selectedTarget?.type || '').toLowerCase() !== 'hub' && (
