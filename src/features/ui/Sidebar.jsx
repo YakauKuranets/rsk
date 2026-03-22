@@ -61,7 +61,7 @@ function Section({icon,title,color,children,defaultOpen=true}){
 function TargetsPanel({
   targets,filteredTargets,targetSearch,setTargetSearch,
   targetTypeFilter,setTargetTypeFilter,archiveOnly,setArchiveOnly,
-  form,setForm,hubRecon,
+  form,setForm,targetSaveStatus,hubRecon,
   handleSmartSave,handleDeleteTarget,handleGeocode,
   onNemesis,onMemoryRequest,onIsapiInfo,onIsapiSearch,
   onOnvifInfo,onOnvifRecordings,onArchiveEndpoints,onOpenHubArchive,
@@ -110,6 +110,19 @@ function TargetsPanel({
           </div>
           <div style={{height:'8px'}}/>
           <button style={css.btnFull(T.cyan,true)} onClick={handleSmartSave}>💾 СОХРАНИТЬ ЦЕЛЬ</button>
+          {targetSaveStatus?.text && (
+            <div style={{
+              marginTop:'6px',
+              fontSize:'10px',
+              borderRadius:'4px',
+              padding:'6px 8px',
+              border:'1px solid ' + (targetSaveStatus.level === 'error' ? '#7a2a2a' : targetSaveStatus.level === 'warn' ? '#6c5a24' : '#245a3c'),
+              background: targetSaveStatus.level === 'error' ? '#1a0b0b' : targetSaveStatus.level === 'warn' ? '#17130a' : '#0b1710',
+              color: targetSaveStatus.level === 'error' ? '#ff9b9b' : targetSaveStatus.level === 'warn' ? '#ffd27d' : '#9fe0b7',
+            }}>
+              {targetSaveStatus.text}
+            </div>
+          )}
         </Section>
 
         <div style={{marginBottom:'8px'}}>
@@ -264,7 +277,7 @@ export default function Sidebar(props){
   const {
     targets,filteredTargets,targetSearch,setTargetSearch,
     targetTypeFilter,setTargetTypeFilter,archiveOnly,setArchiveOnly,
-    form,setForm,hubRecon,
+    form,setForm,targetSaveStatus,hubRecon,
     handleSmartSave,handleDeleteTarget,handleGeocode,
     onNemesis,onMemoryRequest,onIsapiInfo,onIsapiSearch,
     onOnvifInfo,onOnvifRecordings,onArchiveEndpoints,onOpenHubArchive,
@@ -312,7 +325,7 @@ export default function Sidebar(props){
           targetSearch={targetSearch} setTargetSearch={setTargetSearch}
           targetTypeFilter={targetTypeFilter} setTargetTypeFilter={setTargetTypeFilter}
           archiveOnly={archiveOnly} setArchiveOnly={setArchiveOnly}
-          form={form} setForm={setForm} hubRecon={hubRecon}
+          form={form} setForm={setForm} targetSaveStatus={targetSaveStatus} hubRecon={hubRecon}
           handleSmartSave={handleSmartSave} handleDeleteTarget={handleDeleteTarget}
           handleGeocode={handleGeocode}
           onNemesis={onNemesis} onMemoryRequest={onMemoryRequest}

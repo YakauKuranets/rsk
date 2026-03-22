@@ -151,6 +151,7 @@ export default function App() {
   const [agentScope, setAgentScope] = useState('demo.local');
   const [agentPacket, setAgentPacket] = useState(null);
   const [agentStatus, setAgentStatus] = useState('');
+  const [targetSaveStatus, setTargetSaveStatus] = useState(null);
   const capture = useCapturePanel();
   const hubRecon = useHubRecon();
   const {
@@ -366,8 +367,26 @@ export default function App() {
     const channels = Array.from({length: form.channelCount}, (_, i) => ({ id: `ch${i+1}`, index: i+1, name: `Камера ${i+1}` }));
     const envelope = buildTargetEnvelope({ ...form, id: autoId, channels }, 'handleSmartSave');
     const payload = JSON.stringify(envelope);
-    await invoke('save_target', { targetId: autoId, payload });
-    loadTargets();
+    try {
+      await invoke('save_target', { targetId: autoId, payload });
+      const rawSaved = await invoke('read_target', { targetId: autoId });
+      const savedObj = typeof rawSaved === 'string' ? JSON.parse(rawSaved) : rawSaved;
+      const strictnessStep = savedObj?.metadata?.strictnessStep || null;
+      if (strictnessStep === 'phase11_non_json_save_soft_wrap') {
+        setTargetSaveStatus({ level: 'warn', text: '⚠️ Сохранено через мягкую обёртку non-JSON (compat path).' });
+      } else {
+        setTargetSaveStatus({ level: 'ok', text: `✅ Цель сохранена (${autoId})` });
+      }
+      loadTargets();
+    } catch (err) {
+      const msg = String(err || '');
+      if (msg.includes('non_json_payload_rejected')) {
+        setTargetSaveStatus({ level: 'error', text: '❌ Сохранение отклонено: strict reject non-JSON fallback.' });
+      } else {
+        setTargetSaveStatus({ level: 'error', text: `❌ Ошибка сохранения: ${msg}` });
+      }
+      toast(`Ошибка сохранения: ${msg}`);
+    }
   };
 
   const handleDeleteTarget = async (id) => {
@@ -987,8 +1006,19 @@ export default function App() {
       id: autoId, name: `ХАБ: ${cam.ip}`, host: `streamhub_user${cam.id}`, hub_id: cam.id, type: 'hub', lat: lat, lng: lng, channels: channels
     }, 'handleSaveHubToLocal');
     const payload = JSON.stringify(envelope);
-    await invoke('save_target', { targetId: autoId, payload });
-    loadTargets();
+    try {
+      await invoke('save_target', { targetId: autoId, payload });
+      setTargetSaveStatus({ level: 'ok', text: `✅ HUB-цель сохранена (${autoId})` });
+      loadTargets();
+    } catch (err) {
+      const msg = String(err || '');
+      if (msg.includes('non_json_payload_rejected')) {
+        setTargetSaveStatus({ level: 'error', text: '❌ Сохранение HUB отклонено: strict reject non-JSON fallback.' });
+      } else {
+        setTargetSaveStatus({ level: 'error', text: `❌ Ошибка сохранения HUB: ${msg}` });
+      }
+      toast(`Ошибка сохранения HUB: ${msg}`);
+    }
   };
 
   const handleLocalArchive = async (terminal) => {
@@ -1552,6 +1582,7 @@ const handleSecurityAudit = async () => {
           setArchiveOnly={setArchiveOnly}
           form={form}
           setForm={setForm}
+          targetSaveStatus={targetSaveStatus}
           hubRecon={hubRecon}
           handleSmartSave={handleSmartSave}
           handleDeleteTarget={handleDeleteTarget}
