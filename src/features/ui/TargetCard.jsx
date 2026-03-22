@@ -87,17 +87,13 @@ export default function TargetCard({
           ? `0 0 0 1px ${T.cyan}22 inset`
           : 'none',
     }}>
-      <button
-        type="button"
-        onClick={() => setOpen((v) => !v)}
+      <div
         style={{
-          all: 'unset',
           display: 'grid',
           gridTemplateColumns: '24px 1fr auto',
           gap: '8px',
           alignItems: 'center',
           width: '100%',
-          cursor: 'pointer',
           marginBottom: '6px',
         }}
       >
@@ -112,7 +108,7 @@ export default function TargetCard({
           <div style={{ fontSize: '10px', color: T.cyan, fontWeight: 700 }}>{cameraCount}</div>
           <div style={{ fontSize: '9px', color: T.dim }}>cams</div>
         </div>
-      </button>
+      </div>
       <div style={{display:'flex',gap:'4px'}}>
         <button
           type="button"
