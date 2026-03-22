@@ -293,6 +293,16 @@ fn record_target_envelope_marker(state: &State<'_, LogState>, marker: &str, targ
         );
     }
 
+    if marker == "non_json_passthrough_on_save" {
+        push_runtime_log(
+            state,
+            format!(
+                "TARGET_ENVELOPE_NON_JSON_SAVE_FALLBACK_EXCEPTION|targetId={}|marker={}|reason=soft_wrap_failed_fallback_passthrough|action=allow_log_only",
+                target_id, marker
+            ),
+        );
+    }
+
     if total % SUMMARY_EVERY_N_OPS == 0 {
         let envelope_read = counters.envelope_read.load(Ordering::Relaxed);
         let legacy_wrapped_on_read = counters.legacy_wrapped_on_read.load(Ordering::Relaxed);
