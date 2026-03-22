@@ -298,6 +298,16 @@ function buildLinkedActionStatuses(target, availability) {
   };
 }
 
+function buildLinkedActionAggregate(statuses) {
+  const values = Object.values(statuses || {}).filter(Boolean);
+  const readyCount = values.filter((s) => s === 'Готово').length;
+  const limitedCount = values.filter((s) => s === 'Ограничено для HUB').length;
+  const blockedCount = values.length - readyCount - limitedCount;
+  const priorityReasons = ['Нет host/ip', 'Нужен web-endpoint', 'Недостаточно данных для запуска', 'Ограничено для HUB'];
+  const mainReason = priorityReasons.find((reason) => values.includes(reason)) || (readyCount > 0 ? 'Готово' : 'Нет данных');
+  return { readyCount, limitedCount, blockedCount, mainReason, total: values.length };
+}
+
 function TargetsPanel({
   targets,filteredTargets,targetSearch,setTargetSearch,
   targetTypeFilter,setTargetTypeFilter,archiveOnly,setArchiveOnly,
@@ -315,6 +325,7 @@ function TargetsPanel({
   const [tab2,setTab2]=useState('targets');
   const selectedTargetAvailability = selectedTarget ? getSelectedTargetActionAvailability(selectedTarget) : null;
   const selectedTargetActionStatuses = selectedTarget ? buildLinkedActionStatuses(selectedTarget, selectedTargetAvailability) : null;
+  const selectedTargetActionAggregate = selectedTargetActionStatuses ? buildLinkedActionAggregate(selectedTargetActionStatuses) : null;
   const withNormalizedTarget = (actionType, handler, target) => {
     if (typeof handler !== 'function') return;
     handler(normalizeTargetForLinkedAction(target, actionType));
@@ -428,6 +439,19 @@ function TargetsPanel({
                 ? <button style={css.btn(T.blue)} onClick={()=>withNormalizedTarget('hub_archive', onOpenHubArchive, selectedTarget)}>Архив HUB</button>
                 : <button style={css.btn(T.purp)} onClick={()=>withNormalizedTarget('archive_endpoints', onArchiveEndpoints, selectedTarget)}>Точки архива</button>}
             </div>
+            {selectedTargetActionAggregate && (
+              <div style={{marginTop:'6px',border:'1px solid #253449',background:'#0b121c',borderRadius:'4px',padding:'6px 8px'}}>
+                <div style={{fontSize:'10px',color:'#7f93a4',marginBottom:'3px'}}>Сводка готовности связанных действий</div>
+                <div style={{fontSize:'10px',color:T.muted,marginBottom:'3px'}}>
+                  Готово: <b style={{color:T.grn}}>{selectedTargetActionAggregate.readyCount}</b> ·
+                  Ограничено: <b style={{color:T.amb}}> {selectedTargetActionAggregate.limitedCount}</b> ·
+                  Мешает: <b style={{color:T.red}}> {selectedTargetActionAggregate.blockedCount}</b>
+                </div>
+                <div style={{fontSize:'10px',color:T.muted}}>
+                  Главная причина: <b style={{color:selectedTargetActionAggregate.mainReason === 'Готово' ? T.grn : T.amb}}>{selectedTargetActionAggregate.mainReason}</b>
+                </div>
+              </div>
+            )}
             <div style={{marginTop:'6px',display:'grid',gap:'3px'}}>
               {String(selectedTarget?.type || '').toLowerCase() !== 'hub' && (
                 <div style={{fontSize:'10px',color:T.muted}}>Открыть поток: <b style={{color:selectedTargetActionStatuses?.stream === 'Готово' ? T.grn : T.amb}}>{selectedTargetActionStatuses?.stream || '—'}</b></div>
