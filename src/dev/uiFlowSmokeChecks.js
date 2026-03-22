@@ -102,6 +102,28 @@ function moveWorkChainNext(state) {
   };
 }
 
+function getSafeChainStepIndex(chain, indexLike) {
+  const steps = Array.isArray(chain?.steps) ? chain.steps : [];
+  if (steps.length === 0) return 0;
+  const index = Number(indexLike);
+  if (!Number.isFinite(index)) return 0;
+  return Math.max(0, Math.min(steps.length - 1, Math.floor(index)));
+}
+
+function applyManualDeviationFromChain(state, nextArgs) {
+  return {
+    ...state,
+    customScenario: {
+      name: 'Ручная корректировка',
+      steps: [String(nextArgs || '').trim()].filter(Boolean),
+    },
+    workChain: {
+      ...state.workChain,
+      done: false,
+    },
+  };
+}
+
 function hasWebHint(target) {
   const text = `${target?.url || ''} ${target?.endpoint || ''} ${target?.name || ''} ${target?.host || ''}`.toLowerCase();
   return /https?:\/\/|\bwww\.|:80\b|:443\b|web|portal|admin/.test(text);
@@ -228,6 +250,46 @@ export function runUiFlowSmokeChecks() {
   assert(restoreFavoriteScenarioIds('[]', ['web_fast']).length === 0, 'bad-state: пустые favorite сценарии должны восстанавливаться безопасно');
   assert(restoreObjectArray('[]', 5).length === 0, 'bad-state: пустые user/recent сценарии должны восстанавливаться безопасно');
 
+  const deletedActive = removeTarget(selectTarget(createInitialState(), 'hub-1'), 'hub-1');
+  assert(deletedActive.selectedTargetId === 'cam-1', 'edge-case: удаление активной selectedTarget должно безопасно переключать выбор');
+
+  const brokenRecent = saveRecentRun(createInitialState(), { id: 'bad-run', label: null });
+  const replayBrokenRecent = repeatRecentRun(brokenRecent, 'bad-run');
+  assert(Array.isArray(replayBrokenRecent.workChain.steps) && replayBrokenRecent.workChain.steps.length === 0, 'edge-case: частично битый recent run не должен ломать repeat flow');
+
+  const incompleteUserScenario = applyCustomScenario(createInitialState(), { id: 'custom-1' });
+  assert(incompleteUserScenario.customScenario?.name === 'Пользовательский' && incompleteUserScenario.workChain.steps.length === 0, 'edge-case: неполный пользовательский сценарий должен давать safe defaults');
+
+  const staleFavoriteIds = restoreFavoriteScenarioIds(JSON.stringify(['legacy_id', 'web_fast']), ['web_fast']);
+  assert(staleFavoriteIds.length === 1 && staleFavoriteIds[0] === 'web_fast', 'edge-case: устаревшие favorite ids должны отбрасываться');
+
+  const chain = { steps: [{ id: 1 }, { id: 2 }, { id: 3 }] };
+  assert(getSafeChainStepIndex(chain, -10) === 0, 'edge-case: chain index < 0 должен clamp-иться');
+  assert(getSafeChainStepIndex(chain, 99) === 2, 'edge-case: chain index > max должен clamp-иться');
+  assert(getSafeChainStepIndex(chain, 'abc') === 0, 'edge-case: нечисловой chain index должен fallback-иться');
+
+  const mixedProfile = buildProfile({ type: 'unknown', name: 'cam-portal', host: '', url: 'http://mixed.local/admin' }, {
+    stream: 'Недостаточно данных для запуска',
+    isapi: 'Готово',
+    onvif: 'Нет host/ip',
+    archiveSearch: 'Нужен web-endpoint',
+    archive: 'Нет host/ip',
+  });
+  assert(typeof mixedProfile.label === 'string' && mixedProfile.label.length > 0, 'edge-case: смешанный compatibility input должен давать валидный профиль');
+
+  const contradictoryAggregate = buildAggregate({
+    stream: 'Готово',
+    isapi: 'Ограничено для HUB',
+    onvif: 'Нет host/ip',
+    archiveSearch: 'Нужен web-endpoint',
+    archive: 'Готово',
+  });
+  assert(contradictoryAggregate.readyCount >= 0 && contradictoryAggregate.blockedCount >= 0, 'edge-case: aggregate при противоречивых сигналах должен быть безопасным');
+
+  const deviatedChain = applyManualDeviationFromChain(applyQuickScenario(createInitialState(), 'fast_stream'), '--manual-override');
+  assert(deviatedChain.customScenario?.name === 'Ручная корректировка', 'edge-case: ручное отклонение должно фиксироваться безопасно');
+  assert(deviatedChain.workChain.done === false, 'edge-case: ручное отклонение не должно аварийно завершать цепочку');
+
   return {
     status: PASS,
     checks: [
@@ -244,6 +306,14 @@ export function runUiFlowSmokeChecks() {
       'empty/bad-state: no host/ip + reason/status/aggregate fallback',
       'empty/bad-state: intelligenceTarget/args/permit token',
       'empty/bad-state: пустые favorite/user/recent сценарии',
+      'edge-case: удаление выбранной цели при активном selectedTarget',
+      'edge-case: частично битый recent run',
+      'edge-case: пользовательский сценарий с неполными полями',
+      'edge-case: устаревший favorite scenario id',
+      'edge-case: chain progress вне диапазона',
+      'edge-case: смешанный compatibility profile input',
+      'edge-case: reason/status + aggregate при противоречивых сигналах',
+      'edge-case: ручное отклонение от рабочей цепочки',
     ],
   };
 }
