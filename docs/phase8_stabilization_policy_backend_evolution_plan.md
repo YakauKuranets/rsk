@@ -319,3 +319,23 @@ Policy readiness guidance:
 - Fallback exception is still acceptable occasionally during transition.
 - If fallback exceptions are recurrent (or trending up), it is a sign to postpone stricter enforcement and focus on upstream payload hygiene.
 - If fallback exceptions are consistently absent and soft-wrap volume trends down, it is reasonable to prepare the next strictness increment.
+
+### Phase 12 addendum: interpreting strict reject telemetry for non-JSON save fallback
+
+Phase 12 introduced a narrow deny path for the worst case:
+non-JSON save payload where soft-wrap fails and passthrough fallback is disabled.
+
+Key signals:
+
+- `strict_reject_non_json_save`:
+  - in-memory counter of how many strict rejects were triggered for that exact deny path.
+- `TARGET_ENVELOPE_STRICT_REJECT`:
+  - per-event runtime log for each deny decision, including reason and running reject count.
+- `TARGET_ENVELOPE_STRICT_REJECT_SUMMARY`:
+  - periodic compact summary log for reject trend visibility.
+
+Interpretation guidance:
+
+1. Rare strict rejects can be acceptable as migration tail noise while clients are cleaned up.
+2. Repeated strict rejects (especially rising trend windows) indicate payload hygiene is still insufficient and further tightening should be delayed.
+3. If strict rejects remain low and stable over a meaningful observation period, it is reasonable to prepare the next strictness increment.
