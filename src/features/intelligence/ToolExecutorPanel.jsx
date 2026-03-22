@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { useAppStore } from '../../store/appStore';
 import { verifySessionCookieFlagsCapability } from '../../api/capabilities';
@@ -12,6 +12,30 @@ const S={
 
 const TOOLS=['nmap','nikto','nuclei','hydra','sqlmap','amass','gobuster','masscan','ffuf'];
 const PRESETS={nmap:'-sV -sC -p 80,443,554',nikto:'-h',nuclei:'-t cves/',hydra:'-l admin -P wordlist.txt http-get',sqlmap:'-u',amass:'enum -passive -d',masscan:'-p 80,443,554 --rate 1000'};
+const RUN_PROFILES={
+  nmap:[
+    {id:'fast',label:'Быстрый',args:'-T4 -F -sV'},
+    {id:'base',label:'Базовый',args:'-sV -sC -p 80,443,554'},
+    {id:'careful',label:'Осторожный',args:'-T2 -sV -sC -p 80,443,554 --max-retries 1'},
+  ],
+  nikto:[
+    {id:'fast',label:'Быстрый',args:'-h'},
+    {id:'full',label:'Полный',args:'-h -C all -Tuning x'},
+  ],
+  ffuf:[
+    {id:'base',label:'Базовый',args:'-w wordlist.txt -u http://TARGET/FUZZ -mc 200,204,301,302'},
+    {id:'careful',label:'Аккуратный',args:'-w wordlist.txt -u http://TARGET/FUZZ -mc all -rate 25 -timeout 10'},
+  ],
+  masscan:[
+    {id:'limited',label:'Ограниченный',args:'-p 80,443,554 --rate 500'},
+    {id:'careful',label:'Осторожный',args:'-p 80,443 --rate 200 --wait 5'},
+  ],
+  default:[
+    {id:'base',label:'Базовый',args:''},
+    {id:'safe',label:'Аккуратный',args:'--help'},
+  ],
+};
+const TOOL_EXEC_STATE_KEY = 'hyperion_tool_executor_state_v1';
 
 export default function ToolExecutorPanel({ onSessionAuditStatus, selectedTarget }){
   const intelligenceTarget = useAppStore((s)=>s.intelligenceTarget);
@@ -21,6 +45,8 @@ export default function ToolExecutorPanel({ onSessionAuditStatus, selectedTarget
   const [tool,setTool]=useState('nmap');
   const [args,setArgs]=useState('-sV -sC -p 80,443,554');
   const [timeout,setTo]=useState(120);
+  const [argsByTool, setArgsByTool] = useState({});
+  const [selectedPresetByTool, setSelectedPresetByTool] = useState({});
   const [load,setLoad]=useState(false);
   const [result,setResult]=useState(null);
   const [avail,setAvail]=useState([]);
@@ -31,6 +57,8 @@ export default function ToolExecutorPanel({ onSessionAuditStatus, selectedTarget
     : '';
   const selectedTargetEndpoint = selectedTarget?.host || selectedTarget?.ip || '';
   const normalizedArgs = String(args || '').trim();
+  const profiles = RUN_PROFILES[tool] || RUN_PROFILES.default;
+  const activePresetId = selectedPresetByTool?.[tool] || null;
   const hasTemplatePlaceholders = /(^|\b)(TARGET|FUZZ|example\.com)(\b|$)/i.test(normalizedArgs);
   const launchReadiness = !intelligenceTarget.trim()
     ? { level: 'error', text: 'Нужно указать цель', canRun: false }
@@ -41,6 +69,38 @@ export default function ToolExecutorPanel({ onSessionAuditStatus, selectedTarget
         : hasTemplatePlaceholders
           ? { level: 'warn', text: 'Проверь аргументы', canRun: true }
           : { level: 'ok', text: 'Готово к запуску', canRun: true };
+
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem(TOOL_EXEC_STATE_KEY);
+      if (!raw) return;
+      const saved = JSON.parse(raw);
+      const savedTool = TOOLS.includes(saved?.tool) ? saved.tool : 'nmap';
+      const savedTimeout = Number(saved?.timeout);
+      const nextArgsByTool = saved?.argsByTool && typeof saved.argsByTool === 'object' ? saved.argsByTool : {};
+      const nextPresetByTool = saved?.selectedPresetByTool && typeof saved.selectedPresetByTool === 'object' ? saved.selectedPresetByTool : {};
+      setArgsByTool(nextArgsByTool);
+      setSelectedPresetByTool(nextPresetByTool);
+      setTool(savedTool);
+      if (Number.isFinite(savedTimeout) && savedTimeout > 0) setTo(savedTimeout);
+      setArgs(nextArgsByTool[savedTool] || PRESETS[savedTool] || '');
+    } catch {}
+  }, []);
+
+  useEffect(() => {
+    setArgsByTool((prev) => ({ ...prev, [tool]: args }));
+  }, [tool, args]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(TOOL_EXEC_STATE_KEY, JSON.stringify({
+        tool,
+        timeout,
+        argsByTool,
+        selectedPresetByTool,
+      }));
+    } catch {}
+  }, [tool, timeout, argsByTool, selectedPresetByTool]);
 
   const run=async()=>{
     if (!launchReadiness.canRun) return alert(launchReadiness.text);
@@ -120,11 +180,28 @@ export default function ToolExecutorPanel({ onSessionAuditStatus, selectedTarget
       </div>
       <div style={{display:'flex',gap:'4px',flexWrap:'wrap',marginBottom:'8px'}}>
         {TOOLS.map(t=>(
-          <button key={t} onClick={()=>{setTool(t);setArgs(PRESETS[t]||'');}}
+          <button key={t} onClick={()=>{setTool(t);setArgs(argsByTool[t] || PRESETS[t] || '');}}
             style={{padding:'3px 8px',background:tool===t?'#1a1a1a':'transparent',
               color:tool===t?'#eee':'#555',border:'1px solid '+(tool===t?'#555':'#1a1a1a'),
               cursor:'pointer',fontSize:'10px',borderRadius:'3px'}}>{t}</button>
         ))}
+      </div>
+      <div style={{background:'#0d1219',border:'1px solid #202f42',padding:'6px',marginBottom:'6px',borderRadius:'3px'}}>
+        <div style={{fontSize:'10px',color:'#7f93a4',marginBottom:'4px'}}>Профиль запуска ({tool})</div>
+        <div style={{display:'flex',gap:'4px',flexWrap:'wrap'}}>
+          {profiles.map((p)=>(
+            <button
+              key={`${tool}_${p.id}`}
+              style={{...S.btn(activePresetId===p.id?'#66b3ff':'#8bb8ff'),width:'auto',padding:'4px 8px',marginBottom:0,fontSize:'10px'}}
+              onClick={()=>{
+                setArgs(p.args);
+                setSelectedPresetByTool((prev)=>({ ...prev, [tool]: p.id }));
+              }}
+            >
+              {p.label}
+            </button>
+          ))}
+        </div>
       </div>
       <div style={{
         border:'1px solid ' + (launchReadiness.level === 'error' ? '#7a2a2a' : launchReadiness.level === 'warn' ? '#6c5a24' : '#245a3c'),
