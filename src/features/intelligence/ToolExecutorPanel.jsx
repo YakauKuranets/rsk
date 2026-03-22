@@ -2,6 +2,15 @@ import { useEffect, useState } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { useAppStore } from '../../store/appStore';
 import { verifySessionCookieFlagsCapability } from '../../api/capabilities';
+import {
+  restoreFavoriteScenarioIds,
+  restoreObjectArray,
+  restoreToolExecState,
+  TOOL_EXEC_FAVORITE_SCENARIOS_KEY,
+  TOOL_EXEC_RECENT_RUNS_KEY,
+  TOOL_EXEC_STATE_KEY,
+  TOOL_EXEC_USER_SCENARIOS_KEY,
+} from './toolExecutorStorage';
 
 const S={
   wrap:{border:'1px solid #2a2a2a',padding:'10px',backgroundColor:'#0a0a0a',marginBottom:'8px'},
@@ -79,11 +88,7 @@ const WORK_CHAINS = [
     ],
   },
 ];
-const TOOL_EXEC_STATE_KEY = 'hyperion_tool_executor_state_v1';
-const TOOL_EXEC_FAVORITE_SCENARIOS_KEY = 'hyperion_tool_executor_favorite_scenarios_v1';
-const TOOL_EXEC_RECENT_RUNS_KEY = 'hyperion_tool_executor_recent_runs_v1';
 const TOOL_EXEC_RECENT_RUNS_LIMIT = 6;
-const TOOL_EXEC_USER_SCENARIOS_KEY = 'hyperion_tool_executor_user_scenarios_v1';
 const TOOL_EXEC_USER_SCENARIOS_LIMIT = 10;
 
 function getRecommendedToolPlan(selectedTarget) {
@@ -237,51 +242,33 @@ export default function ToolExecutorPanel({ onSessionAuditStatus, selectedTarget
           : { level: 'ok', text: 'Готово к запуску', canRun: true };
 
   useEffect(() => {
-    try {
-      const raw = localStorage.getItem(TOOL_EXEC_STATE_KEY);
-      if (!raw) return;
-      const saved = JSON.parse(raw);
-      const savedTool = TOOLS.includes(saved?.tool) ? saved.tool : 'nmap';
-      const savedTimeout = Number(saved?.timeout);
-      const nextArgsByTool = saved?.argsByTool && typeof saved.argsByTool === 'object' ? saved.argsByTool : {};
-      const nextPresetByTool = saved?.selectedPresetByTool && typeof saved.selectedPresetByTool === 'object' ? saved.selectedPresetByTool : {};
-      setArgsByTool(nextArgsByTool);
-      setSelectedPresetByTool(nextPresetByTool);
-      setTool(savedTool);
-      if (Number.isFinite(savedTimeout) && savedTimeout > 0) setTo(savedTimeout);
-      setArgs(nextArgsByTool[savedTool] || PRESETS[savedTool] || '');
-    } catch {}
+    const restored = restoreToolExecState(localStorage.getItem(TOOL_EXEC_STATE_KEY), {
+      tools: TOOLS,
+      presets: PRESETS,
+      fallbackTool: 'nmap',
+    });
+    setArgsByTool(restored.argsByTool);
+    setSelectedPresetByTool(restored.selectedPresetByTool);
+    setTool(restored.tool);
+    if (restored.timeout != null) setTo(restored.timeout);
+    setArgs(restored.args);
   }, []);
 
   useEffect(() => {
-    try {
-      const raw = localStorage.getItem(TOOL_EXEC_USER_SCENARIOS_KEY);
-      if (!raw) return;
-      const saved = JSON.parse(raw);
-      if (!Array.isArray(saved)) return;
-      setUserScenarios(saved.filter((item) => item && typeof item === 'object').slice(0, TOOL_EXEC_USER_SCENARIOS_LIMIT));
-    } catch {}
+    setUserScenarios(restoreObjectArray(localStorage.getItem(TOOL_EXEC_USER_SCENARIOS_KEY), TOOL_EXEC_USER_SCENARIOS_LIMIT));
   }, []);
 
   useEffect(() => {
-    try {
-      const raw = localStorage.getItem(TOOL_EXEC_RECENT_RUNS_KEY);
-      if (!raw) return;
-      const saved = JSON.parse(raw);
-      if (!Array.isArray(saved)) return;
-      setRecentRuns(saved.filter((item) => item && typeof item === 'object').slice(0, TOOL_EXEC_RECENT_RUNS_LIMIT));
-    } catch {}
+    setRecentRuns(restoreObjectArray(localStorage.getItem(TOOL_EXEC_RECENT_RUNS_KEY), TOOL_EXEC_RECENT_RUNS_LIMIT));
   }, []);
 
   useEffect(() => {
-    try {
-      const raw = localStorage.getItem(TOOL_EXEC_FAVORITE_SCENARIOS_KEY);
-      if (!raw) return;
-      const saved = JSON.parse(raw);
-      if (!Array.isArray(saved)) return;
-      const allowed = new Set(QUICK_SCENARIOS.map((s) => s.id));
-      setFavoriteScenarioIds(saved.filter((id) => typeof id === 'string' && allowed.has(id)));
-    } catch {}
+    setFavoriteScenarioIds(
+      restoreFavoriteScenarioIds(
+        localStorage.getItem(TOOL_EXEC_FAVORITE_SCENARIOS_KEY),
+        QUICK_SCENARIOS.map((s) => s.id),
+      ),
+    );
   }, []);
 
   useEffect(() => {

@@ -1,3 +1,8 @@
+import {
+  restoreFavoriteScenarioIds,
+  restoreObjectArray,
+  restoreToolExecState,
+} from '../features/intelligence/toolExecutorStorage.js';
 const PASS = 'PASS';
 
 function assert(condition, message) {
@@ -170,6 +175,38 @@ export function runUiFlowSmokeChecks() {
   assert(aggregate.limitedCount >= 1, 'Агрегированная сводка: ожидалось хотя бы одно ограниченное действие');
   assert(typeof statuses.archive === 'string', 'Reason/status-подсказки: статус архива не рассчитан');
 
+  const restoredState = restoreToolExecState(JSON.stringify({
+    tool: 'nikto',
+    timeout: 240,
+    argsByTool: { nikto: '-h http://target.local' },
+    selectedPresetByTool: { nikto: 'fast' },
+    legacyField: 'ignore-me',
+  }), {
+    tools: ['nmap', 'nikto'],
+    presets: { nmap: '-sV', nikto: '-h' },
+    fallbackTool: 'nmap',
+  });
+  assert(restoredState.tool === 'nikto', 'localStorage restore: инструмент не восстановился');
+  assert(restoredState.argsByTool?.nikto === '-h http://target.local', 'localStorage restore: argsByTool не восстановился');
+  assert(restoredState.timeout === 240, 'localStorage restore: timeout не восстановился');
+  assert(restoredState.selectedPresetByTool?.nikto === 'fast', 'localStorage restore: selectedPresetByTool не восстановился');
+
+  const restoredFavorites = restoreFavoriteScenarioIds(JSON.stringify(['web_fast', 'unknown_id', 7]), ['web_fast', 'net_fast']);
+  assert(restoredFavorites.length === 1 && restoredFavorites[0] === 'web_fast', 'localStorage restore: неподходящие id избранного не отфильтрованы');
+
+  const restoredRecent = restoreObjectArray(JSON.stringify([{ id: 'r1' }, null, 'bad', { id: 'r2' }]), 2);
+  assert(restoredRecent.length === 2 && restoredRecent[0].id === 'r1', 'localStorage restore: recentRuns восстановились некорректно');
+
+  const restoredCustom = restoreObjectArray(JSON.stringify([{ id: 'u1', title: 'A' }, { id: 'u2', title: 'B' }]), 1);
+  assert(restoredCustom.length === 1 && restoredCustom[0].id === 'u1', 'localStorage restore: userScenarios limit не применился');
+
+  const malformedState = restoreToolExecState('{bad_json', {
+    tools: ['nmap', 'nikto'],
+    presets: { nmap: '-sV', nikto: '-h' },
+    fallbackTool: 'nmap',
+  });
+  assert(malformedState.tool === 'nmap', 'localStorage restore: битый JSON должен безопасно давать fallback');
+
   return {
     status: PASS,
     checks: [
@@ -180,6 +217,8 @@ export function runUiFlowSmokeChecks() {
       'недавний запуск (подставить/повторить/на текущую цель)',
       'рабочая цепочка (шаг → следующий → завершение)',
       'профиль/reason-status/агрегированная сводка',
+      'localStorage: tool/args/timeout/preset/favorites/recent/custom',
+      'localStorage: битый JSON / лишние поля / неподходящие id',
     ],
   };
 }
