@@ -100,13 +100,13 @@ export default function TargetCard({
         <div style={{ fontSize: '18px' }}>{icon}</div>
         <div style={{ minWidth: 0 }}>
           <div style={{ fontSize: '12px', fontWeight: 700, color: '#e5e7ff', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-            {t?.name || t?.host || 'Unknown target'}
+            {t?.name || t?.host || 'Неизвестная цель'}
           </div>
-          <div style={{ fontSize: '10px', color: T.muted }}>{t?.host || t?.ip || 'no-ip'}</div>
+          <div style={{ fontSize: '10px', color: T.muted }}>{t?.host || t?.ip || 'без IP'}</div>
         </div>
         <div style={{ textAlign: 'right' }}>
           <div style={{ fontSize: '10px', color: T.cyan, fontWeight: 700 }}>{cameraCount}</div>
-          <div style={{ fontSize: '9px', color: T.dim }}>cams</div>
+          <div style={{ fontSize: '9px', color: T.dim }}>камер</div>
         </div>
       </div>
       <div style={{display:'flex',gap:'4px'}}>
@@ -142,17 +142,17 @@ export default function TargetCard({
         <div style={{ marginTop: '8px', borderTop: `1px solid ${T.line}`, paddingTop: '8px' }}>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: '6px', marginBottom: '8px', fontSize: '10px' }}>
             <div style={{ background: '#090916', padding: '6px', border: `1px solid ${T.line}` }}>
-              <div style={{ color: T.dim }}>Coordinates</div>
+              <div style={{ color: T.dim }}>Координаты</div>
               <div style={{ color: T.text }}>{coords}</div>
             </div>
             <div style={{ background: '#090916', padding: '6px', border: `1px solid ${T.line}` }}>
-              <div style={{ color: T.dim }}>Channels</div>
+              <div style={{ color: T.dim }}>Каналы</div>
               <div style={{ color: T.text }}>{cameraCount || 'n/a'}</div>
             </div>
           </div>
 
           <div style={{ marginBottom: '8px' }}>
-            <div style={{ fontSize: '10px', color: T.dim, marginBottom: '4px' }}>Available channels</div>
+            <div style={{ fontSize: '10px', color: T.dim, marginBottom: '4px' }}>Доступные каналы</div>
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px' }}>
               {channels.length > 0 ? channels.map((channel, idx) => (
                 <span key={channel.id || idx} style={{
@@ -165,23 +165,23 @@ export default function TargetCard({
                 }}>
                   {channel.name || `Ch ${channel.id || idx + 1}`}
                 </span>
-              )) : <span style={{ fontSize: '10px', color: T.dim }}>No channels mapped</span>}
+              )) : <span style={{ fontSize: '10px', color: T.dim }}>Каналы не заданы</span>}
             </div>
           </div>
 
           {isHub ? (
-            <button type="button" style={{ ...btn(T.cyan), marginBottom: 0 }} onClick={() => onOpenHubArchive?.(t)}>📁 Hub archive</button>
+            <button type="button" style={{ ...btn(T.cyan), marginBottom: 0 }} onClick={() => onOpenHubArchive?.(t)}>📁 Архив HUB</button>
           ) : (
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: '4px' }}>
               {canVerified && <button type="button" style={btn(T.red)} onClick={() => onNemesis?.(t)}>☠ Nemesis</button>}
-              {canDiscovery && <button type="button" style={btn(T.purp)} onClick={() => onMemoryRequest?.(t)}>🧠 Memory</button>}
-              {canStreamCheck && <button type="button" style={btn(T.cyan)} onClick={() => onIsapiInfo?.(t)}>ℹ ISAPI Info</button>}
-              {canVerified && <button type="button" style={btn(T.amb)} onClick={() => onIsapiSearch?.(t)}>🔎 ISAPI Search</button>}
-              {canStreamCheck && <button type="button" style={btn(T.grn)} onClick={() => onOnvifInfo?.(t)}>📡 ONVIF Info</button>}
-              {canVerified && <button type="button" style={btn(T.blue)} onClick={() => onOnvifRecordings?.(t)}>🎞 Recordings</button>}
-              {canArchive && <button type="button" style={btn(T.purp)} onClick={() => onArchiveEndpoints?.(t)}>🗄 Archive</button>}
+              {canDiscovery && <button type="button" style={btn(T.purp)} onClick={() => onMemoryRequest?.(t)}>🧠 Память</button>}
+              {canStreamCheck && <button type="button" style={btn(T.cyan)} onClick={() => onIsapiInfo?.(t)}>ℹ ISAPI инфо</button>}
+              {canVerified && <button type="button" style={btn(T.amb)} onClick={() => onIsapiSearch?.(t)}>🔎 ISAPI поиск</button>}
+              {canStreamCheck && <button type="button" style={btn(T.grn)} onClick={() => onOnvifInfo?.(t)}>📡 ONVIF инфо</button>}
+              {canVerified && <button type="button" style={btn(T.blue)} onClick={() => onOnvifRecordings?.(t)}>🎞 Записи</button>}
+              {canArchive && <button type="button" style={btn(T.purp)} onClick={() => onArchiveEndpoints?.(t)}>🗄 Архив</button>}
               {isCardKindGatingEnabled() && canPromotion && (
-                <span style={{ ...btn(T.dim), display: 'block' }}>↗ Promotion available ({deriveCardKind(t)})</span>
+                <span style={{ ...btn(T.dim), display: 'block' }}>↗ Доступно повышение ({deriveCardKind(t)})</span>
               )}
             </div>
           )}
@@ -191,7 +191,7 @@ export default function TargetCard({
             style={{ ...btn(T.red), marginTop: '6px', marginBottom: 0, textAlign: 'center' }}
             onClick={() => onDelete?.(t)}
           >
-            Delete target
+            Удалить цель
           </button>
         </div>
       )}
