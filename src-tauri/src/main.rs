@@ -153,6 +153,7 @@ struct TargetEnvelopeAdoptionCounters {
     legacy_wrapped_on_save: AtomicU64,
     non_json_passthrough_on_read: AtomicU64,
     non_json_passthrough_on_save: AtomicU64,
+    non_json_soft_wrapped_on_save: AtomicU64,
     envelope_write_passthrough: AtomicU64,
 }
 
@@ -166,6 +167,7 @@ impl TargetEnvelopeAdoptionCounters {
             legacy_wrapped_on_save: AtomicU64::new(0),
             non_json_passthrough_on_read: AtomicU64::new(0),
             non_json_passthrough_on_save: AtomicU64::new(0),
+            non_json_soft_wrapped_on_save: AtomicU64::new(0),
             envelope_write_passthrough: AtomicU64::new(0),
         }
     }
@@ -230,6 +232,11 @@ fn record_target_envelope_marker(state: &State<'_, LogState>, marker: &str, targ
                 .non_json_passthrough_on_save
                 .fetch_add(1, Ordering::Relaxed);
         }
+        "non_json_soft_wrapped_on_save" => {
+            counters
+                .non_json_soft_wrapped_on_save
+                .fetch_add(1, Ordering::Relaxed);
+        }
         "envelope_write_passthrough" => {
             counters
                 .envelope_write_passthrough
@@ -252,6 +259,7 @@ fn record_target_envelope_marker(state: &State<'_, LogState>, marker: &str, targ
         "legacy_wrapped_on_save" => Some("legacy_path_detected_on_save"),
         "non_json_passthrough_on_read" => Some("non_json_payload_detected_on_read"),
         "non_json_passthrough_on_save" => Some("non_json_payload_detected_on_save"),
+        "non_json_soft_wrapped_on_save" => Some("non_json_payload_soft_wrapped_on_save"),
         _ => None,
     };
     if let Some(reason) = precheck_reason {
@@ -267,6 +275,9 @@ fn record_target_envelope_marker(state: &State<'_, LogState>, marker: &str, targ
     let warning_streak = counters.warning_streak_windows.load(Ordering::Relaxed);
     let pre_strictness_reason = match marker {
         "non_json_passthrough_on_save" => Some("non_json_on_save_is_high_risk_for_future_strictness"),
+        "non_json_soft_wrapped_on_save" => {
+            Some("non_json_on_save_soft_wrapped_still_requires_cleanup")
+        }
         "legacy_wrapped_on_save" if warning_streak >= 3 => {
             Some("legacy_on_save_with_sustained_warning_streak")
         }
@@ -288,25 +299,30 @@ fn record_target_envelope_marker(state: &State<'_, LogState>, marker: &str, targ
         let legacy_wrapped_on_save = counters.legacy_wrapped_on_save.load(Ordering::Relaxed);
         let non_json_passthrough_on_read = counters.non_json_passthrough_on_read.load(Ordering::Relaxed);
         let non_json_passthrough_on_save = counters.non_json_passthrough_on_save.load(Ordering::Relaxed);
+        let non_json_soft_wrapped_on_save =
+            counters.non_json_soft_wrapped_on_save.load(Ordering::Relaxed);
         let envelope_write_passthrough = counters.envelope_write_passthrough.load(Ordering::Relaxed);
 
         push_runtime_log(
             state,
             format!(
-                "TARGET_ENVELOPE_ADOPTION_SUMMARY|ops={}|envelope_read={}|legacy_wrapped_on_read={}|legacy_wrapped_on_save={}|non_json_passthrough_on_read={}|non_json_passthrough_on_save={}|envelope_write_passthrough={}",
+                "TARGET_ENVELOPE_ADOPTION_SUMMARY|ops={}|envelope_read={}|legacy_wrapped_on_read={}|legacy_wrapped_on_save={}|non_json_passthrough_on_read={}|non_json_passthrough_on_save={}|non_json_soft_wrapped_on_save={}|envelope_write_passthrough={}",
                 total,
                 envelope_read,
                 legacy_wrapped_on_read,
                 legacy_wrapped_on_save,
                 non_json_passthrough_on_read,
                 non_json_passthrough_on_save,
+                non_json_soft_wrapped_on_save,
                 envelope_write_passthrough
             ),
         );
 
         if total >= POLICY_WARNING_MIN_OPS {
             let legacy_total = legacy_wrapped_on_read + legacy_wrapped_on_save;
-            let non_json_total = non_json_passthrough_on_read + non_json_passthrough_on_save;
+            let non_json_total = non_json_passthrough_on_read
+                + non_json_passthrough_on_save
+                + non_json_soft_wrapped_on_save;
             let legacy_ratio = (legacy_total as f64) / (total as f64);
             let non_json_ratio = (non_json_total as f64) / (total as f64);
             let warning_condition = legacy_ratio >= POLICY_WARNING_LEGACY_RATIO
@@ -315,7 +331,7 @@ fn record_target_envelope_marker(state: &State<'_, LogState>, marker: &str, targ
                 push_runtime_log(
                     state,
                     format!(
-                        "TARGET_ENVELOPE_POLICY_WARNING|ops={}|legacy_ratio={:.4}|non_json_ratio={:.4}|legacy_total={}|non_json_total={}|note=policy_tightening_may_be_premature",
+                        "TARGET_ENVELOPE_POLICY_WARNING|ops={}|legacy_ratio={:.4}|non_json_ratio={:.4}|legacy_total={}|non_json_total={}|note=policy_tightening_may_be_premature_non_json_soft_wrap_included",
                         total,
                         legacy_ratio,
                         non_json_ratio,
@@ -1334,8 +1350,13 @@ fn normalize_target_payload_for_storage(
     let parsed = match serde_json::from_str::<Value>(payload) {
         Ok(v) => v,
         Err(_) => {
-            let wrapped = wrap_non_json_payload_as_envelope(payload, target_id);
-            return (wrapped, "non_json_passthrough_on_save");
+            let (wrapped, wrapped_ok) = wrap_non_json_payload_as_envelope(payload, target_id);
+            let marker = if wrapped_ok {
+                "non_json_soft_wrapped_on_save"
+            } else {
+                "non_json_passthrough_on_save"
+            };
+            return (wrapped, marker);
         }
     };
     let is_envelope = is_valid_target_envelope(&parsed);
@@ -1362,7 +1383,7 @@ fn normalize_target_payload_for_storage(
     )
 }
 
-fn wrap_non_json_payload_as_envelope(payload: &str, target_id: Option<&str>) -> String {
+fn wrap_non_json_payload_as_envelope(payload: &str, target_id: Option<&str>) -> (String, bool) {
     let id = target_id
         .map(|x| x.to_string())
         .unwrap_or_else(|| format!("legacy_non_json_{}", Utc::now().timestamp_millis()));
@@ -1398,7 +1419,10 @@ fn wrap_non_json_payload_as_envelope(payload: &str, target_id: Option<&str>) -> 
     envelope.insert("metadata".to_string(), Value::Object(metadata));
     envelope.insert("payload".to_string(), Value::Object(payload_obj));
 
-    serde_json::to_string(&Value::Object(envelope)).unwrap_or_else(|_| payload.to_string())
+    match serde_json::to_string(&Value::Object(envelope)) {
+        Ok(value) => (value, true),
+        Err(_) => (payload.to_string(), false),
+    }
 }
 
 fn normalize_target_payload_for_read(
