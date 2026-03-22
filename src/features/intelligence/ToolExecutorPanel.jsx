@@ -35,6 +35,12 @@ const RUN_PROFILES={
     {id:'safe',label:'Аккуратный',args:'--help'},
   ],
 };
+const QUICK_SCENARIOS = [
+  { id: 'net_fast', label: 'Быстрая сетевая проверка', tool: 'nmap', profileId: 'fast', kind: 'network' },
+  { id: 'net_careful', label: 'Осторожная сетевая проверка', tool: 'nmap', profileId: 'careful', kind: 'network' },
+  { id: 'web_fast', label: 'Быстрая web-проверка', tool: 'nikto', profileId: 'fast', kind: 'web' },
+  { id: 'web_paths', label: 'Проверка web-путей', tool: 'ffuf', profileId: 'base', kind: 'web' },
+];
 const TOOL_EXEC_STATE_KEY = 'hyperion_tool_executor_state_v1';
 
 function getRecommendedToolPlan(selectedTarget) {
@@ -229,6 +235,22 @@ export default function ToolExecutorPanel({ onSessionAuditStatus, selectedTarget
     if (selectedTargetEndpoint) setIntelligenceTarget(selectedTargetEndpoint);
   };
 
+  const applyQuickScenario = (scenario) => {
+    if (!scenario) return;
+    const nextTool = scenario.tool;
+    const nextProfiles = RUN_PROFILES[nextTool] || RUN_PROFILES.default;
+    const profile = nextProfiles.find((p) => p.id === scenario.profileId) || nextProfiles[0] || { id: 'base', args: PRESETS[nextTool] || '' };
+    setTool(nextTool);
+    setArgs(profile.args || PRESETS[nextTool] || '');
+    setSelectedPresetByTool((prev) => ({ ...prev, [nextTool]: profile.id }));
+    if (!selectedTargetEndpoint) return;
+    if (scenario.kind === 'web' && !/^https?:\/\//i.test(selectedTargetEndpoint)) {
+      setIntelligenceTarget(`http://${selectedTargetEndpoint}`);
+      return;
+    }
+    setIntelligenceTarget(selectedTargetEndpoint);
+  };
+
   return(
     <div style={S.wrap}>
       <h3 style={S.h}>🔧 ИНСТРУМЕНТЫ (UNIFIED API)</h3>
@@ -264,6 +286,24 @@ export default function ToolExecutorPanel({ onSessionAuditStatus, selectedTarget
             </>
           )
           : <div style={{color:'#768aa0'}}>Рекомендация недоступна: цель не выбрана.</div>}
+      </div>
+      <div style={{background:'#10141b',border:'1px solid #2a3342',padding:'6px',marginBottom:'6px',fontSize:'10px',borderRadius:'3px'}}>
+        <div style={{color:'#7f93a4',marginBottom:'4px'}}>Быстрые рабочие сценарии</div>
+        <div style={{display:'flex',gap:'4px',flexWrap:'wrap'}}>
+          {QUICK_SCENARIOS.map((scenario)=>(
+            <button
+              key={scenario.id}
+              style={{...S.btn('#7bb7ff'),width:'auto',padding:'4px 8px',marginBottom:0,fontSize:'10px'}}
+              onClick={()=>applyQuickScenario(scenario)}
+              title={scenario.kind === 'web' ? 'Web-сценарий: цель будет подставлена как http://...' : 'Общий сетевой сценарий'}
+            >
+              {scenario.label}
+            </button>
+          ))}
+        </div>
+        <div style={{marginTop:'4px',color:'#6f8398'}}>
+          Один клик: инструмент + профиль + цель (если выбрана). Затем можно вручную скорректировать args/цель.
+        </div>
       </div>
       <div style={{display:'flex',gap:'4px',flexWrap:'wrap',marginBottom:'8px'}}>
         {TOOLS.map(t=>(
