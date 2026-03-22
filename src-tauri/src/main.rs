@@ -1195,7 +1195,16 @@ fn save_target(
     log_state: State<'_, LogState>,
 ) -> Result<String, String> {
     let (normalized_payload, normalization_marker) =
-        normalize_target_payload_for_storage(&payload, Some(&target_id));
+        normalize_target_payload_for_storage(&payload, Some(&target_id)).map_err(|reason| {
+            push_runtime_log(
+                &log_state,
+                format!(
+                    "TARGET_ENVELOPE_STRICT_REJECT|targetId={}|reason={}|action=deny_non_json_fallback_save",
+                    target_id, reason
+                ),
+            );
+            reason
+        })?;
     record_target_envelope_marker(&log_state, normalization_marker, &target_id);
     let key = current_vault_key(&vault_state)?;
     let cipher = Aes256Gcm::new(&key.into());
@@ -1356,7 +1365,7 @@ fn wrap_legacy_target_as_envelope(
 fn normalize_target_payload_for_storage(
     payload: &str,
     target_id: Option<&str>,
-) -> (String, &'static str) {
+) -> Result<(String, &'static str), String> {
     let parsed = match serde_json::from_str::<Value>(payload) {
         Ok(v) => v,
         Err(_) => {
@@ -1364,9 +1373,12 @@ fn normalize_target_payload_for_storage(
             let marker = if wrapped_ok {
                 "non_json_soft_wrapped_on_save"
             } else {
-                "non_json_passthrough_on_save"
+                return Err(
+                    "non_json_payload_rejected: soft_wrap_failed_and_passthrough_disabled"
+                        .to_string(),
+                );
             };
-            return (wrapped, marker);
+            return Ok((wrapped, marker));
         }
     };
     let is_envelope = is_valid_target_envelope(&parsed);
@@ -1387,10 +1399,10 @@ fn normalize_target_payload_for_storage(
     } else {
         "legacy_wrapped_on_save"
     };
-    (
+    Ok((
         serde_json::to_string(&normalized).unwrap_or_else(|_| payload.to_string()),
         marker,
-    )
+    ))
 }
 
 fn wrap_non_json_payload_as_envelope(payload: &str, target_id: Option<&str>) -> (String, bool) {
