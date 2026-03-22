@@ -319,6 +319,18 @@ function TargetsPanel({
         <div style={{fontSize:'10px',color:T.muted,marginBottom:'8px'}}>Показано: {filteredTargets.length} из {targets.length}</div>
         {selectedTarget && (
           <div style={{marginBottom:'8px',padding:'6px',border:'1px solid '+T.line,borderRadius:'4px',background:T.bg1}}>
+            <div style={{border:'1px solid '+T.line,borderRadius:'4px',padding:'6px',background:T.bg0,marginBottom:'6px'}}>
+              <div style={{fontSize:'10px',color:T.muted,marginBottom:'4px'}}>Контекст выбранной цели</div>
+              <div style={{fontSize:'11px',color:T.text,fontWeight:700,marginBottom:'3px'}}>
+                {selectedTarget.name || selectedTarget.host || selectedTarget.id || 'Без имени'}
+              </div>
+              <div style={{display:'grid',gridTemplateColumns:'repeat(2,minmax(0,1fr))',gap:'4px',fontSize:'10px',color:T.dim}}>
+                <div>IP/хост: <span style={{color:T.text}}>{selectedTarget.host || selectedTarget.ip || 'не указан'}</span></div>
+                <div>Тип: <span style={{color:T.text}}>{String(selectedTarget.type || 'локальная').toUpperCase()}</span></div>
+                <div>Каналы: <span style={{color:T.text}}>{Array.isArray(selectedTarget.channels) ? selectedTarget.channels.length : Number(selectedTarget.channelCount || selectedTarget.cameraCount || 0)}</span></div>
+                <div>Действия: <span style={{color:String(selectedTarget?.type||'').toLowerCase()==='hub'?T.amb:T.grn}}>{String(selectedTarget?.type||'').toLowerCase()==='hub'?'ограничены (HUB)':'доступны'}</span></div>
+              </div>
+            </div>
             <div style={{fontSize:'10px',color:T.cyan,marginBottom:'6px'}}>
               Выбранная цель: <b>{selectedTarget.name || selectedTarget.host || selectedTarget.id}</b>
             </div>
