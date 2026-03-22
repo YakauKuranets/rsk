@@ -428,6 +428,8 @@ export default function ToolExecutorPanel({ onSessionAuditStatus, selectedTarget
   };
   const deleteUserScenario = (scenarioId) => {
     if (!scenarioId) return;
+    const confirmed = window.confirm('Удалить пользовательский сценарий?');
+    if (!confirmed) return;
     setUserScenarios((prev) => prev.filter((item) => item.id !== scenarioId));
   };
   const renameUserScenario = (scenarioId) => {
@@ -551,21 +553,21 @@ export default function ToolExecutorPanel({ onSessionAuditStatus, selectedTarget
                   onClick={() => pinUserScenarioToTop(scenario.id)}
                   title='Закрепить/поднять вверх'
                 >
-                  ↑
+                  Вверх
                 </button>
                 <button
                   style={{...S.btn('#d0b67a'),width:'auto',padding:'4px 6px',marginBottom:0,fontSize:'10px'}}
                   onClick={() => renameUserScenario(scenario.id)}
                   title='Переименовать'
                 >
-                  ✎
+                  Имя
                 </button>
                 <button
                   style={{...S.btn('#d98f8f'),width:'auto',padding:'4px 6px',marginBottom:0,fontSize:'10px'}}
                   onClick={() => deleteUserScenario(scenario.id)}
                   title='Удалить сценарий'
                 >
-                  ✕
+                  Удалить
                 </button>
               </div>
             ))}
