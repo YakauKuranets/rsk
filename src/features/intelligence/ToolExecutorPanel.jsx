@@ -87,6 +87,17 @@ export default function ToolExecutorPanel({ onSessionAuditStatus, selectedTarget
     }
   };
 
+  const copyText = async (text, okLabel) => {
+    const payload = String(text || '');
+    if (!payload.trim()) return alert('Копировать нечего');
+    try {
+      await navigator.clipboard.writeText(payload);
+      alert(okLabel);
+    } catch {
+      alert('Не удалось скопировать');
+    }
+  };
+
   return(
     <div style={S.wrap}>
       <h3 style={S.h}>🔧 ИНСТРУМЕНТЫ (UNIFIED API)</h3>
@@ -164,7 +175,23 @@ export default function ToolExecutorPanel({ onSessionAuditStatus, selectedTarget
         <div style={{display:'flex',gap:'8px',fontSize:'10px',color:'#666',marginBottom:'4px'}}>
           <span>Код: <b style={{color:result.exitCode===0?'#00aa44':'#ff4444'}}>{result.exitCode}</b></span>
           <span>Время: <b style={{color:'#aaa'}}>{((result.durationMs||0)/1000).toFixed(1)}с</b></span>
-          <span>Findings: <b style={{color:result.findingsExtracted?.length>0?'#ffaa00':'#444'}}>{result.findingsExtracted?.length||0}</b></span>
+          <span>Найдено: <b style={{color:result.findingsExtracted?.length>0?'#ffaa00':'#444'}}>{result.findingsExtracted?.length||0}</b></span>
+        </div>
+        <div style={{fontSize:'10px',color:result.exitCode===0?'#8fd3a5':'#ff9b9b',marginBottom:'4px'}}>
+          {result.exitCode===0
+            ? (result.findingsExtracted?.length>0 ? 'Запуск завершён успешно, есть находки.' : 'Запуск завершён успешно, явных находок нет.')
+            : 'Запуск завершился с ошибкой. Проверь параметры и вывод ниже.'}
+        </div>
+        <div style={{display:'flex',gap:'4px',marginBottom:'4px',flexWrap:'wrap'}}>
+          <button style={{...S.btn('#66b3ff'),width:'auto',padding:'4px 8px',marginBottom:0,fontSize:'10px'}} onClick={()=>copyText((result.stdout||'').slice(0,2000)||(result.stderr||'').slice(0,500),'Вывод скопирован')}>
+            Скопировать вывод
+          </button>
+          <button style={{...S.btn('#88ddaa'),width:'auto',padding:'4px 8px',marginBottom:0,fontSize:'10px'}} onClick={()=>copyText((result.findingsExtracted||[]).join('\n'),'Находки скопированы')}>
+            Скопировать находки
+          </button>
+          <button style={{...S.btn('#ffaa66'),width:'auto',padding:'4px 8px',marginBottom:0,fontSize:'10px'}} onClick={run}>
+            Повторить запуск
+          </button>
         </div>
         {result.findingsExtracted?.length>0&&<div style={{background:'#0a1205',border:'1px solid #1a3a1a',padding:'6px',marginBottom:'4px',fontSize:'10px',color:'#00aa44',maxHeight:'80px',overflowY:'auto',fontFamily:'monospace',borderRadius:'3px'}}>
           {result.findingsExtracted.map((f,i)=><div key={i}>{f}</div>)}</div>}
