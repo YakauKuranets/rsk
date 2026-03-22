@@ -13,7 +13,7 @@ const S={
 const TOOLS=['nmap','nikto','nuclei','hydra','sqlmap','amass','gobuster','masscan','ffuf'];
 const PRESETS={nmap:'-sV -sC -p 80,443,554',nikto:'-h',nuclei:'-t cves/',hydra:'-l admin -P wordlist.txt http-get',sqlmap:'-u',amass:'enum -passive -d',masscan:'-p 80,443,554 --rate 1000'};
 
-export default function ToolExecutorPanel(){
+export default function ToolExecutorPanel({ onSessionAuditStatus }){
   const intelligenceTarget = useAppStore((s)=>s.intelligenceTarget);
   const setIntelligenceTarget = useAppStore((s)=>s.setIntelligenceTarget);
   const permit = useAppStore((s)=>s.permitToken);
@@ -42,6 +42,13 @@ export default function ToolExecutorPanel(){
     setSessionResult('Проверка сессионных флагов...');
     setSessionDebug(null);
     const session = await verifySessionCookieFlagsCapability(target, 'discovery_mode');
+    if (typeof onSessionAuditStatus === 'function') {
+      onSessionAuditStatus({
+        mode: session?.inconclusive ? 'inconclusive' : session?.fallbackUsed ? 'fallback' : 'primary',
+        source: session?.source || null,
+        updatedAt: Date.now(),
+      });
+    }
     setSessionDebug({
       source: session?.source || null,
       fallbackUsed: typeof session?.fallbackUsed === 'boolean' ? session.fallbackUsed : null,

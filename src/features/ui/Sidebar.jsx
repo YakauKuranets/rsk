@@ -139,10 +139,78 @@ function PolicyRuntimeStatusBlock({ runtimeLogs }) {
   );
 }
 
+function buildPolicyRuntimeSummary(runtimeLogs) {
+  const safeLogs = runtimeLogs || [];
+  const recentWindow = safeLogs.slice(-80);
+  const getCount = (marker) => recentWindow.filter((line) => getRuntimeLogMessage(line).includes(marker)).length;
+  const warningCount = getCount('TARGET_ENVELOPE_POLICY_WARNING');
+  const escalationCount = getCount('TARGET_ENVELOPE_POLICY_ESCALATION_WARNING');
+  const preStrictnessCount = getCount('TARGET_ENVELOPE_PRE_STRICTNESS_WARNING');
+  const strictRejectCount = getCount('TARGET_ENVELOPE_STRICT_REJECT');
+
+  let mode = 'calm';
+  let text = 'Спокойно';
+  if (strictRejectCount > 0) {
+    mode = 'reject';
+    text = 'Строгий отказ';
+  } else if (warningCount > 0 || escalationCount > 0 || preStrictnessCount > 0) {
+    mode = 'warning';
+    text = 'Предупреждение';
+  }
+
+  return { mode, text, warningCount, escalationCount, preStrictnessCount, strictRejectCount };
+}
+
+function UnifiedTargetStatusBlock({ targetSaveStatus, sessionAuditStatus, runtimeLogs }) {
+  const saveText = !targetSaveStatus
+    ? 'Нет данных'
+    : targetSaveStatus.level === 'error'
+      ? 'Ошибка'
+      : targetSaveStatus.level === 'warn'
+        ? 'Мягкая обёртка'
+        : 'Нормально';
+  const saveColor = !targetSaveStatus
+    ? T.dim
+    : targetSaveStatus.level === 'error'
+      ? T.red
+      : targetSaveStatus.level === 'warn'
+        ? T.amb
+        : T.grn;
+
+  const sessionText = !sessionAuditStatus
+    ? 'Нет данных'
+    : sessionAuditStatus.mode === 'inconclusive'
+      ? 'Неопределённо'
+      : sessionAuditStatus.mode === 'fallback'
+        ? 'Резервный путь (fallback)'
+        : 'Основной путь';
+  const sessionColor = !sessionAuditStatus
+    ? T.dim
+    : sessionAuditStatus.mode === 'inconclusive'
+      ? T.amb
+      : sessionAuditStatus.mode === 'fallback'
+        ? '#ff8844'
+        : T.grn;
+
+  const policy = buildPolicyRuntimeSummary(runtimeLogs);
+  const policyColor = policy.mode === 'reject' ? T.red : policy.mode === 'warning' ? T.amb : T.grn;
+
+  return (
+    <div style={{ marginTop: '6px', border: '1px solid #24303f', background: '#0a1018', borderRadius: '4px', padding: '6px 8px' }}>
+      <div style={{ fontSize: '10px', color: '#7f93a4', marginBottom: '4px' }}>Единый статус цели</div>
+      <div style={{ display: 'grid', gap: '3px' }}>
+        <div style={{ fontSize: '10px', color: T.muted }}>Сохранение: <b style={{ color: saveColor }}>{saveText}</b></div>
+        <div style={{ fontSize: '10px', color: T.muted }}>Сессия/cookie: <b style={{ color: sessionColor }}>{sessionText}</b></div>
+        <div style={{ fontSize: '10px', color: T.muted }}>Policy/runtime: <b style={{ color: policyColor }}>{policy.text}</b></div>
+      </div>
+    </div>
+  );
+}
+
 function TargetsPanel({
   targets,filteredTargets,targetSearch,setTargetSearch,
   targetTypeFilter,setTargetTypeFilter,archiveOnly,setArchiveOnly,
-  form,setForm,targetSaveStatus,hubRecon,
+  form,setForm,targetSaveStatus,sessionAuditStatus,runtimeLogs,hubRecon,
   handleSmartSave,handleDeleteTarget,handleGeocode,
   onNemesis,onMemoryRequest,onIsapiInfo,onIsapiSearch,
   onOnvifInfo,onOnvifRecordings,onArchiveEndpoints,onOpenHubArchive,
@@ -204,6 +272,11 @@ function TargetsPanel({
               {targetSaveStatus.text}
             </div>
           )}
+          <UnifiedTargetStatusBlock
+            targetSaveStatus={targetSaveStatus}
+            sessionAuditStatus={sessionAuditStatus}
+            runtimeLogs={runtimeLogs}
+          />
         </Section>
 
         <div style={{marginBottom:'8px'}}>
@@ -377,6 +450,7 @@ export default function Sidebar(props){
   }=props;
 
   const [tab,setTab]=useState('targets');
+  const [sessionAuditStatus, setSessionAuditStatus] = useState(null);
 
   useEffect(() => {
     if (labelEditRequest?.label) setTab('targets');
@@ -407,7 +481,7 @@ export default function Sidebar(props){
           targetSearch={targetSearch} setTargetSearch={setTargetSearch}
           targetTypeFilter={targetTypeFilter} setTargetTypeFilter={setTargetTypeFilter}
           archiveOnly={archiveOnly} setArchiveOnly={setArchiveOnly}
-          form={form} setForm={setForm} targetSaveStatus={targetSaveStatus} hubRecon={hubRecon}
+          form={form} setForm={setForm} targetSaveStatus={targetSaveStatus} sessionAuditStatus={sessionAuditStatus} runtimeLogs={runtimeLogs} hubRecon={hubRecon}
           handleSmartSave={handleSmartSave} handleDeleteTarget={handleDeleteTarget}
           handleGeocode={handleGeocode}
           onNemesis={onNemesis} onMemoryRequest={onMemoryRequest}
@@ -438,7 +512,7 @@ export default function Sidebar(props){
           hubRecon={hubRecon} capture={capture} hubConfig={hubConfig}
           fuzzPath={fuzzPath} formatBytes={formatBytes} handleCaptureArchive={handleCaptureArchive}
         />}
-        {tab==='intel'&&<IntelHub/>}
+        {tab==='intel'&&<IntelHub onSessionAuditStatus={setSessionAuditStatus}/>}
         {tab==='system'&&<SystemPanel
           runtimeLogs={runtimeLogs} setRuntimeLogs={setRuntimeLogs}
           downloadTasks={downloadTasks} resumeDownloads={resumeDownloads}
