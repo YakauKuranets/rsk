@@ -426,6 +426,31 @@ export default function ToolExecutorPanel({ onSessionAuditStatus, selectedTarget
       return [scenario, ...dedup].slice(0, TOOL_EXEC_USER_SCENARIOS_LIMIT);
     });
   };
+  const deleteUserScenario = (scenarioId) => {
+    if (!scenarioId) return;
+    setUserScenarios((prev) => prev.filter((item) => item.id !== scenarioId));
+  };
+  const renameUserScenario = (scenarioId) => {
+    if (!scenarioId) return;
+    const current = userScenarios.find((item) => item.id === scenarioId);
+    if (!current) return;
+    const nextTitle = window.prompt('Новое название сценария', current.title || '');
+    if (nextTitle == null) return;
+    const normalized = String(nextTitle).trim();
+    if (!normalized) return alert('Название не может быть пустым');
+    setUserScenarios((prev) => prev.map((item) => (item.id === scenarioId ? { ...item, title: normalized } : item)));
+  };
+  const pinUserScenarioToTop = (scenarioId) => {
+    if (!scenarioId) return;
+    setUserScenarios((prev) => {
+      const index = prev.findIndex((item) => item.id === scenarioId);
+      if (index <= 0) return prev;
+      const next = [...prev];
+      const [picked] = next.splice(index, 1);
+      next.unshift(picked);
+      return next;
+    });
+  };
 
   return(
     <div style={S.wrap}>
@@ -513,14 +538,36 @@ export default function ToolExecutorPanel({ onSessionAuditStatus, selectedTarget
         ) : (
           <div style={{display:'flex',gap:'4px',flexWrap:'wrap'}}>
             {userScenarios.map((scenario) => (
-              <button
-                key={scenario.id}
-                style={{...S.btn('#9cb8ff'),width:'auto',padding:'4px 8px',marginBottom:0,fontSize:'10px'}}
-                onClick={() => applyUserScenario(scenario)}
-                title='Применить сценарий (инструмент + args + профиль + текущая выбранная цель при наличии)'
-              >
-                {scenario.title}
-              </button>
+              <div key={scenario.id} style={{display:'flex',gap:'2px'}}>
+                <button
+                  style={{...S.btn('#9cb8ff'),width:'auto',padding:'4px 8px',marginBottom:0,fontSize:'10px'}}
+                  onClick={() => applyUserScenario(scenario)}
+                  title='Применить сценарий (инструмент + args + профиль + текущая выбранная цель при наличии)'
+                >
+                  {scenario.title}
+                </button>
+                <button
+                  style={{...S.btn('#8ea5bf'),width:'auto',padding:'4px 6px',marginBottom:0,fontSize:'10px'}}
+                  onClick={() => pinUserScenarioToTop(scenario.id)}
+                  title='Закрепить/поднять вверх'
+                >
+                  ↑
+                </button>
+                <button
+                  style={{...S.btn('#d0b67a'),width:'auto',padding:'4px 6px',marginBottom:0,fontSize:'10px'}}
+                  onClick={() => renameUserScenario(scenario.id)}
+                  title='Переименовать'
+                >
+                  ✎
+                </button>
+                <button
+                  style={{...S.btn('#d98f8f'),width:'auto',padding:'4px 6px',marginBottom:0,fontSize:'10px'}}
+                  onClick={() => deleteUserScenario(scenario.id)}
+                  title='Удалить сценарий'
+                >
+                  ✕
+                </button>
+              </div>
             ))}
           </div>
         )}
