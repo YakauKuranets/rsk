@@ -388,15 +388,10 @@ export default function ToolExecutorPanel({ onSessionAuditStatus, selectedTarget
   const applyQuickScenario = (scenario) => {
     if (!scenario) return;
     if (!confirmCompatibilityIfNeeded(scenario, 'применение сценария')) return;
-    const nextTool = scenario.tool;
+    const nextTool = scenario.tool || tool;
     const nextProfiles = RUN_PROFILES[nextTool] || RUN_PROFILES.default;
     const profile = nextProfiles.find((p) => p.id === scenario.profileId) || nextProfiles[0] || { id: 'base', args: PRESETS[nextTool] || '' };
-    setTool(nextTool);
-    setArgs(profile.args || PRESETS[nextTool] || '');
-    setSelectedPresetByTool((prev) => ({ ...prev, [nextTool]: profile.id }));
-    if (!selectedTargetEndpoint) return;
-    const normalizedTarget = getNormalizedSelectedTargetForScenario(scenario);
-    setIntelligenceTarget(normalizedTarget || selectedTargetEndpoint);
+    applyScenarioToForm({ ...scenario, tool: nextTool, args: profile.args || PRESETS[nextTool] || '', profileId: profile.id }, 'selected');
   };
 
   const toggleFavoriteScenario = (scenarioId) => {
@@ -423,6 +418,31 @@ export default function ToolExecutorPanel({ onSessionAuditStatus, selectedTarget
     if (!shouldWarnOnCompatibilityHint(hint?.text)) return true;
     return window.confirm(`⚠ ${hint.text}. Продолжить ${actionLabel}?`);
   };
+  const normalizeScenarioShape = (scenarioLike) => ({
+    tool: scenarioLike?.tool || tool,
+    args: typeof scenarioLike?.args === 'string' ? scenarioLike.args : args,
+    profileId: scenarioLike?.profileId || null,
+    kind: scenarioLike?.kind || null,
+    target: typeof scenarioLike?.target === 'string' ? scenarioLike.target : '',
+  });
+  const applyScenarioToForm = (scenarioLike, targetMode = 'none') => {
+    const normalized = normalizeScenarioShape(scenarioLike);
+    if (normalized.tool) setTool(normalized.tool);
+    setArgs(normalized.args || '');
+    if (normalized.tool && normalized.profileId) {
+      setSelectedPresetByTool((prev) => ({ ...prev, [normalized.tool]: normalized.profileId }));
+    }
+    if (targetMode === 'entry' && normalized.target) {
+      setIntelligenceTarget(normalized.target);
+      return normalized.target;
+    }
+    if (targetMode === 'selected' && selectedTargetEndpoint) {
+      const selectedNormalized = getNormalizedSelectedTargetForScenario(normalized);
+      setIntelligenceTarget(selectedNormalized || selectedTargetEndpoint);
+      return selectedNormalized || selectedTargetEndpoint;
+    }
+    return '';
+  };
   const formatRecentRunTime = (iso) => {
     if (!iso) return 'время неизвестно';
     const parsed = new Date(iso);
@@ -431,22 +451,18 @@ export default function ToolExecutorPanel({ onSessionAuditStatus, selectedTarget
   };
   const applyRecentRun = (entry) => {
     if (!entry) return;
-    if (entry.tool) setTool(entry.tool);
-    if (typeof entry.args === 'string') setArgs(entry.args);
-    if (entry.target) setIntelligenceTarget(entry.target);
-    if (entry.tool && entry.profileId) {
-      setSelectedPresetByTool((prev) => ({ ...prev, [entry.tool]: entry.profileId }));
-    }
+    applyScenarioToForm(entry, 'entry');
   };
   const repeatRecentRun = async (entry) => {
     if (!entry) return;
     if (!permit.trim()) return alert('Для повторного запуска нужен разрешительный токен');
-    applyRecentRun(entry);
+    const normalized = normalizeScenarioShape(entry);
+    applyScenarioToForm(normalized, 'entry');
     await executeToolLaunch({
-      tool: entry.tool || tool,
-      target: entry.target || intelligenceTarget,
-      args: entry.args || args,
-      profileId: entry.profileId || null,
+      tool: normalized.tool,
+      target: normalized.target || intelligenceTarget,
+      args: normalized.args,
+      profileId: normalized.profileId,
     });
   };
   const applyRecentRunToSelectedTarget = async (entry) => {
@@ -454,32 +470,19 @@ export default function ToolExecutorPanel({ onSessionAuditStatus, selectedTarget
     if (!selectedTargetEndpoint) return alert('Нет выбранной цели');
     if (!permit.trim()) return alert('Для запуска нужен разрешительный токен');
     if (!confirmCompatibilityIfNeeded(entry, 'запуск на текущую цель')) return;
-    if (entry.tool) setTool(entry.tool);
-    if (typeof entry.args === 'string') setArgs(entry.args);
-    const normalizedTarget = getNormalizedSelectedTargetForScenario(entry);
-    setIntelligenceTarget(normalizedTarget || selectedTargetEndpoint);
-    if (entry.tool && entry.profileId) {
-      setSelectedPresetByTool((prev) => ({ ...prev, [entry.tool]: entry.profileId }));
-    }
+    const normalized = normalizeScenarioShape(entry);
+    const normalizedTarget = applyScenarioToForm(normalized, 'selected');
     await executeToolLaunch({
-      tool: entry.tool || tool,
+      tool: normalized.tool,
       target: normalizedTarget || selectedTargetEndpoint,
-      args: entry.args || args,
-      profileId: entry.profileId || null,
+      args: normalized.args,
+      profileId: normalized.profileId,
     });
   };
   const applyUserScenario = (scenario) => {
     if (!scenario) return;
     if (!confirmCompatibilityIfNeeded(scenario, 'применение сценария')) return;
-    if (scenario.tool) setTool(scenario.tool);
-    if (typeof scenario.args === 'string') setArgs(scenario.args);
-    if (scenario.tool && scenario.profileId) {
-      setSelectedPresetByTool((prev) => ({ ...prev, [scenario.tool]: scenario.profileId }));
-    }
-    if (selectedTargetEndpoint) {
-      const normalizedTarget = getNormalizedSelectedTargetForScenario(scenario);
-      setIntelligenceTarget(normalizedTarget || selectedTargetEndpoint);
-    }
+    applyScenarioToForm(scenario, 'selected');
   };
   const saveRecentRunAsUserScenario = (entry) => {
     if (!entry) return;
