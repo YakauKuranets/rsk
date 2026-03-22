@@ -366,6 +366,23 @@ export default function ToolExecutorPanel({ onSessionAuditStatus, selectedTarget
       profileId: entry.profileId || null,
     });
   };
+  const applyRecentRunToSelectedTarget = async (entry) => {
+    if (!entry) return;
+    if (!selectedTargetEndpoint) return alert('Нет выбранной цели');
+    if (!permit.trim()) return alert('Для запуска нужен разрешительный токен');
+    if (entry.tool) setTool(entry.tool);
+    if (typeof entry.args === 'string') setArgs(entry.args);
+    setIntelligenceTarget(selectedTargetEndpoint);
+    if (entry.tool && entry.profileId) {
+      setSelectedPresetByTool((prev) => ({ ...prev, [entry.tool]: entry.profileId }));
+    }
+    await executeToolLaunch({
+      tool: entry.tool || tool,
+      target: selectedTargetEndpoint,
+      args: entry.args || args,
+      profileId: entry.profileId || null,
+    });
+  };
 
   return(
     <div style={S.wrap}>
@@ -467,6 +484,14 @@ export default function ToolExecutorPanel({ onSessionAuditStatus, selectedTarget
                   </button>
                   <button style={{...S.btn('#8ea5bf'),width:'auto',padding:'4px 8px',marginBottom:0,fontSize:'10px'}} onClick={()=>applyRecentRun(entry)}>
                     Подставить
+                  </button>
+                  <button
+                    style={{...S.btn('#7fcf9b'),width:'auto',padding:'4px 8px',marginBottom:0,fontSize:'10px'}}
+                    onClick={()=>applyRecentRunToSelectedTarget(entry)}
+                    disabled={!selectedTargetEndpoint}
+                    title={selectedTargetEndpoint ? 'Запустить этот набор на текущей выбранной цели' : 'Сначала выберите цель'}
+                  >
+                    На текущую цель
                   </button>
                 </div>
               </div>
