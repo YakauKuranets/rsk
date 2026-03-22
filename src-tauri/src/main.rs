@@ -244,6 +244,23 @@ fn record_target_envelope_marker(state: &State<'_, LogState>, marker: &str, targ
         ),
     );
 
+    let precheck_reason = match marker {
+        "legacy_wrapped_on_read" => Some("legacy_path_detected_on_read"),
+        "legacy_wrapped_on_save" => Some("legacy_path_detected_on_save"),
+        "non_json_passthrough_on_read" => Some("non_json_payload_detected_on_read"),
+        "non_json_passthrough_on_save" => Some("non_json_payload_detected_on_save"),
+        _ => None,
+    };
+    if let Some(reason) = precheck_reason {
+        push_runtime_log(
+            state,
+            format!(
+                "TARGET_ENVELOPE_PRECHECK_WARNING|targetId={}|marker={}|reason={}|action=allow",
+                target_id, marker, reason
+            ),
+        );
+    }
+
     if total % SUMMARY_EVERY_N_OPS == 0 {
         let envelope_read = counters.envelope_read.load(Ordering::Relaxed);
         let legacy_wrapped_on_read = counters.legacy_wrapped_on_read.load(Ordering::Relaxed);
