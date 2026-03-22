@@ -211,6 +211,7 @@ export default function ToolExecutorPanel({ onSessionAuditStatus, selectedTarget
   const [recentRuns, setRecentRuns] = useState([]);
   const [userScenarios, setUserScenarios] = useState([]);
   const [chainStepIndexById, setChainStepIndexById] = useState({});
+  const [activeChainProgress, setActiveChainProgress] = useState({ chainId: null, stepIndex: null });
   const selectedTargetLabel = selectedTarget
     ? (selectedTarget.name || selectedTarget.host || selectedTarget.id || 'Без имени')
     : '';
@@ -537,6 +538,7 @@ export default function ToolExecutorPanel({ onSessionAuditStatus, selectedTarget
     const scenario = buildScenarioFromChainStep(chain.steps[safeIndex]);
     applyQuickScenario(scenario);
     setChainStepIndexById((prev) => ({ ...prev, [chain.id]: safeIndex }));
+    setActiveChainProgress({ chainId: chain.id, stepIndex: safeIndex });
   };
   const applyNextChainStep = (chain) => {
     if (!chain?.steps?.length) return;
@@ -544,6 +546,16 @@ export default function ToolExecutorPanel({ onSessionAuditStatus, selectedTarget
     const nextIndex = Math.min(current + 1, chain.steps.length - 1);
     applyChainStep(chain, nextIndex);
   };
+  const activeChain = WORK_CHAINS.find((chain) => chain.id === activeChainProgress?.chainId) || null;
+  const activeChainStepIndex = Number.isFinite(Number(activeChainProgress?.stepIndex))
+    ? Number(activeChainProgress.stepIndex)
+    : null;
+  const nextActiveChainStepIndex = activeChain
+    ? Math.min((activeChainStepIndex ?? 0) + 1, activeChain.steps.length - 1)
+    : null;
+  const activeChainIsCompleted = activeChain
+    ? (activeChainStepIndex != null && activeChainStepIndex >= activeChain.steps.length - 1)
+    : false;
   const saveRecentRunAsUserScenario = (entry) => {
     if (!entry) return;
     const scenario = {
@@ -723,9 +735,17 @@ export default function ToolExecutorPanel({ onSessionAuditStatus, selectedTarget
           {WORK_CHAINS.map((chain) => {
             const currentIdx = Number(chainStepIndexById?.[chain.id] || 0);
             const nextIdx = Math.min(currentIdx + 1, chain.steps.length - 1);
+            const isActiveChain = activeChainProgress?.chainId === chain.id;
             return (
               <div key={chain.id} style={{border:'1px solid #253040',background:'#0d1219',padding:'5px',borderRadius:'3px'}}>
-                <div style={{color:'#9fc6d5',marginBottom:'3px'}}>{chain.label}</div>
+                <div style={{color:'#9fc6d5',marginBottom:'3px'}}>
+                  {chain.label}
+                  {isActiveChain && (
+                    <span style={{marginLeft:'6px',fontSize:'9px',color:'#8fd3a5'}}>
+                      Активный шаг: {currentIdx + 1}/{chain.steps.length}
+                    </span>
+                  )}
+                </div>
                 <div style={{fontSize:'9px',color:'#6f8398',marginBottom:'4px'}}>
                   {chain.steps.map((step, idx) => `${idx + 1}. ${step.label}`).join(' → ')}
                 </div>
@@ -744,7 +764,12 @@ export default function ToolExecutorPanel({ onSessionAuditStatus, selectedTarget
                   </button>
                   <button
                     style={{...S.btn('#6f7f94'),width:'auto',padding:'4px 8px',marginBottom:0,fontSize:'10px'}}
-                    onClick={() => setChainStepIndexById((prev) => ({ ...prev, [chain.id]: 0 }))}
+                    onClick={() => {
+                      setChainStepIndexById((prev) => ({ ...prev, [chain.id]: 0 }));
+                      if (activeChainProgress?.chainId === chain.id) {
+                        setActiveChainProgress({ chainId: chain.id, stepIndex: 0 });
+                      }
+                    }}
                   >
                     Сброс
                   </button>
@@ -883,6 +908,28 @@ export default function ToolExecutorPanel({ onSessionAuditStatus, selectedTarget
           <div style={{fontSize:'10px',color:'#8eb6d7',marginBottom:'3px'}}>Смысловая сводка</div>
           <div style={{fontSize:'10px',color:'#9fb8cd'}}>{semanticSummary}</div>
         </div>
+        {activeChain && activeChainStepIndex != null && (
+          <div style={{border:'1px solid #2e3a2a',background:'#11170f',padding:'6px',borderRadius:'3px',marginBottom:'4px'}}>
+            <div style={{fontSize:'10px',color:'#9ec58f',marginBottom:'3px'}}>
+              Цепочка: <b>{activeChain.label}</b> · Текущий шаг: <b>{Math.min(activeChainStepIndex + 1, activeChain.steps.length)}/{activeChain.steps.length}</b>
+            </div>
+            {!activeChainIsCompleted ? (
+              <div style={{display:'flex',gap:'4px',flexWrap:'wrap',alignItems:'center'}}>
+                <span style={{fontSize:'10px',color:'#87a57a'}}>
+                  Следующий шаг: <b>{activeChain.steps[nextActiveChainStepIndex]?.label || '—'}</b>
+                </span>
+                <button
+                  style={{...S.btn('#8bcf7a'),width:'auto',padding:'4px 8px',marginBottom:0,fontSize:'10px'}}
+                  onClick={() => applyChainStep(activeChain, nextActiveChainStepIndex)}
+                >
+                  Применить следующий шаг цепочки
+                </button>
+              </div>
+            ) : (
+              <div style={{fontSize:'10px',color:'#9ec58f'}}>Цепочка завершена. Можно перейти к другой цепочке или запустить ручной шаг.</div>
+            )}
+          </div>
+        )}
         <div style={{display:'flex',gap:'4px',marginBottom:'4px',flexWrap:'wrap'}}>
           <button style={{...S.btn('#66b3ff'),width:'auto',padding:'4px 8px',marginBottom:0,fontSize:'10px'}} onClick={()=>copyText((result.stdout||'').slice(0,2000)||(result.stderr||'').slice(0,500),'Вывод скопирован')}>
             Скопировать вывод
