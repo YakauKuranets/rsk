@@ -11,6 +11,7 @@ import {
   TOOL_EXEC_STATE_KEY,
   TOOL_EXEC_USER_SCENARIOS_KEY,
 } from './toolExecutorStorage';
+import { computeLaunchReadiness } from './toolExecutorReadiness';
 
 const S={
   wrap:{border:'1px solid #2a2a2a',padding:'10px',backgroundColor:'#0a0a0a',marginBottom:'8px'},
@@ -230,16 +231,7 @@ export default function ToolExecutorPanel({ onSessionAuditStatus, selectedTarget
   const normalizedArgs = String(args || '').trim();
   const profiles = RUN_PROFILES[tool] || RUN_PROFILES.default;
   const activePresetId = selectedPresetByTool?.[tool] || null;
-  const hasTemplatePlaceholders = /(^|\b)(TARGET|FUZZ|example\.com)(\b|$)/i.test(normalizedArgs);
-  const launchReadiness = !intelligenceTarget.trim()
-    ? { level: 'error', text: 'Нужно указать цель', canRun: false }
-    : permit.trim().length < 8
-      ? { level: 'error', text: 'Нужен токен', canRun: false }
-      : !normalizedArgs
-        ? { level: 'error', text: 'Проверь аргументы', canRun: false }
-        : hasTemplatePlaceholders
-          ? { level: 'warn', text: 'Проверь аргументы', canRun: true }
-          : { level: 'ok', text: 'Готово к запуску', canRun: true };
+  const launchReadiness = computeLaunchReadiness({ intelligenceTarget, permit, args: normalizedArgs });
 
   useEffect(() => {
     const restored = restoreToolExecState(localStorage.getItem(TOOL_EXEC_STATE_KEY), {

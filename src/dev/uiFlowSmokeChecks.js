@@ -3,6 +3,7 @@ import {
   restoreObjectArray,
   restoreToolExecState,
 } from '../features/intelligence/toolExecutorStorage.js';
+import { computeLaunchReadiness } from '../features/intelligence/toolExecutorReadiness.js';
 const PASS = 'PASS';
 
 function assert(condition, message) {
@@ -207,6 +208,26 @@ export function runUiFlowSmokeChecks() {
   });
   assert(malformedState.tool === 'nmap', 'localStorage restore: битый JSON должен безопасно давать fallback');
 
+  const missingSelectedTargetProfile = buildProfile(null, buildActionStatuses(null));
+  assert(missingSelectedTargetProfile.label === 'Неопределённая цель', 'bad-state: без selectedTarget должен быть безопасный профиль');
+
+  const noHostStatuses = buildActionStatuses({ id: 'x1', name: 'No host target' });
+  const noHostAggregate = buildAggregate(noHostStatuses);
+  assert(noHostStatuses.stream === 'Нет host/ip', 'bad-state: у цели без host/ip должен быть fallback статус');
+  assert(noHostAggregate.blockedCount >= 1, 'bad-state: aggregate должен отражать блокировки при бедных данных');
+
+  const readinessNoTarget = computeLaunchReadiness({ intelligenceTarget: '', permit: '12345678', args: '-sV' });
+  assert(!readinessNoTarget.canRun && readinessNoTarget.text === 'Нужно указать цель', 'bad-state: пустой intelligenceTarget');
+  const readinessNoArgs = computeLaunchReadiness({ intelligenceTarget: '10.0.0.1', permit: '12345678', args: '' });
+  assert(!readinessNoArgs.canRun && readinessNoArgs.text === 'Проверь аргументы', 'bad-state: пустые args');
+  const readinessShortPermit = computeLaunchReadiness({ intelligenceTarget: '10.0.0.1', permit: '123', args: '-sV' });
+  assert(!readinessShortPermit.canRun && readinessShortPermit.text === 'Нужен токен', 'bad-state: короткий permit token');
+  const readinessWeakTemplateArgs = computeLaunchReadiness({ intelligenceTarget: '10.0.0.1', permit: '12345678', args: '-u http://TARGET/FUZZ' });
+  assert(readinessWeakTemplateArgs.canRun && readinessWeakTemplateArgs.level === 'warn', 'bad-state: template args должны давать warn');
+
+  assert(restoreFavoriteScenarioIds('[]', ['web_fast']).length === 0, 'bad-state: пустые favorite сценарии должны восстанавливаться безопасно');
+  assert(restoreObjectArray('[]', 5).length === 0, 'bad-state: пустые user/recent сценарии должны восстанавливаться безопасно');
+
   return {
     status: PASS,
     checks: [
@@ -219,6 +240,10 @@ export function runUiFlowSmokeChecks() {
       'профиль/reason-status/агрегированная сводка',
       'localStorage: tool/args/timeout/preset/favorites/recent/custom',
       'localStorage: битый JSON / лишние поля / неподходящие id',
+      'empty/bad-state: selectedTarget отсутствует и weak compatibility input',
+      'empty/bad-state: no host/ip + reason/status/aggregate fallback',
+      'empty/bad-state: intelligenceTarget/args/permit token',
+      'empty/bad-state: пустые favorite/user/recent сценарии',
     ],
   };
 }
