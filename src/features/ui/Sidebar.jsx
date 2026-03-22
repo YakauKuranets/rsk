@@ -317,8 +317,19 @@ function TargetsPanel({
         </div>
         <div style={{fontSize:'10px',color:T.muted,marginBottom:'8px'}}>Показано: {filteredTargets.length} из {targets.length}</div>
         {selectedTarget && (
-          <div style={{fontSize:'10px',color:T.cyan,marginBottom:'6px'}}>
-            Выбрана: <b>{selectedTarget.name || selectedTarget.host || selectedTarget.id}</b>
+          <div style={{marginBottom:'8px',padding:'6px',border:'1px solid '+T.line,borderRadius:'4px',background:T.bg1}}>
+            <div style={{fontSize:'10px',color:T.cyan,marginBottom:'6px'}}>
+              Выбрана: <b>{selectedTarget.name || selectedTarget.host || selectedTarget.id}</b>
+            </div>
+            <div style={{fontSize:'10px',color:T.muted,marginBottom:'5px'}}>Быстрые действия по выбранной цели</div>
+            <div style={{display:'grid',gridTemplateColumns:'repeat(2,minmax(0,1fr))',gap:'4px'}}>
+              <button style={css.btn(T.cyan)} onClick={()=>onIsapiInfo(selectedTarget)}>ISAPI инфо</button>
+              <button style={css.btn(T.grn)} onClick={()=>onOnvifInfo(selectedTarget)}>ONVIF инфо</button>
+              <button style={css.btn(T.amb)} onClick={()=>onIsapiSearch(selectedTarget)}>Поиск архива</button>
+              {String(selectedTarget?.type || '').toLowerCase() === 'hub'
+                ? <button style={css.btn(T.blue)} onClick={()=>onOpenHubArchive(selectedTarget)}>Архив HUB</button>
+                : <button style={css.btn(T.purp)} onClick={()=>onArchiveEndpoints(selectedTarget)}>Архив endpoints</button>}
+            </div>
           </div>
         )}
         {filteredTargets.map(t=>(
