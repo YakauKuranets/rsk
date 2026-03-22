@@ -61,8 +61,8 @@ function Section({icon,title,color,children,defaultOpen=true}){
 }
 
 const POLICY_SIGNAL_LABELS = [
-  { marker: 'TARGET_ENVELOPE_POLICY_WARNING', label: 'Предупреждение policy', short: 'policy warning' },
-  { marker: 'TARGET_ENVELOPE_POLICY_ESCALATION_WARNING', label: 'Эскалация policy', short: 'policy escalation' },
+  { marker: 'TARGET_ENVELOPE_POLICY_WARNING', label: 'Предупреждение по политике', short: 'policy warning' },
+  { marker: 'TARGET_ENVELOPE_POLICY_ESCALATION_WARNING', label: 'Усиление предупреждений политики', short: 'policy escalation' },
   { marker: 'TARGET_ENVELOPE_PRE_STRICTNESS_WARNING', label: 'Сигнал перед ужесточением', short: 'pre-strictness warning' },
   { marker: 'TARGET_ENVELOPE_STRICT_REJECT', label: 'Строгий отказ сохранения', short: 'strict reject' },
 ];
@@ -122,11 +122,11 @@ function PolicyRuntimeStatusBlock({ runtimeLogs }) {
       padding: '7px 8px',
     }}>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px', marginBottom: '4px' }}>
-        <span style={{ fontSize: '10px', color: T.muted }}>Policy/runtime сигналы</span>
+        <span style={{ fontSize: '10px', color: T.muted }}>Сигналы политики и системы</span>
         <span style={{ fontSize: '10px', color: statusColor, fontWeight: 700 }}>{statusText}</span>
       </div>
       <div style={{ fontSize: '10px', color: T.text, marginBottom: recentSignals.length ? '6px' : '0px' }}>
-        Окно: последние {recentWindow.length} логов · W:{warningCount} · E:{escalationCount} · P:{preStrictnessCount} · R:{strictRejectCount}
+        Обзор: последние {recentWindow.length} записей · предупреждения: {warningCount} · усиления: {escalationCount} · pre-strict: {preStrictnessCount} · отказы: {strictRejectCount}
       </div>
       {recentSignals.length > 0 && (
         <div style={{ display: 'grid', gap: '3px' }}>
@@ -173,17 +173,17 @@ function UnifiedTargetStatusBlock({ targetSaveStatus, sessionAuditStatus, runtim
     : activeTargetId
     ? `Последняя активная цель: ${activeTargetId}`
     : formTarget
-      ? `Для цели (форма): ${formTarget}`
+    ? `Черновик цели: ${formTarget}`
       : targetSaveStatus?.text
         ? 'Последняя операция сохранения (цель определена по сохранению)'
         : 'Цель ещё не выбрана';
   const saveText = !targetSaveStatus
-    ? 'Нет данных'
+    ? 'Данных пока нет'
     : targetSaveStatus.level === 'error'
       ? 'Ошибка'
       : targetSaveStatus.level === 'warn'
-        ? 'Мягкая обёртка'
-        : 'Нормально';
+        ? 'Сохранено с мягкой обработкой'
+        : 'Сохранено';
   const saveColor = !targetSaveStatus
     ? T.dim
     : targetSaveStatus.level === 'error'
@@ -193,11 +193,11 @@ function UnifiedTargetStatusBlock({ targetSaveStatus, sessionAuditStatus, runtim
         : T.grn;
 
   const sessionText = !sessionAuditStatus
-    ? 'Нет данных (аудит не запускался)'
+    ? 'Аудит ещё не запускался'
     : sessionAuditStatus.mode === 'inconclusive'
       ? 'Неопределённо'
       : sessionAuditStatus.mode === 'fallback'
-        ? 'Резервный путь (fallback)'
+        ? 'Резервный путь'
         : 'Основной путь';
   const sessionColor = !sessionAuditStatus
     ? T.dim
@@ -212,16 +212,16 @@ function UnifiedTargetStatusBlock({ targetSaveStatus, sessionAuditStatus, runtim
 
   return (
     <div style={{ marginTop: '6px', border: '1px solid #24303f', background: '#0a1018', borderRadius: '4px', padding: '6px 8px' }}>
-      <div style={{ fontSize: '10px', color: '#7f93a4', marginBottom: '4px' }}>Единый статус цели и системы</div>
+      <div style={{ fontSize: '10px', color: '#7f93a4', marginBottom: '4px' }}>Сводный статус цели и системы</div>
       <div style={{ fontSize: '10px', color: T.dim, marginBottom: '6px' }}>{targetContext}</div>
-      <div style={{ fontSize: '10px', color: '#7f93a4', marginBottom: '3px' }}>Статус последней цели</div>
+      <div style={{ fontSize: '10px', color: '#7f93a4', marginBottom: '3px' }}>Состояние по выбранной цели</div>
       <div style={{ display: 'grid', gap: '3px', marginBottom: '6px' }}>
         <div style={{ fontSize: '10px', color: T.muted }}>Сохранение: <b style={{ color: saveColor }}>{saveText}</b></div>
-        <div style={{ fontSize: '10px', color: T.muted }}>Сессия/cookie: <b style={{ color: sessionColor }}>{sessionText}</b></div>
+        <div style={{ fontSize: '10px', color: T.muted }}>Сессия: <b style={{ color: sessionColor }}>{sessionText}</b></div>
       </div>
-      <div style={{ fontSize: '10px', color: '#7f93a4', marginBottom: '3px' }}>Системный фон</div>
+      <div style={{ fontSize: '10px', color: '#7f93a4', marginBottom: '3px' }}>Системный контекст</div>
       <div style={{ display: 'grid', gap: '3px' }}>
-        <div style={{ fontSize: '10px', color: T.muted }}>Policy/runtime: <b style={{ color: policyColor }}>{policy.text}</b></div>
+        <div style={{ fontSize: '10px', color: T.muted }}>Политика и runtime: <b style={{ color: policyColor }}>{policy.text}</b></div>
       </div>
     </div>
   );
@@ -500,7 +500,7 @@ function TargetsPanel({
         {selectedTarget && (
           <div style={{marginBottom:'8px',padding:'6px',border:'1px solid '+T.line,borderRadius:'4px',background:T.bg1}}>
             <div style={{border:'1px solid '+T.line,borderRadius:'4px',padding:'6px',background:T.bg0,marginBottom:'6px'}}>
-              <div style={{fontSize:'10px',color:T.muted,marginBottom:'4px'}}>Контекст выбранной цели</div>
+              <div style={{fontSize:'10px',color:T.muted,marginBottom:'4px'}}>Краткий контекст цели</div>
               <div style={{fontSize:'11px',color:T.text,fontWeight:700,marginBottom:'3px'}}>
                 {selectedTarget.name || selectedTarget.host || selectedTarget.id || 'Без имени'}
               </div>
@@ -515,7 +515,7 @@ function TargetsPanel({
               </div>
             </div>
             <div style={{fontSize:'10px',color:T.cyan,marginBottom:'6px'}}>
-              Выбранная цель: <b>{selectedTarget.name || selectedTarget.host || selectedTarget.id}</b>
+              В работе: <b>{selectedTarget.name || selectedTarget.host || selectedTarget.id}</b>
             </div>
             {selectedTargetCompatibilityProfile && (
               <div style={{marginBottom:'6px',border:'1px solid #2a3a4f',background:'#0c1520',borderRadius:'4px',padding:'6px 8px'}}>
@@ -523,44 +523,44 @@ function TargetsPanel({
                 <div style={{fontSize:'10px',color:T.text,marginBottom:'3px'}}>Профиль: <b>{selectedTargetCompatibilityProfile.label}</b></div>
                 <div style={{fontSize:'10px',color:T.muted}}>
                   Поток: <b style={{color:'#9ec58f'}}>{selectedTargetCompatibilityProfile.stream}</b> ·
-                  Web-info: <b style={{color:'#9ec58f'}}> {selectedTargetCompatibilityProfile.web}</b> ·
+                  Web-проверки: <b style={{color:'#9ec58f'}}> {selectedTargetCompatibilityProfile.web}</b> ·
                   Архив: <b style={{color:'#9ec58f'}}> {selectedTargetCompatibilityProfile.archive}</b>
                 </div>
                 <div style={{fontSize:'10px',color:T.muted,marginTop:'3px'}}>
-                  Сейчас ключевой сигнал: <b style={{color:T.amb}}>{selectedTargetCompatibilityProfile.note}</b>
+                  Ключевой сигнал сейчас: <b style={{color:T.amb}}>{selectedTargetCompatibilityProfile.note}</b>
                 </div>
                 <div style={{fontSize:'10px',color:'#6f8394',marginTop:'2px'}}>
-                  Эвристика: <span>{selectedTargetCompatibilityProfile.basis || 'недостаточно сигналов'}</span>
+                  Основание профиля: <span>{selectedTargetCompatibilityProfile.basis || 'сигналов недостаточно'}</span>
                 </div>
               </div>
             )}
-            <div style={{fontSize:'10px',color:T.muted,marginBottom:'2px'}}>Быстрые действия для выбранной цели</div>
+            <div style={{fontSize:'10px',color:T.muted,marginBottom:'2px'}}>Быстрые действия по цели</div>
             {selectedTargetCompatibilityProfile && (
               <div style={{fontSize:'10px',color:'#7f93a4',marginBottom:'5px'}}>
-                Контур: <b style={{color:T.text}}>{selectedTargetCompatibilityProfile.label}</b> · сигнал: <b style={{color:T.amb}}>{selectedTargetCompatibilityProfile.note}</b>
+                Контур: <b style={{color:T.text}}>{selectedTargetCompatibilityProfile.label}</b> · ключевой сигнал: <b style={{color:T.amb}}>{selectedTargetCompatibilityProfile.note}</b>
               </div>
             )}
             <div style={{display:'grid',gridTemplateColumns:'repeat(2,minmax(0,1fr))',gap:'4px'}}>
               {String(selectedTarget?.type || '').toLowerCase() !== 'hub' && (
-                <button style={css.btn(T.cyan)} onClick={()=>withNormalizedTarget('stream', onQuickStartStream, selectedTarget)}>Открыть поток (канал 1)</button>
+                <button style={css.btn(T.cyan)} onClick={()=>withNormalizedTarget('stream', onQuickStartStream, selectedTarget)}>Открыть поток (1-й канал)</button>
               )}
-              <button style={css.btn(T.cyan)} onClick={()=>withNormalizedTarget('isapi_info', onIsapiInfo, selectedTarget)}>Сведения ISAPI</button>
-              <button style={css.btn(T.grn)} onClick={()=>withNormalizedTarget('onvif_info', onOnvifInfo, selectedTarget)}>Сведения ONVIF</button>
+              <button style={css.btn(T.cyan)} onClick={()=>withNormalizedTarget('isapi_info', onIsapiInfo, selectedTarget)}>Проверить ISAPI</button>
+              <button style={css.btn(T.grn)} onClick={()=>withNormalizedTarget('onvif_info', onOnvifInfo, selectedTarget)}>Проверить ONVIF</button>
               <button style={css.btn(T.amb)} onClick={()=>withNormalizedTarget('archive_search', onIsapiSearch, selectedTarget)}>Поиск в архиве</button>
               {String(selectedTarget?.type || '').toLowerCase() === 'hub'
-                ? <button style={css.btn(T.blue)} onClick={()=>withNormalizedTarget('hub_archive', onOpenHubArchive, selectedTarget)}>Архив HUB</button>
-                : <button style={css.btn(T.purp)} onClick={()=>withNormalizedTarget('archive_endpoints', onArchiveEndpoints, selectedTarget)}>Точки архива</button>}
+                ? <button style={css.btn(T.blue)} onClick={()=>withNormalizedTarget('hub_archive', onOpenHubArchive, selectedTarget)}>Открыть архив HUB</button>
+                : <button style={css.btn(T.purp)} onClick={()=>withNormalizedTarget('archive_endpoints', onArchiveEndpoints, selectedTarget)}>Открыть точки архива</button>}
             </div>
             {selectedTargetActionAggregate && (
               <div style={{marginTop:'6px',border:'1px solid #253449',background:'#0b121c',borderRadius:'4px',padding:'6px 8px'}}>
-                <div style={{fontSize:'10px',color:'#7f93a4',marginBottom:'3px'}}>Сводка готовности связанных действий</div>
+                <div style={{fontSize:'10px',color:'#7f93a4',marginBottom:'3px'}}>Сводка готовности действий</div>
                 <div style={{fontSize:'10px',color:T.muted,marginBottom:'3px'}}>
                   Готово: <b style={{color:T.grn}}>{selectedTargetActionAggregate.readyCount}</b> ·
                   Ограничено: <b style={{color:T.amb}}> {selectedTargetActionAggregate.limitedCount}</b> ·
-                  Мешает: <b style={{color:T.red}}> {selectedTargetActionAggregate.blockedCount}</b>
+                  Блокирует: <b style={{color:T.red}}> {selectedTargetActionAggregate.blockedCount}</b>
                 </div>
                 <div style={{fontSize:'10px',color:T.muted}}>
-                  Главная причина: <b style={{color:selectedTargetActionAggregate.mainReason === 'Готово' ? T.grn : T.amb}}>{selectedTargetActionAggregate.mainReason}</b>
+                  Ключевая причина: <b style={{color:selectedTargetActionAggregate.mainReason === 'Готово' ? T.grn : T.amb}}>{selectedTargetActionAggregate.mainReason}</b>
                 </div>
                 {(selectedTargetActionAggregate.readyActions?.length > 0 || selectedTargetActionAggregate.limitedActions?.length > 0 || selectedTargetActionAggregate.blockedActions?.length > 0) && (
                   <div style={{fontSize:'10px',color:T.muted,marginTop:'3px'}}>
@@ -571,7 +571,7 @@ function TargetsPanel({
                       <div>Ограничены: <b style={{color:T.amb}}>{selectedTargetActionAggregate.limitedActions.join(', ')}</b></div>
                     )}
                     {selectedTargetActionAggregate.blockedActions?.length > 0 && (
-                      <div>Мешает запуску: <b style={{color:T.red}}>{selectedTargetActionAggregate.blockedActions.join(', ')}</b></div>
+                      <div>Блокирует запуск: <b style={{color:T.red}}>{selectedTargetActionAggregate.blockedActions.join(', ')}</b></div>
                     )}
                   </div>
                 )}
@@ -579,10 +579,10 @@ function TargetsPanel({
             )}
             <div style={{marginTop:'6px',display:'grid',gap:'3px'}}>
               {String(selectedTarget?.type || '').toLowerCase() !== 'hub' && (
-                <div style={{fontSize:'10px',color:T.muted}}>Открыть поток: <b style={{color:selectedTargetActionStatuses?.stream === 'Готово' ? T.grn : T.amb}}>{selectedTargetActionStatuses?.stream || '—'}</b></div>
+                <div style={{fontSize:'10px',color:T.muted}}>Поток: <b style={{color:selectedTargetActionStatuses?.stream === 'Готово' ? T.grn : T.amb}}>{selectedTargetActionStatuses?.stream || '—'}</b></div>
               )}
-              <div style={{fontSize:'10px',color:T.muted}}>Сведения ISAPI: <b style={{color:selectedTargetActionStatuses?.isapi === 'Готово' ? T.grn : T.amb}}>{selectedTargetActionStatuses?.isapi || '—'}</b></div>
-              <div style={{fontSize:'10px',color:T.muted}}>Сведения ONVIF: <b style={{color:selectedTargetActionStatuses?.onvif === 'Готово' ? T.grn : T.amb}}>{selectedTargetActionStatuses?.onvif || '—'}</b></div>
+              <div style={{fontSize:'10px',color:T.muted}}>ISAPI: <b style={{color:selectedTargetActionStatuses?.isapi === 'Готово' ? T.grn : T.amb}}>{selectedTargetActionStatuses?.isapi || '—'}</b></div>
+              <div style={{fontSize:'10px',color:T.muted}}>ONVIF: <b style={{color:selectedTargetActionStatuses?.onvif === 'Готово' ? T.grn : T.amb}}>{selectedTargetActionStatuses?.onvif || '—'}</b></div>
               <div style={{fontSize:'10px',color:T.muted}}>Поиск в архиве: <b style={{color:selectedTargetActionStatuses?.archiveSearch === 'Готово' ? T.grn : T.amb}}>{selectedTargetActionStatuses?.archiveSearch || '—'}</b></div>
               <div style={{fontSize:'10px',color:T.muted}}>
                 {String(selectedTarget?.type || '').toLowerCase() === 'hub' ? 'Архив HUB' : 'Точки архива'}: <b style={{color:selectedTargetActionStatuses?.archive === 'Готово' ? T.grn : T.amb}}>{selectedTargetActionStatuses?.archive || '—'}</b>
