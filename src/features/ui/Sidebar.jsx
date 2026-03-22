@@ -299,13 +299,26 @@ function buildLinkedActionStatuses(target, availability) {
 }
 
 function buildLinkedActionAggregate(statuses) {
-  const values = Object.values(statuses || {}).filter(Boolean);
+  const entries = Object.entries(statuses || {});
+  const labels = {
+    stream: 'Поток',
+    isapi: 'ISAPI',
+    onvif: 'ONVIF',
+    archiveSearch: 'Поиск архива',
+    archive: 'Архив',
+  };
+  const values = entries.map(([, status]) => status).filter(Boolean);
   const readyCount = values.filter((s) => s === 'Готово').length;
   const limitedCount = values.filter((s) => s === 'Ограничено для HUB').length;
   const blockedCount = values.length - readyCount - limitedCount;
   const priorityReasons = ['Нет host/ip', 'Нужен web-endpoint', 'Недостаточно данных для запуска', 'Ограничено для HUB'];
   const mainReason = priorityReasons.find((reason) => values.includes(reason)) || (readyCount > 0 ? 'Готово' : 'Нет данных');
-  return { readyCount, limitedCount, blockedCount, mainReason, total: values.length };
+  const readyActions = entries.filter(([, status]) => status === 'Готово').map(([key]) => labels[key] || key);
+  const limitedActions = entries.filter(([, status]) => status === 'Ограничено для HUB').map(([key]) => labels[key] || key);
+  const blockedActions = entries
+    .filter(([, status]) => status && status !== 'Готово' && status !== 'Ограничено для HUB')
+    .map(([key]) => labels[key] || key);
+  return { readyCount, limitedCount, blockedCount, mainReason, total: values.length, readyActions, limitedActions, blockedActions };
 }
 
 function buildTargetCompatibilityProfile(target, availability, actionStatuses) {
@@ -521,6 +534,19 @@ function TargetsPanel({
                 <div style={{fontSize:'10px',color:T.muted}}>
                   Главная причина: <b style={{color:selectedTargetActionAggregate.mainReason === 'Готово' ? T.grn : T.amb}}>{selectedTargetActionAggregate.mainReason}</b>
                 </div>
+                {(selectedTargetActionAggregate.readyActions?.length > 0 || selectedTargetActionAggregate.limitedActions?.length > 0 || selectedTargetActionAggregate.blockedActions?.length > 0) && (
+                  <div style={{fontSize:'10px',color:T.muted,marginTop:'3px'}}>
+                    {selectedTargetActionAggregate.readyActions?.length > 0 && (
+                      <div>Готовы: <b style={{color:T.grn}}>{selectedTargetActionAggregate.readyActions.join(', ')}</b></div>
+                    )}
+                    {selectedTargetActionAggregate.limitedActions?.length > 0 && (
+                      <div>Ограничены: <b style={{color:T.amb}}>{selectedTargetActionAggregate.limitedActions.join(', ')}</b></div>
+                    )}
+                    {selectedTargetActionAggregate.blockedActions?.length > 0 && (
+                      <div>Мешает запуску: <b style={{color:T.red}}>{selectedTargetActionAggregate.blockedActions.join(', ')}</b></div>
+                    )}
+                  </div>
+                )}
               </div>
             )}
             <div style={{marginTop:'6px',display:'grid',gap:'3px'}}>
