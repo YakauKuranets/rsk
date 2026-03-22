@@ -13,7 +13,7 @@ const S={
 const TOOLS=['nmap','nikto','nuclei','hydra','sqlmap','amass','gobuster','masscan','ffuf'];
 const PRESETS={nmap:'-sV -sC -p 80,443,554',nikto:'-h',nuclei:'-t cves/',hydra:'-l admin -P wordlist.txt http-get',sqlmap:'-u',amass:'enum -passive -d',masscan:'-p 80,443,554 --rate 1000'};
 
-export default function ToolExecutorPanel({ onSessionAuditStatus }){
+export default function ToolExecutorPanel({ onSessionAuditStatus, selectedTarget }){
   const intelligenceTarget = useAppStore((s)=>s.intelligenceTarget);
   const setIntelligenceTarget = useAppStore((s)=>s.setIntelligenceTarget);
   const permit = useAppStore((s)=>s.permitToken);
@@ -26,6 +26,10 @@ export default function ToolExecutorPanel({ onSessionAuditStatus }){
   const [avail,setAvail]=useState([]);
   const [sessionResult, setSessionResult] = useState('');
   const [sessionDebug, setSessionDebug] = useState(null);
+  const selectedTargetLabel = selectedTarget
+    ? (selectedTarget.name || selectedTarget.host || selectedTarget.id || 'Без имени')
+    : '';
+  const selectedTargetEndpoint = selectedTarget?.host || selectedTarget?.ip || '';
 
   const run=async()=>{
     if(!intelligenceTarget.trim())return alert('Введите цель');
@@ -72,6 +76,23 @@ export default function ToolExecutorPanel({ onSessionAuditStatus }){
   return(
     <div style={S.wrap}>
       <h3 style={S.h}>🔧 ИНСТРУМЕНТЫ (UNIFIED API)</h3>
+      <div style={{background:'#09111b',border:'1px solid #233247',padding:'6px',marginBottom:'6px',fontSize:'10px',borderRadius:'3px'}}>
+        <div style={{color:'#7f93a4',marginBottom:'4px'}}>
+          {selectedTarget
+            ? <>Выбрана цель: <b style={{color:'#a9bfd1'}}>{selectedTargetLabel}</b></>
+            : 'Выбранная цель: не выбрана'}
+        </div>
+        <button
+          style={{...S.btn('#66b3ff'),marginBottom:0,fontSize:'10px'}}
+          onClick={() => {
+            if (!selectedTargetEndpoint) return;
+            setIntelligenceTarget(selectedTargetEndpoint);
+          }}
+          disabled={!selectedTargetEndpoint}
+        >
+          Подставить выбранную цель
+        </button>
+      </div>
       <div style={{display:'flex',gap:'4px',flexWrap:'wrap',marginBottom:'8px'}}>
         {TOOLS.map(t=>(
           <button key={t} onClick={()=>{setTool(t);setArgs(PRESETS[t]||'');}}

@@ -595,7 +595,7 @@ export default function Sidebar(props){
           hubRecon={hubRecon} capture={capture} hubConfig={hubConfig}
           fuzzPath={fuzzPath} formatBytes={formatBytes} handleCaptureArchive={handleCaptureArchive}
         />}
-        {tab==='intel'&&<IntelHub onSessionAuditStatus={setSessionAuditStatus}/>}
+        {tab==='intel'&&<IntelHub onSessionAuditStatus={setSessionAuditStatus} selectedTarget={selectedTarget}/>}
         {tab==='system'&&<SystemPanel
           runtimeLogs={runtimeLogs} setRuntimeLogs={setRuntimeLogs}
           downloadTasks={downloadTasks} resumeDownloads={resumeDownloads}

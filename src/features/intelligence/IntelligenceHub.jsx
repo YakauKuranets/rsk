@@ -97,7 +97,7 @@ function SharedContextBar(){
   );
 }
 
-export default function IntelligenceHub({ onSessionAuditStatus }){
+export default function IntelligenceHub({ onSessionAuditStatus, selectedTarget }){
   const [active,setActive]=useState('meta');
   const tab=useMemo(()=>TABS.find(t=>t.id===active),[active]);
 
@@ -108,7 +108,7 @@ export default function IntelligenceHub({ onSessionAuditStatus }){
     llm:<LLMPanel/>,
     bas:<BasPanel/>,
     payload:<PayloadPanel/>,
-    tools:<ToolExecutorPanel onSessionAuditStatus={onSessionAuditStatus}/>,
+    tools:<ToolExecutorPanel onSessionAuditStatus={onSessionAuditStatus} selectedTarget={selectedTarget}/>,
     siem:<SiemPanel/>,
   };
 
