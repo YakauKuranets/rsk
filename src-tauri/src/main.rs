@@ -264,6 +264,24 @@ fn record_target_envelope_marker(state: &State<'_, LogState>, marker: &str, targ
         );
     }
 
+    let warning_streak = counters.warning_streak_windows.load(Ordering::Relaxed);
+    let pre_strictness_reason = match marker {
+        "non_json_passthrough_on_save" => Some("non_json_on_save_is_high_risk_for_future_strictness"),
+        "legacy_wrapped_on_save" if warning_streak >= 3 => {
+            Some("legacy_on_save_with_sustained_warning_streak")
+        }
+        _ => None,
+    };
+    if let Some(reason) = pre_strictness_reason {
+        push_runtime_log(
+            state,
+            format!(
+                "TARGET_ENVELOPE_PRE_STRICTNESS_WARNING|targetId={}|marker={}|warning_streak_windows={}|reason={}|action=log_only_no_enforcement",
+                target_id, marker, warning_streak, reason
+            ),
+        );
+    }
+
     if total % SUMMARY_EVERY_N_OPS == 0 {
         let envelope_read = counters.envelope_read.load(Ordering::Relaxed);
         let legacy_wrapped_on_read = counters.legacy_wrapped_on_read.load(Ordering::Relaxed);
