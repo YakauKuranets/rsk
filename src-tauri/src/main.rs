@@ -148,6 +148,7 @@ struct FfmpegLimiterState {
 struct TargetEnvelopeAdoptionCounters {
     total_ops: AtomicU64,
     warning_streak_windows: AtomicU64,
+    strict_reject_non_json_save: AtomicU64,
     envelope_read: AtomicU64,
     legacy_wrapped_on_read: AtomicU64,
     legacy_wrapped_on_save: AtomicU64,
@@ -162,6 +163,7 @@ impl TargetEnvelopeAdoptionCounters {
         Self {
             total_ops: AtomicU64::new(0),
             warning_streak_windows: AtomicU64::new(0),
+            strict_reject_non_json_save: AtomicU64::new(0),
             envelope_read: AtomicU64::new(0),
             legacy_wrapped_on_read: AtomicU64::new(0),
             legacy_wrapped_on_save: AtomicU64::new(0),
@@ -311,12 +313,14 @@ fn record_target_envelope_marker(state: &State<'_, LogState>, marker: &str, targ
         let non_json_passthrough_on_save = counters.non_json_passthrough_on_save.load(Ordering::Relaxed);
         let non_json_soft_wrapped_on_save =
             counters.non_json_soft_wrapped_on_save.load(Ordering::Relaxed);
+        let strict_reject_non_json_save =
+            counters.strict_reject_non_json_save.load(Ordering::Relaxed);
         let envelope_write_passthrough = counters.envelope_write_passthrough.load(Ordering::Relaxed);
 
         push_runtime_log(
             state,
             format!(
-                "TARGET_ENVELOPE_ADOPTION_SUMMARY|ops={}|envelope_read={}|legacy_wrapped_on_read={}|legacy_wrapped_on_save={}|non_json_passthrough_on_read={}|non_json_passthrough_on_save={}|non_json_soft_wrapped_on_save={}|envelope_write_passthrough={}",
+                "TARGET_ENVELOPE_ADOPTION_SUMMARY|ops={}|envelope_read={}|legacy_wrapped_on_read={}|legacy_wrapped_on_save={}|non_json_passthrough_on_read={}|non_json_passthrough_on_save={}|non_json_soft_wrapped_on_save={}|strict_reject_non_json_save={}|envelope_write_passthrough={}",
                 total,
                 envelope_read,
                 legacy_wrapped_on_read,
@@ -324,6 +328,7 @@ fn record_target_envelope_marker(state: &State<'_, LogState>, marker: &str, targ
                 non_json_passthrough_on_read,
                 non_json_passthrough_on_save,
                 non_json_soft_wrapped_on_save,
+                strict_reject_non_json_save,
                 envelope_write_passthrough
             ),
         );
@@ -370,6 +375,31 @@ fn record_target_envelope_marker(state: &State<'_, LogState>, marker: &str, targ
                 counters.warning_streak_windows.store(0, Ordering::Relaxed);
             }
         }
+    }
+}
+
+fn record_non_json_save_strict_reject(state: &State<'_, LogState>, target_id: &str, reason: &str) {
+    const STRICT_REJECT_SUMMARY_EVERY_N: u64 = 5;
+    let counters = target_envelope_adoption_counters();
+    let reject_count = counters
+        .strict_reject_non_json_save
+        .fetch_add(1, Ordering::Relaxed)
+        + 1;
+    push_runtime_log(
+        state,
+        format!(
+            "TARGET_ENVELOPE_STRICT_REJECT|targetId={}|reason={}|rejectCount={}|action=deny_non_json_fallback_save",
+            target_id, reason, reject_count
+        ),
+    );
+    if reject_count % STRICT_REJECT_SUMMARY_EVERY_N == 0 {
+        push_runtime_log(
+            state,
+            format!(
+                "TARGET_ENVELOPE_STRICT_REJECT_SUMMARY|strict_reject_non_json_save={}|lastReason={}|note=watch_trend",
+                reject_count, reason
+            ),
+        );
     }
 }
 
@@ -1196,13 +1226,7 @@ fn save_target(
 ) -> Result<String, String> {
     let (normalized_payload, normalization_marker) =
         normalize_target_payload_for_storage(&payload, Some(&target_id)).map_err(|reason| {
-            push_runtime_log(
-                &log_state,
-                format!(
-                    "TARGET_ENVELOPE_STRICT_REJECT|targetId={}|reason={}|action=deny_non_json_fallback_save",
-                    target_id, reason
-                ),
-            );
+            record_non_json_save_strict_reject(&log_state, &target_id, &reason);
             reason
         })?;
     record_target_envelope_marker(&log_state, normalization_marker, &target_id);
