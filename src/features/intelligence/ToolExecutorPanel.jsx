@@ -510,6 +510,27 @@ export default function ToolExecutorPanel({ onSessionAuditStatus, selectedTarget
     if (!ok) return;
     setUserWorkChains((prev) => prev.filter((chain) => chain.id !== chainId));
   };
+  const renameUserWorkChain = (chainId) => {
+    if (!chainId) return;
+    const current = userWorkChains.find((chain) => chain.id === chainId);
+    if (!current) return;
+    const nextLabel = window.prompt('Новое название цепочки', current.label || '');
+    if (nextLabel == null) return;
+    const normalized = String(nextLabel).trim();
+    if (!normalized) return alert('Название не может быть пустым');
+    setUserWorkChains((prev) => prev.map((chain) => (chain.id === chainId ? { ...chain, label: normalized } : chain)));
+  };
+  const pinUserWorkChainToTop = (chainId) => {
+    if (!chainId) return;
+    setUserWorkChains((prev) => {
+      const index = prev.findIndex((chain) => chain.id === chainId);
+      if (index <= 0) return prev;
+      const next = [...prev];
+      const [picked] = next.splice(index, 1);
+      next.unshift(picked);
+      return next;
+    });
+  };
 
   const favoriteScenarios = QUICK_SCENARIOS.filter((scenario) => favoriteScenarioIds.includes(scenario.id));
   const favoriteChains = WORK_CHAINS.filter((chain) => favoriteChainIds.includes(chain.id));
@@ -856,6 +877,18 @@ export default function ToolExecutorPanel({ onSessionAuditStatus, selectedTarget
                     onClick={() => applyChainStep(chain, 0)}
                   >
                     Старт (шаг 1)
+                  </button>
+                  <button
+                    style={{...S.btn('#8ea5bf'),width:'auto',padding:'4px 8px',marginBottom:0,fontSize:'10px'}}
+                    onClick={() => pinUserWorkChainToTop(chain.id)}
+                  >
+                    Вверх
+                  </button>
+                  <button
+                    style={{...S.btn('#d0b67a'),width:'auto',padding:'4px 8px',marginBottom:0,fontSize:'10px'}}
+                    onClick={() => renameUserWorkChain(chain.id)}
+                  >
+                    Имя
                   </button>
                   <button
                     style={{...S.btn('#d98f8f'),width:'auto',padding:'4px 8px',marginBottom:0,fontSize:'10px'}}
