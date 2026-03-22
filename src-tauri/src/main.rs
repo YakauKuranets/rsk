@@ -1333,7 +1333,10 @@ fn normalize_target_payload_for_storage(
 ) -> (String, &'static str) {
     let parsed = match serde_json::from_str::<Value>(payload) {
         Ok(v) => v,
-        Err(_) => return (payload.to_string(), "non_json_passthrough_on_save"),
+        Err(_) => {
+            let wrapped = wrap_non_json_payload_as_envelope(payload, target_id);
+            return (wrapped, "non_json_passthrough_on_save");
+        }
     };
     let is_envelope = is_valid_target_envelope(&parsed);
 
@@ -1357,6 +1360,45 @@ fn normalize_target_payload_for_storage(
         serde_json::to_string(&normalized).unwrap_or_else(|_| payload.to_string()),
         marker,
     )
+}
+
+fn wrap_non_json_payload_as_envelope(payload: &str, target_id: Option<&str>) -> String {
+    let id = target_id
+        .map(|x| x.to_string())
+        .unwrap_or_else(|| format!("legacy_non_json_{}", Utc::now().timestamp_millis()));
+    let mut metadata = serde_json::Map::new();
+    metadata.insert(
+        "source".to_string(),
+        Value::String("backend.save_target.wrap_non_json_soft_strictness".to_string()),
+    );
+    metadata.insert("writtenAt".to_string(), Value::String(Utc::now().to_rfc3339()));
+    metadata.insert(
+        "normalizedBy".to_string(),
+        Value::String("backend_target_adapter_v1".to_string()),
+    );
+    metadata.insert(
+        "strictnessStep".to_string(),
+        Value::String("phase11_non_json_save_soft_wrap".to_string()),
+    );
+
+    let mut payload_obj = serde_json::Map::new();
+    payload_obj.insert("id".to_string(), Value::String(id));
+    payload_obj.insert(
+        "legacyRawPayload".to_string(),
+        Value::String(payload.to_string()),
+    );
+    payload_obj.insert(
+        "legacyRawFormat".to_string(),
+        Value::String("utf8_string_non_json".to_string()),
+    );
+
+    let mut envelope = serde_json::Map::new();
+    envelope.insert("version".to_string(), Value::from(1));
+    envelope.insert("kind".to_string(), Value::String("legacy".to_string()));
+    envelope.insert("metadata".to_string(), Value::Object(metadata));
+    envelope.insert("payload".to_string(), Value::Object(payload_obj));
+
+    serde_json::to_string(&Value::Object(envelope)).unwrap_or_else(|_| payload.to_string())
 }
 
 fn normalize_target_payload_for_read(
