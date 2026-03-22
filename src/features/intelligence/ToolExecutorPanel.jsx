@@ -41,6 +41,41 @@ const QUICK_SCENARIOS = [
   { id: 'web_fast', label: 'Быстрая web-проверка', tool: 'nikto', profileId: 'fast', kind: 'web' },
   { id: 'web_paths', label: 'Проверка web-путей', tool: 'ffuf', profileId: 'base', kind: 'web' },
 ];
+const WORK_CHAINS = [
+  {
+    id: 'host_fast_overview',
+    label: 'Быстрый обзор узла',
+    steps: [
+      { label: 'Сетевой скан (быстрый)', tool: 'nmap', profileId: 'fast', kind: 'network' },
+      { label: 'Web-поверхность (быстро)', tool: 'nikto', profileId: 'fast', kind: 'web' },
+    ],
+  },
+  {
+    id: 'camera_careful_overview',
+    label: 'Осторожный обзор камеры/NVR',
+    steps: [
+      { label: 'Сеть (осторожно)', tool: 'nmap', profileId: 'careful', kind: 'camera' },
+      { label: 'Порты/подтверждение', tool: 'masscan', profileId: 'careful', kind: 'camera' },
+      { label: 'Web-панель (быстро)', tool: 'nikto', profileId: 'fast', kind: 'web' },
+    ],
+  },
+  {
+    id: 'web_fast_chain',
+    label: 'Быстрая web-цепочка',
+    steps: [
+      { label: 'Web-аудит', tool: 'nikto', profileId: 'fast', kind: 'web' },
+      { label: 'Поиск путей', tool: 'ffuf', profileId: 'base', kind: 'web' },
+    ],
+  },
+  {
+    id: 'post_network_refine',
+    label: 'Уточнение после сетевой находки',
+    steps: [
+      { label: 'Подтверждение сервисов', tool: 'nmap', profileId: 'base', kind: 'network' },
+      { label: 'Уточнение web-путей', tool: 'ffuf', profileId: 'careful', kind: 'web' },
+    ],
+  },
+];
 const TOOL_EXEC_STATE_KEY = 'hyperion_tool_executor_state_v1';
 const TOOL_EXEC_FAVORITE_SCENARIOS_KEY = 'hyperion_tool_executor_favorite_scenarios_v1';
 const TOOL_EXEC_RECENT_RUNS_KEY = 'hyperion_tool_executor_recent_runs_v1';
@@ -175,6 +210,7 @@ export default function ToolExecutorPanel({ onSessionAuditStatus, selectedTarget
   const [favoriteScenarioIds, setFavoriteScenarioIds] = useState([]);
   const [recentRuns, setRecentRuns] = useState([]);
   const [userScenarios, setUserScenarios] = useState([]);
+  const [chainStepIndexById, setChainStepIndexById] = useState({});
   const selectedTargetLabel = selectedTarget
     ? (selectedTarget.name || selectedTarget.host || selectedTarget.id || 'Без имени')
     : '';
@@ -443,6 +479,17 @@ export default function ToolExecutorPanel({ onSessionAuditStatus, selectedTarget
     }
     return '';
   };
+  const buildScenarioFromChainStep = (step) => {
+    const nextTool = step?.tool || tool;
+    const nextProfiles = RUN_PROFILES[nextTool] || RUN_PROFILES.default;
+    const profile = nextProfiles.find((p) => p.id === step?.profileId) || nextProfiles[0] || { id: 'base', args: PRESETS[nextTool] || '' };
+    return {
+      tool: nextTool,
+      args: profile.args || PRESETS[nextTool] || '',
+      profileId: profile.id,
+      kind: step?.kind || null,
+    };
+  };
   const formatRecentRunTime = (iso) => {
     if (!iso) return 'время неизвестно';
     const parsed = new Date(iso);
@@ -483,6 +530,19 @@ export default function ToolExecutorPanel({ onSessionAuditStatus, selectedTarget
     if (!scenario) return;
     if (!confirmCompatibilityIfNeeded(scenario, 'применение сценария')) return;
     applyScenarioToForm(scenario, 'selected');
+  };
+  const applyChainStep = (chain, stepIndex) => {
+    if (!chain?.steps?.length) return;
+    const safeIndex = Math.max(0, Math.min(stepIndex, chain.steps.length - 1));
+    const scenario = buildScenarioFromChainStep(chain.steps[safeIndex]);
+    applyQuickScenario(scenario);
+    setChainStepIndexById((prev) => ({ ...prev, [chain.id]: safeIndex }));
+  };
+  const applyNextChainStep = (chain) => {
+    if (!chain?.steps?.length) return;
+    const current = Number(chainStepIndexById?.[chain.id] || 0);
+    const nextIndex = Math.min(current + 1, chain.steps.length - 1);
+    applyChainStep(chain, nextIndex);
   };
   const saveRecentRunAsUserScenario = (entry) => {
     if (!entry) return;
@@ -658,6 +718,41 @@ export default function ToolExecutorPanel({ onSessionAuditStatus, selectedTarget
         )}
       </div>
       <div style={{background:'#101318',border:'1px solid #2b3442',padding:'6px',marginBottom:'6px',fontSize:'10px',borderRadius:'3px'}}>
+        <div style={{color:'#7f93a4',marginBottom:'4px'}}>Рабочие цепочки</div>
+        <div style={{display:'flex',flexDirection:'column',gap:'4px',marginBottom:'4px'}}>
+          {WORK_CHAINS.map((chain) => {
+            const currentIdx = Number(chainStepIndexById?.[chain.id] || 0);
+            const nextIdx = Math.min(currentIdx + 1, chain.steps.length - 1);
+            return (
+              <div key={chain.id} style={{border:'1px solid #253040',background:'#0d1219',padding:'5px',borderRadius:'3px'}}>
+                <div style={{color:'#9fc6d5',marginBottom:'3px'}}>{chain.label}</div>
+                <div style={{fontSize:'9px',color:'#6f8398',marginBottom:'4px'}}>
+                  {chain.steps.map((step, idx) => `${idx + 1}. ${step.label}`).join(' → ')}
+                </div>
+                <div style={{display:'flex',gap:'4px',flexWrap:'wrap'}}>
+                  <button
+                    style={{...S.btn('#7bb7ff'),width:'auto',padding:'4px 8px',marginBottom:0,fontSize:'10px'}}
+                    onClick={() => applyChainStep(chain, 0)}
+                  >
+                    Применить шаг 1
+                  </button>
+                  <button
+                    style={{...S.btn('#8ea5bf'),width:'auto',padding:'4px 8px',marginBottom:0,fontSize:'10px'}}
+                    onClick={() => applyNextChainStep(chain)}
+                  >
+                    Следующий шаг ({nextIdx + 1})
+                  </button>
+                  <button
+                    style={{...S.btn('#6f7f94'),width:'auto',padding:'4px 8px',marginBottom:0,fontSize:'10px'}}
+                    onClick={() => setChainStepIndexById((prev) => ({ ...prev, [chain.id]: 0 }))}
+                  >
+                    Сброс
+                  </button>
+                </div>
+              </div>
+            );
+          })}
+        </div>
         <div style={{color:'#7f93a4',marginBottom:'4px'}}>Недавние запуски</div>
         {recentRuns.length === 0 ? (
           <div style={{color:'#6f8398'}}>Пока пусто. Запусти инструмент — здесь появится история.</div>
