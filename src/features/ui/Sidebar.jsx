@@ -58,6 +58,87 @@ function Section({icon,title,color,children,defaultOpen=true}){
   );
 }
 
+const POLICY_SIGNAL_LABELS = [
+  { marker: 'TARGET_ENVELOPE_POLICY_WARNING', label: 'Предупреждение policy', short: 'policy warning' },
+  { marker: 'TARGET_ENVELOPE_POLICY_ESCALATION_WARNING', label: 'Эскалация policy', short: 'policy escalation' },
+  { marker: 'TARGET_ENVELOPE_PRE_STRICTNESS_WARNING', label: 'Сигнал перед ужесточением', short: 'pre-strictness warning' },
+  { marker: 'TARGET_ENVELOPE_STRICT_REJECT', label: 'Строгий отказ сохранения', short: 'strict reject' },
+];
+
+function getRuntimeLogMessage(line) {
+  if (line == null) return '';
+  if (typeof line === 'string') return line;
+  if (typeof line === 'object') return String(line.message || '');
+  return String(line);
+}
+
+function PolicyRuntimeStatusBlock({ runtimeLogs }) {
+  const safeLogs = runtimeLogs || [];
+  const recentWindow = safeLogs.slice(-80);
+  const stats = POLICY_SIGNAL_LABELS.map(({ marker, label, short }) => {
+    const hits = recentWindow.filter((line) => getRuntimeLogMessage(line).includes(marker));
+    return { marker, label, short, count: hits.length, last: hits[hits.length - 1] || null };
+  });
+  const strictRejectCount = stats.find((s) => s.marker === 'TARGET_ENVELOPE_STRICT_REJECT')?.count || 0;
+  const warningCount = stats.find((s) => s.marker === 'TARGET_ENVELOPE_POLICY_WARNING')?.count || 0;
+  const escalationCount = stats.find((s) => s.marker === 'TARGET_ENVELOPE_POLICY_ESCALATION_WARNING')?.count || 0;
+  const preStrictnessCount = stats.find((s) => s.marker === 'TARGET_ENVELOPE_PRE_STRICTNESS_WARNING')?.count || 0;
+
+  let statusText = 'Спокойно';
+  let statusColor = T.grn;
+  if (strictRejectCount > 0) {
+    statusText = 'Был строгий отказ';
+    statusColor = T.red;
+  } else if (escalationCount >= 2 || preStrictnessCount >= 2 || warningCount >= 4) {
+    statusText = 'Есть устойчивый плохой тренд';
+    statusColor = '#ff8844';
+  } else if (warningCount > 0 || escalationCount > 0 || preStrictnessCount > 0) {
+    statusText = 'Есть предупреждение';
+    statusColor = T.amb;
+  }
+
+  const recentSignals = [];
+  for (let i = safeLogs.length - 1; i >= 0; i -= 1) {
+    const line = safeLogs[i];
+    const message = getRuntimeLogMessage(line);
+    const match = POLICY_SIGNAL_LABELS.find(({ marker }) => message.includes(marker));
+    if (!match) continue;
+    recentSignals.push({
+      label: match.label,
+      short: match.short,
+      time: typeof line === 'object' ? (line.time || '??:??:??') : '??:??:??',
+    });
+    if (recentSignals.length >= 4) break;
+  }
+
+  return (
+    <div style={{
+      marginBottom: '8px',
+      borderRadius: '6px',
+      border: '1px solid ' + statusColor + '55',
+      background: statusColor + '12',
+      padding: '7px 8px',
+    }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px', marginBottom: '4px' }}>
+        <span style={{ fontSize: '10px', color: T.muted }}>Policy/runtime сигналы</span>
+        <span style={{ fontSize: '10px', color: statusColor, fontWeight: 700 }}>{statusText}</span>
+      </div>
+      <div style={{ fontSize: '10px', color: T.text, marginBottom: recentSignals.length ? '6px' : '0px' }}>
+        Окно: последние {recentWindow.length} логов · W:{warningCount} · E:{escalationCount} · P:{preStrictnessCount} · R:{strictRejectCount}
+      </div>
+      {recentSignals.length > 0 && (
+        <div style={{ display: 'grid', gap: '3px' }}>
+          {recentSignals.map((item, idx) => (
+            <div key={`${item.short}_${item.time}_${idx}`} style={{ fontSize: '10px', color: T.muted }}>
+              [{item.time}] {item.label}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function TargetsPanel({
   targets,filteredTargets,targetSearch,setTargetSearch,
   targetTypeFilter,setTargetTypeFilter,archiveOnly,setArchiveOnly,
@@ -238,6 +319,7 @@ function SystemPanel({runtimeLogs,setRuntimeLogs,downloadTasks,resumeDownloads,s
   return(
     <>
       <Section icon='📟' title='Логи ядра' color={T.grn}>
+        <PolicyRuntimeStatusBlock runtimeLogs={runtimeLogs}/>
         <RuntimeLogs runtimeLogs={runtimeLogs} setRuntimeLogs={setRuntimeLogs}/>
       </Section>
       <Section icon='🔗' title='FTP Relay' color={T.blue} defaultOpen={false}>
