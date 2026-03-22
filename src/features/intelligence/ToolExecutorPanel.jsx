@@ -21,6 +21,17 @@ const S={
 };
 
 const TOOLS=['nmap','nikto','nuclei','hydra','sqlmap','amass','gobuster','masscan','ffuf'];
+const TOOL_DISPLAY_LABELS = {
+  nmap: 'Nmap',
+  nikto: 'Nikto',
+  nuclei: 'Nuclei',
+  hydra: 'Hydra',
+  sqlmap: 'Sqlmap',
+  amass: 'Amass',
+  gobuster: 'Gobuster',
+  masscan: 'Masscan',
+  ffuf: 'Ffuf',
+};
 const PRESETS={nmap:'-sV -sC -p 80,443,554',nikto:'-h',nuclei:'-t cves/',hydra:'-l admin -P wordlist.txt http-get',sqlmap:'-u',amass:'enum -passive -d',masscan:'-p 80,443,554 --rate 1000'};
 const RUN_PROFILES={
   nmap:[
@@ -51,6 +62,11 @@ function getProfileLabel(tool, profileId) {
   const profiles = RUN_PROFILES[tool] || RUN_PROFILES.default;
   const match = profiles.find((item) => item.id === profileId);
   return match?.label || null;
+}
+
+function getToolDisplayLabel(tool) {
+  const normalized = String(tool || '').toLowerCase();
+  return TOOL_DISPLAY_LABELS[normalized] || (normalized ? normalized.toUpperCase() : 'Инструмент');
 }
 const QUICK_SCENARIOS = [
   { id: 'net_fast', label: 'Быстрая сетевая проверка', tool: 'nmap', profileId: 'fast', kind: 'network' },
@@ -550,7 +566,7 @@ export default function ToolExecutorPanel({ onSessionAuditStatus, selectedTarget
     const profileLabel = getProfileLabel(entry.tool || tool, entry.profileId);
     const scenario = {
       id: `${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
-      title: `${entry.tool || 'инструмент'}${profileLabel ? ` · ${profileLabel}` : ''} · мой сценарий`,
+      title: `${getToolDisplayLabel(entry.tool || tool)}${profileLabel ? ` · ${profileLabel}` : ''} · мой сценарий`,
       tool: entry.tool || tool,
       args: typeof entry.args === 'string' ? entry.args : '',
       profileId: entry.profileId || null,
@@ -615,7 +631,7 @@ export default function ToolExecutorPanel({ onSessionAuditStatus, selectedTarget
           ? (
             <>
               <div style={{color:'#9fc6d5',marginBottom:'4px'}}>
-                Инструмент: <b>{recommendedPlan.tool}</b> · Профиль: <b>{getProfileLabel(recommendedPlan.tool, recommendedPlan.profileId) || 'по умолчанию'}</b>
+                Инструмент: <b>{getToolDisplayLabel(recommendedPlan.tool)}</b> · Профиль: <b>{getProfileLabel(recommendedPlan.tool, recommendedPlan.profileId) || 'по умолчанию'}</b>
               </div>
               <div style={{color:'#768aa0',marginBottom:'6px'}}>{recommendedPlan.reason}</div>
               <button style={{...S.btn('#7bc3ff'),marginBottom:0,fontSize:'10px'}} onClick={applyRecommendation}>
@@ -776,7 +792,7 @@ export default function ToolExecutorPanel({ onSessionAuditStatus, selectedTarget
             {recentRuns.map((entry) => (
               <div key={entry.id} style={{border:'1px solid #263142',background:'#0d1219',padding:'5px',borderRadius:'3px'}}>
                 <div style={{color:'#9fc6d5',marginBottom:'3px'}}>
-                  <b>{entry.tool || 'tool'}</b> · {entry.target || 'без цели'} · {formatRecentRunTime(entry.executedAt)}
+                  <b>{getToolDisplayLabel(entry.tool)}</b> · {entry.target || 'без цели'} · {formatRecentRunTime(entry.executedAt)}
                   {entry.profileId ? <> · профиль: <b>{getProfileLabel(entry.tool, entry.profileId) || 'пользовательский'}</b></> : null}
                   <span style={{marginLeft:'6px',fontSize:'9px',color:getScenarioCompatibility(entry).color}}>
                     {getScenarioCompatibility(entry).text}
@@ -818,7 +834,7 @@ export default function ToolExecutorPanel({ onSessionAuditStatus, selectedTarget
           <button key={t} onClick={()=>{setTool(t);setArgs(argsByTool[t] || PRESETS[t] || '');}}
             style={{padding:'3px 8px',background:tool===t?'#1a1a1a':'transparent',
               color:tool===t?'#eee':'#555',border:'1px solid '+(tool===t?'#555':'#1a1a1a'),
-              cursor:'pointer',fontSize:'10px',borderRadius:'3px'}}>{t}</button>
+              cursor:'pointer',fontSize:'10px',borderRadius:'3px'}}>{getToolDisplayLabel(t)}</button>
         ))}
       </div>
       <div style={{background:'#0d1219',border:'1px solid #202f42',padding:'6px',marginBottom:'6px',borderRadius:'3px'}}>
