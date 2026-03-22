@@ -162,6 +162,9 @@ function buildPolicyRuntimeSummary(runtimeLogs) {
 }
 
 function UnifiedTargetStatusBlock({ targetSaveStatus, sessionAuditStatus, runtimeLogs }) {
+  const targetContext = targetSaveStatus?.text
+    ? 'Последняя операция сохранения'
+    : 'Цель ещё не сохранялась в этой сессии';
   const saveText = !targetSaveStatus
     ? 'Нет данных'
     : targetSaveStatus.level === 'error'
@@ -178,7 +181,7 @@ function UnifiedTargetStatusBlock({ targetSaveStatus, sessionAuditStatus, runtim
         : T.grn;
 
   const sessionText = !sessionAuditStatus
-    ? 'Нет данных'
+    ? 'Нет данных (аудит не запускался)'
     : sessionAuditStatus.mode === 'inconclusive'
       ? 'Неопределённо'
       : sessionAuditStatus.mode === 'fallback'
@@ -197,10 +200,15 @@ function UnifiedTargetStatusBlock({ targetSaveStatus, sessionAuditStatus, runtim
 
   return (
     <div style={{ marginTop: '6px', border: '1px solid #24303f', background: '#0a1018', borderRadius: '4px', padding: '6px 8px' }}>
-      <div style={{ fontSize: '10px', color: '#7f93a4', marginBottom: '4px' }}>Единый статус цели</div>
-      <div style={{ display: 'grid', gap: '3px' }}>
+      <div style={{ fontSize: '10px', color: '#7f93a4', marginBottom: '4px' }}>Единый статус цели и системы</div>
+      <div style={{ fontSize: '10px', color: T.dim, marginBottom: '6px' }}>{targetContext}</div>
+      <div style={{ fontSize: '10px', color: '#7f93a4', marginBottom: '3px' }}>Статус последней цели</div>
+      <div style={{ display: 'grid', gap: '3px', marginBottom: '6px' }}>
         <div style={{ fontSize: '10px', color: T.muted }}>Сохранение: <b style={{ color: saveColor }}>{saveText}</b></div>
         <div style={{ fontSize: '10px', color: T.muted }}>Сессия/cookie: <b style={{ color: sessionColor }}>{sessionText}</b></div>
+      </div>
+      <div style={{ fontSize: '10px', color: '#7f93a4', marginBottom: '3px' }}>Системный фон</div>
+      <div style={{ display: 'grid', gap: '3px' }}>
         <div style={{ fontSize: '10px', color: T.muted }}>Policy/runtime: <b style={{ color: policyColor }}>{policy.text}</b></div>
       </div>
     </div>
