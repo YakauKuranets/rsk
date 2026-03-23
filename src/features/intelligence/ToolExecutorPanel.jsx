@@ -68,6 +68,32 @@ function getToolDisplayLabel(tool) {
   const normalized = String(tool || '').toLowerCase();
   return TOOL_DISPLAY_LABELS[normalized] || (normalized ? normalized.toUpperCase() : 'Инструмент');
 }
+
+function getRecentRunAttentionStyle(reviewId) {
+  if (reviewId === 'manual_check') {
+    return {
+      borderColor: '#7c6540',
+      background: '#121015',
+      boxShadow: 'inset 2px 0 0 #d9b36c99',
+      label: 'Требует внимания',
+      labelColor: '#d9b36c',
+      labelBorder: '#d9b36c66',
+      labelBackground: '#d9b36c1f',
+    };
+  }
+  if (reviewId === 'check_later') {
+    return {
+      borderColor: '#465a73',
+      background: '#0f141d',
+      boxShadow: 'inset 2px 0 0 #9db4c899',
+      label: 'Требует внимания',
+      labelColor: '#9db4c8',
+      labelBorder: '#9db4c866',
+      labelBackground: '#9db4c81a',
+    };
+  }
+  return null;
+}
 const QUICK_SCENARIOS = [
   { id: 'net_fast', label: 'Быстрая сетевая проверка', tool: 'nmap', profileId: 'fast', kind: 'network' },
   { id: 'net_careful', label: 'Осторожная сетевая проверка', tool: 'nmap', profileId: 'careful', kind: 'network' },
@@ -131,6 +157,7 @@ const RECENT_RUN_REVIEW_SORT_PRIORITY = {
   useful_signal: 2,
   noise: 3,
 };
+const ATTENTION_REVIEW_IDS = new Set(['manual_check', 'check_later']);
 
 function getRecommendedToolPlan(selectedTarget) {
   if (!selectedTarget) return null;
@@ -1252,14 +1279,40 @@ export default function ToolExecutorPanel({ onSessionAuditStatus, selectedTarget
           </div>
         ) : (
           <div style={{display:'flex',flexDirection:'column',gap:'4px'}}>
-            {sortedRecentRuns.map((entry) => (
-              <div key={entry.id} style={{border:'1px solid #263142',background:'#0d1219',padding:'5px',borderRadius:'3px'}}>
+            {sortedRecentRuns.map((entry) => {
+              const attentionStyle = getRecentRunAttentionStyle(entry.operatorReview);
+              return (
+              <div
+                key={entry.id}
+                style={{
+                  border:'1px solid ' + (attentionStyle?.borderColor || '#263142'),
+                  background:attentionStyle?.background || '#0d1219',
+                  boxShadow:attentionStyle?.boxShadow || 'none',
+                  padding:'5px',
+                  borderRadius:'3px',
+                }}
+              >
                 <div style={{color:'#9fc6d5',marginBottom:'3px'}}>
                   <b>{getToolDisplayLabel(entry.tool)}</b> · {entry.target || 'без цели'} · {formatRecentRunTime(entry.executedAt)}
                   {entry.profileId ? <> · профиль: <b>{getProfileLabel(entry.tool, entry.profileId) || 'пользовательский'}</b></> : null}
                   <span style={{marginLeft:'6px',fontSize:'9px',color:getScenarioCompatibility(entry).color}}>
                     {getScenarioCompatibility(entry).text}
                   </span>
+                  {ATTENTION_REVIEW_IDS.has(entry.operatorReview) && attentionStyle && (
+                    <span
+                      style={{
+                        marginLeft:'6px',
+                        fontSize:'9px',
+                        color:attentionStyle.labelColor,
+                        border:'1px solid ' + attentionStyle.labelBorder,
+                        background:attentionStyle.labelBackground,
+                        padding:'1px 5px',
+                        borderRadius:'999px',
+                      }}
+                    >
+                      {attentionStyle.label}
+                    </span>
+                  )}
                   {entry.operatorReview && (
                     <span
                       style={{
@@ -1302,7 +1355,8 @@ export default function ToolExecutorPanel({ onSessionAuditStatus, selectedTarget
                   </button>
                 </div>
               </div>
-            ))}
+            );
+            })}
           </div>
         )}
       </div>
