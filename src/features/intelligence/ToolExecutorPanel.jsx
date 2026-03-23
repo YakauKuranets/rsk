@@ -454,6 +454,10 @@ export default function ToolExecutorPanel({ onSessionAuditStatus, selectedTarget
   const filteredRecentRuns = recentRunsReviewFilter === 'all'
     ? recentRuns
     : recentRuns.filter((entry) => entry?.operatorReview === recentRunsReviewFilter);
+  const recentRunsCountsByReview = OPERATOR_REVIEW_OPTIONS.reduce((acc, option) => {
+    acc[option.id] = recentRuns.filter((entry) => entry?.operatorReview === option.id).length;
+    return acc;
+  }, {});
 
   useEffect(() => {
     const restored = restoreToolExecState(localStorage.getItem(TOOL_EXEC_STATE_KEY), {
@@ -1188,7 +1192,7 @@ export default function ToolExecutorPanel({ onSessionAuditStatus, selectedTarget
             style={{...S.btn(recentRunsReviewFilter === 'all' ? '#6aa8ff' : '#5c6f85'),width:'auto',padding:'3px 7px',marginBottom:0,fontSize:'10px'}}
             onClick={() => setRecentRunsReviewFilter('all')}
           >
-            Все
+            Все ({recentRuns.length})
           </button>
           {OPERATOR_REVIEW_OPTIONS.map((option) => (
             <button
@@ -1196,7 +1200,7 @@ export default function ToolExecutorPanel({ onSessionAuditStatus, selectedTarget
               style={{...S.btn(recentRunsReviewFilter === option.id ? option.color : '#5c6f85'),width:'auto',padding:'3px 7px',marginBottom:0,fontSize:'10px'}}
               onClick={() => setRecentRunsReviewFilter(option.id)}
             >
-              {option.label}
+              {option.label} ({recentRunsCountsByReview[option.id] || 0})
             </button>
           ))}
         </div>
