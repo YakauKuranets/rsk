@@ -431,6 +431,7 @@ export default function ToolExecutorPanel({ onSessionAuditStatus, selectedTarget
   const [favoriteScenarioIds, setFavoriteScenarioIds] = useState([]);
   const [favoriteChainIds, setFavoriteChainIds] = useState([]);
   const [recentRuns, setRecentRuns] = useState([]);
+  const [recentRunsReviewFilter, setRecentRunsReviewFilter] = useState('all');
   const [userScenarios, setUserScenarios] = useState([]);
   const [userWorkChains, setUserWorkChains] = useState([]);
   const [chainStepIndexById, setChainStepIndexById] = useState({});
@@ -450,6 +451,9 @@ export default function ToolExecutorPanel({ onSessionAuditStatus, selectedTarget
   const activePresetId = selectedPresetByTool?.[tool] || null;
   const launchReadiness = computeLaunchReadiness({ intelligenceTarget, permit, args: normalizedArgs });
   const currentReviewMeta = OPERATOR_REVIEW_OPTIONS.find((item) => item.id === currentResultReview) || null;
+  const filteredRecentRuns = recentRunsReviewFilter === 'all'
+    ? recentRuns
+    : recentRuns.filter((entry) => entry?.operatorReview === recentRunsReviewFilter);
 
   useEffect(() => {
     const restored = restoreToolExecState(localStorage.getItem(TOOL_EXEC_STATE_KEY), {
@@ -1179,11 +1183,32 @@ export default function ToolExecutorPanel({ onSessionAuditStatus, selectedTarget
           })}
         </div>
         <div style={{color:'#7f93a4',marginBottom:'4px'}}>История запусков</div>
-        {recentRuns.length === 0 ? (
-          <div style={{color:'#6f8398'}}>История пока пуста. После запуска здесь появятся последние действия.</div>
+        <div style={{display:'flex',gap:'4px',flexWrap:'wrap',marginBottom:'4px'}}>
+          <button
+            style={{...S.btn(recentRunsReviewFilter === 'all' ? '#6aa8ff' : '#5c6f85'),width:'auto',padding:'3px 7px',marginBottom:0,fontSize:'10px'}}
+            onClick={() => setRecentRunsReviewFilter('all')}
+          >
+            Все
+          </button>
+          {OPERATOR_REVIEW_OPTIONS.map((option) => (
+            <button
+              key={option.id}
+              style={{...S.btn(recentRunsReviewFilter === option.id ? option.color : '#5c6f85'),width:'auto',padding:'3px 7px',marginBottom:0,fontSize:'10px'}}
+              onClick={() => setRecentRunsReviewFilter(option.id)}
+            >
+              {option.label}
+            </button>
+          ))}
+        </div>
+        {filteredRecentRuns.length === 0 ? (
+          <div style={{color:'#6f8398'}}>
+            {recentRuns.length === 0
+              ? 'История пока пуста. После запуска здесь появятся последние действия.'
+              : 'По выбранному фильтру запусков пока нет.'}
+          </div>
         ) : (
           <div style={{display:'flex',flexDirection:'column',gap:'4px'}}>
-            {recentRuns.map((entry) => (
+            {filteredRecentRuns.map((entry) => (
               <div key={entry.id} style={{border:'1px solid #263142',background:'#0d1219',padding:'5px',borderRadius:'3px'}}>
                 <div style={{color:'#9fc6d5',marginBottom:'3px'}}>
                   <b>{getToolDisplayLabel(entry.tool)}</b> · {entry.target || 'без цели'} · {formatRecentRunTime(entry.executedAt)}
