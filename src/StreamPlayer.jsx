@@ -4,8 +4,9 @@ import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { toast } from './utils/toast';
+import { canRunArchiveExport, canRunVerifiedActions, deriveCardKind } from './features/targets/cardKindAdapter';
 
-export default function StreamPlayer({ streamUrl, cameraName, terminal, channel, hubCookie, onRefresh, onClose, onPlayArchive }) {
+export default function StreamPlayer({ streamUrl, cameraName, terminal, channel, hubCookie, onRefresh, onClose, onPlayArchive, onArchiveContext }) {
   const containerRef = useRef(null);
   const videoRef = useRef(null);
   const playerRef = useRef(null);
@@ -187,6 +188,10 @@ export default function StreamPlayer({ streamUrl, cameraName, terminal, channel,
 
   const handleSearchArchive = async () => {
     if (!terminal) return toast('Ошибка: данные камеры не переданы в плеер!');
+    onArchiveContext?.(terminal, 'StreamPlayer.handleSearchArchive');
+    if (terminal.type !== 'hub' && !canRunVerifiedActions(terminal)) {
+      return toast(`Archive search gated for kind=${deriveCardKind(terminal)}`);
+    }
 
     setLoadingArchive(true);
     setRecords([]);
@@ -499,6 +504,11 @@ export default function StreamPlayer({ streamUrl, cameraName, terminal, channel,
                     newUri = playingRecord.playbackUri.replace(/starttime=[^&]+/i, `starttime=${isapiTime}`);
                   }
 
+                  if (!canRunArchiveExport(terminal || {})) {
+                    toast(`Archive playback gated for kind=${deriveCardKind(terminal || {})}`);
+                    return;
+                  }
+                  onArchiveContext?.(terminal, 'StreamPlayer.timelinePlayArchive');
                   onPlayArchive(newUri);
                 }}
                 style={{ height: '28px', backgroundColor: '#1a1a1a', cursor: 'pointer', position: 'relative' }}
@@ -565,6 +575,11 @@ export default function StreamPlayer({ streamUrl, cameraName, terminal, channel,
                     setPlayingRecord(rec);
                     setSeekOffsetMs(0);
                     setProgressPercent(0);
+                    if (!canRunArchiveExport(terminal || {})) {
+                      toast(`Archive playback gated for kind=${deriveCardKind(terminal || {})}`);
+                      return;
+                    }
+                    onArchiveContext?.(terminal, 'StreamPlayer.recordPlayArchive');
                     onPlayArchive(rec.playbackUri);
                   }}
                   disabled={!rec.playbackUri}

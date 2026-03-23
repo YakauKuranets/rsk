@@ -1,0 +1,341 @@
+# Фаза 8: Stabilization / Policy / Backend-side Evolution Planning
+
+## Цель фазы
+
+Закрепить текущее состояние как **policy-driven architecture**:
+
+1. Явно зафиксировать `standard` / `transitional` / `legacy` пути.
+2. Формализовать deprecation boundaries и зависимости.
+3. Подготовить безопасный backend-side evolution plan для target envelope model
+   без big-bang rewrite, без расширения capability scope и без нового UI.
+
+---
+
+## 1) Inventory текущих путей
+
+### A. Probe stream path
+
+- Preferred execution: `probeStreamPreferred` (`runAgentMinimal` first, legacy fallback). 
+- Legacy execution: `probeStreamCapability` (direct capability call).
+- Semantic consumer contract: `shouldStopStreamOnProbe` uses `semanticAliveKnown` + `alive`.
+
+### B. verify_session_cookie_flags path
+
+- Preferred execution: `verifySessionCookieFlagsCapability` (`runAgentMinimal` first).
+- Legacy execution: `execute_capability(verify_session_cookie_flags)` + `check_session_security` fallback.
+- Contract normalization: `normalizeCookieResult` with `contractVersion='cookie_result_v1'`.
+
+### C. Card-kind / selectors / frontend gating
+
+- Derivation + selectors + gating policy in `cardKindAdapter`.
+- Envelope-aware kind derivation via `targetEnvelope` (`kind`, `payload`, `version`).
+- UI actions gated through `canRun*` helpers with env toggle `VITE_ENABLE_CARD_KIND_GATING`.
+
+### D. Target envelope write/read paths
+
+- Write path wraps targets with `buildTargetEnvelope`.
+- Read path unwraps envelope via `unwrapTargetEnvelope` and keeps legacy compatibility.
+- Current persistence API still key/value + JSON string; envelope is payload-level convention.
+
+### E. Eval/baseline workflow
+
+- Harness snapshots for probe/cookie paths.
+- Baseline builder/comparison/classification.
+- Compact reporting includes cookie invariants health and warning surface.
+
+### F. Fallbacks
+
+- Probe: fallback to `probeStreamCapability` on minimal-agent rejection/failure.
+- Cookie: fallback to legacy capability and text-based `check_session_security`.
+- Card-kind gating has global kill-switch via env flag.
+
+---
+
+## 2) Standard vs Transitional vs Legacy
+
+## Standard (target architecture defaults)
+
+1. **Minimal-agent-first for probe_stream and verify_session_cookie_flags**.
+2. **Normalized consumer contracts** for capability outputs (`probeStreamPreferred`, `cookie_result_v1`).
+3. **Envelope write-path** for new/updated targets (`buildTargetEnvelope`).
+4. **Envelope-aware read compatibility** (`unwrapTargetEnvelope`).
+5. **Eval/baseline as regression guardrail**, incl. cookie invariant health in compare/compact output.
+
+## Transitional (kept intentionally during migration)
+
+1. Card-kind gating controlled by env flag (rollout safety).
+2. Mixed dataset support (envelope + legacy raw target objects).
+3. Legacy capability fallback remains active behind preferred paths.
+4. Legacy backend storage model (string payload) used with envelope-on-top strategy.
+
+## Legacy (candidate for eventual deprecation)
+
+1. Direct UI dependency on low-level capability helpers when preferred wrappers exist.
+2. Text-parsed cookie fallback semantics from `check_session_security`.
+3. Non-envelope target writes (should stop growing).
+4. Implicit kind heuristics from legacy fields when envelope kind exists.
+
+---
+
+## 3) Policy table
+
+| Path / Module | Current status | Why | Deprecation needed | Depends on |
+|---|---|---|---|---|
+| `src/api/capabilities.js::probeStreamPreferred` | **standard** | Minimal-agent-first, normalized result shape, explicit fallback boundary | No (keep as primary) | `runAgentMinimal`, legacy probe helper |
+| `src/api/capabilities.js::probeStreamCapability` | **legacy** | Low-level direct capability call retained only for fallback | Yes (later, after backend parity + confidence) | Tauri `execute_capability` |
+| `src/api/capabilities.js::verifySessionCookieFlagsCapability` | **standard** | Minimal-agent-first + normalized `cookie_result_v1` contract | No (keep as primary) | `runAgentMinimal`, legacy cookie helpers |
+| `src/api/capabilities.js::verifySessionCookieFlagsLegacyCapability` + `check_session_security` parsing | **transitional → legacy** | Required compatibility, but text fallback is semantically weak | Yes (medium priority) | Tauri invoke path, legacy command outputs |
+| `src/features/targets/targetEnvelope.js::buildTargetEnvelope` | **standard** | Canonical write path for normalized model introduction | No | `deriveCardKind`, save flows |
+| `src/features/targets/targetEnvelope.js::unwrapTargetEnvelope` | **standard** | Required for read compatibility while data is mixed | No | load flows, selectors |
+| `src/features/targets/cardKindAdapter.js` gating helpers | **transitional** | Correct policy layer, but rollout still behind env toggle | Maybe (remove toggle later) | UI actions/hooks |
+| `src/hooks/useTargets.js` save/load (get_all/read/save) | **transitional** | Envelope-aware, but still loops over key/value API and JSON decode per target | No immediate deprecation; evolve backend under API | Tauri storage commands |
+| `src/api/probeEvalHarness.js` + `probeEvalBaselineRunner.js` | **standard** | Regression and contract health safety rail for preferred paths | No | Preferred capabilities + minimal-agent |
+| Env toggle `VITE_ENABLE_CARD_KIND_GATING` | **transitional safety control** | Allows gradual rollout and rollback | Yes (remove once stable) | deployment/runtime config |
+
+---
+
+## 4) Safe backend-side evolution plan (без big-bang)
+
+## Принципы
+
+1. **API compatibility first**: keep existing Tauri command names and payload contracts while introducing envelope-first semantics behind them.
+2. **Dual-read / single-write policy**:
+   - read: support envelope + legacy raw payload;
+   - write: always persist envelope format for modified/new targets.
+3. **No mass migration requirement**: data normalizes gradually on touch/write.
+4. **Feature freeze on scope**: no new capabilities, no UI expansion, no self-learning.
+
+## План шагов
+
+### Step 8.1 — Policy hardening (current doc + guardrails)
+
+- Declare `buildTargetEnvelope` as mandatory write wrapper in all save/update paths.
+- Keep `unwrapTargetEnvelope` as mandatory read adapter.
+- Keep fallback boundaries explicit and measurable via eval/baseline.
+
+### Step 8.2 — Backend storage adapter (first-class envelope without rewrite)
+
+- Introduce backend-side helper layer (adapter) around existing storage commands:
+  - on `save_target`: validate/normalize incoming payload as envelope (if not envelope, wrap server-side);
+  - on `read_target`: return canonical envelope JSON (or backward-compatible raw with metadata marker if needed);
+  - on `get_all_targets`: optionally add envelope metadata index in future, while preserving current key list return.
+- Keep underlying storage engine unchanged.
+
+### Step 8.3 — Read-path stabilization metrics
+
+- Add backend logging counters (non-UI) for:
+  - envelope reads,
+  - legacy reads,
+  - write-time auto-wrap events,
+  - envelope validation failures.
+- Use counts to decide when legacy path is low enough for stricter policy.
+
+### Step 8.4 — Gradual strictness increase
+
+- After stability window:
+  - make non-envelope writes warning-level in logs,
+  - then reject clearly malformed payloads,
+  - eventually disable implicit legacy write shape.
+- Keep legacy read compatibility longer than write compatibility.
+
+---
+
+## 5) Что можно делать уже сейчас без массовой миграции
+
+1. Enforce write-through envelope in all existing frontend save/update paths (already in `useTargets.saveTarget`).
+2. Keep lazy migration-by-touch: any edited target becomes envelope.
+3. Keep legacy records readable indefinitely through adapter.
+4. Compare preferred vs fallback behavior through existing eval/baseline harness before any backend strictness change.
+
+---
+
+## 6) Compatibility layers, которые пока нужно оставить
+
+1. `unwrapTargetEnvelope` dual-read path.
+2. Minimal-agent fallback to legacy capability execution.
+3. Card-kind gating env toggle for rollback safety.
+4. Legacy storage command surface (`get_all_targets`, `read_target`, `save_target`, `delete_target`).
+
+---
+
+## 7) Minimal safest backend-side step (next)
+
+**Самый безопасный следующий шаг:**
+
+- Add backend-side envelope normalization adapter inside existing `save_target`/`read_target` command handling,
+  preserving command signatures and storage engine.
+
+Почему это минимально и безопасно:
+
+1. Не меняет UI и capability scope.
+2. Не требует массовой миграции данных.
+3. Сразу снижает риск drift между frontend envelope policy и backend persisted shape.
+4. Оставляет полную обратную совместимость на чтении.
+
+---
+
+## 8) Явные deprecation boundaries
+
+1. New writes in raw legacy target shape — **discouraged now**, deprecate later.
+2. Direct probe/cookie low-level helpers in UI flows — **no new callsites**.
+3. Cookie text fallback parsing (`check_session_security`) — keep until structured legacy parity is proven stable.
+4. Global gating toggle — keep during stabilization window, then retire.
+
+---
+
+## 9) Definition of Done for Phase 8 (planning/policy)
+
+1. Inventory complete for probe/cookie, card-kind gating, envelope write/read, eval/baseline, fallbacks.
+2. Policy table with status/dependencies/deprecation direction published.
+3. Backend evolution path defined as incremental adapter-based plan.
+4. First backend step identified with explicit non-goals (no big-bang rewrite, no new capability/UI).
+
+---
+
+## 10) Envelope adoption policy interpretation note (Phase 8 close-out)
+
+This note defines how to interpret backend runtime markers and when strictness can be increased safely.
+
+### Standard adoption indicators
+
+Primary indicator of healthy envelope-first behavior:
+
+- `envelope_read`
+- `envelope_write_passthrough`
+
+These indicate records are already in envelope-aware shape with no legacy wrapping required.
+
+### Warning-level indicators and ratios
+
+Warning-level marker families:
+
+- legacy wrapping:
+  - `legacy_wrapped_on_read`
+  - `legacy_wrapped_on_save`
+- non-json passthrough:
+  - `non_json_passthrough_on_read`
+  - `non_json_passthrough_on_save`
+
+Current soft-warning thresholds used in backend logs:
+
+- `legacy_ratio >= 0.20`
+- `non_json_ratio >= 0.05`
+- sample guard: `ops >= 100`
+
+Ratios are based on `TARGET_ENVELOPE_ADOPTION_SUMMARY` windows and emitted as
+`TARGET_ENVELOPE_POLICY_WARNING` when threshold criteria are met.
+
+### Interpretation guidance
+
+- High `legacy_wrapped` ratio means envelope adoption is still incomplete; strict write rejection is likely premature.
+- High `non_json_passthrough` ratio means there are still callers or records bypassing JSON envelope assumptions; tightening should wait until this ratio is consistently low.
+- If warning thresholds are breached repeatedly over consecutive windows, keep compatibility-first behavior.
+
+### When tightening is still too early
+
+Treat policy tightening as **not ready** when any of the following holds:
+
+1. `ops < 100` (insufficient sample size).
+2. `legacy_ratio >= 0.20`.
+3. `non_json_ratio >= 0.05`.
+
+### When to prepare next backend strictness step
+
+It is reasonable to prepare the next strictness increment when all are true for multiple consecutive windows:
+
+1. Sufficient sample size (`ops >= 100` in each observed window).
+2. `legacy_ratio` remains well below warning threshold.
+3. `non_json_ratio` remains near zero or consistently below warning threshold.
+4. No new spikes in warning logs after routine operational activity.
+
+### Phase 9 addendum: interpreting `TARGET_ENVELOPE_POLICY_WARNING` vs `...ESCALATION_WARNING`
+
+Use these runtime signals as follows:
+
+- `TARGET_ENVELOPE_POLICY_WARNING`:
+  - means the current summary window crossed warning thresholds (`legacy_ratio` and/or `non_json_ratio`)
+  - treat this as an **early caution signal**, not an immediate rollback or enforcement trigger.
+
+- `TARGET_ENVELOPE_POLICY_ESCALATION_WARNING`:
+  - means warning condition persisted for multiple consecutive summary windows (streak-based escalation)
+  - treat this as a **sustained degradation signal** and pause strictness increases until trend improves.
+
+Practical interpretation guide:
+
+1. **Likely random/noisy case**:
+   - isolated single warning window,
+   - no repeat in the next windows,
+   - no escalation warning.
+
+2. **Likely sustained bad trend**:
+   - repeated warning windows,
+   - escalation warning appears,
+   - legacy/non-json ratios remain elevated across windows.
+
+Policy action guidance:
+
+- **Too early for tightening** when escalation warning is present or warning windows repeat frequently.
+- **Reasonable to prepare next strictness step** when warnings are rare, no escalation appears for a meaningful observation period, and ratios remain consistently low.
+
+### Phase 10 addendum: interpreting `TARGET_ENVELOPE_PRE_STRICTNESS_WARNING`
+
+`TARGET_ENVELOPE_PRE_STRICTNESS_WARNING` is a stronger **case-level** caution signal than baseline policy warning:
+
+- `TARGET_ENVELOPE_POLICY_WARNING`:
+  - window-level ratio threshold crossed (early caution).
+- `TARGET_ENVELOPE_POLICY_ESCALATION_WARNING`:
+  - warning condition persisted across consecutive windows (trend-level caution).
+- `TARGET_ENVELOPE_PRE_STRICTNESS_WARNING`:
+  - particularly risky event pattern for future strictness (e.g. non-json on save, or legacy-on-save while warning streak is sustained).
+
+How they differ:
+
+1. **Policy warning** answers: “Did this window look risky by ratio?”
+2. **Escalation warning** answers: “Is risky behavior persistent across windows?”
+3. **Pre-strictness warning** answers: “Did we just observe an especially problematic event for tightening readiness?”
+
+Operational guidance:
+
+- **Too early for tightening** when pre-strictness warnings appear repeatedly, especially together with escalation warnings.
+- **Prepare next strictness step** only when pre-strictness warnings become rare/absent over a meaningful observation period and window-level warnings stay low.
+
+### Phase 11 addendum: interpreting `non_json_soft_wrapped_on_save` vs `TARGET_ENVELOPE_NON_JSON_SAVE_FALLBACK_EXCEPTION`
+
+- `non_json_soft_wrapped_on_save`:
+  - means backend received non-JSON on save but successfully converted it into legacy envelope form;
+  - this is the **expected soft-strictness compatibility path** in Phase 11.
+
+- `TARGET_ENVELOPE_NON_JSON_SAVE_FALLBACK_EXCEPTION`:
+  - means soft-wrap for non-JSON save did not complete and backend had to fall back to true passthrough behavior;
+  - this is an **exception signal** and should be treated as rare.
+
+How to interpret the difference:
+
+1. Soft-wrap marker = compatibility path worked (still not ideal input quality, but normalized).
+2. Fallback exception = compatibility safety net was needed (higher risk for future strictness).
+
+Policy readiness guidance:
+
+- Fallback exception is still acceptable occasionally during transition.
+- If fallback exceptions are recurrent (or trending up), it is a sign to postpone stricter enforcement and focus on upstream payload hygiene.
+- If fallback exceptions are consistently absent and soft-wrap volume trends down, it is reasonable to prepare the next strictness increment.
+
+### Phase 12 addendum: interpreting strict reject telemetry for non-JSON save fallback
+
+Phase 12 introduced a narrow deny path for the worst case:
+non-JSON save payload where soft-wrap fails and passthrough fallback is disabled.
+
+Key signals:
+
+- `strict_reject_non_json_save`:
+  - in-memory counter of how many strict rejects were triggered for that exact deny path.
+- `TARGET_ENVELOPE_STRICT_REJECT`:
+  - per-event runtime log for each deny decision, including reason and running reject count.
+- `TARGET_ENVELOPE_STRICT_REJECT_SUMMARY`:
+  - periodic compact summary log for reject trend visibility.
+
+Interpretation guidance:
+
+1. Rare strict rejects can be acceptable as migration tail noise while clients are cleaned up.
+2. Repeated strict rejects (especially rising trend windows) indicate payload hygiene is still insufficient and further tightening should be delayed.
+3. If strict rejects remain low and stable over a meaningful observation period, it is reasonable to prepare the next strictness increment.
