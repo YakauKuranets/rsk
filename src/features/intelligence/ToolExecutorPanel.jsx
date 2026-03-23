@@ -230,6 +230,69 @@ function extractResultSignals(result) {
   };
 }
 
+function buildOperatorOutcome(result, signals, tool) {
+  if (!result) {
+    return {
+      tone: 'neutral',
+      headline: 'Нет результата запуска.',
+      hint: 'Запустите инструмент и проверьте краткий вывод ниже.',
+    };
+  }
+
+  const findingsCount = Array.isArray(result?.findingsExtracted) ? result.findingsExtracted.length : 0;
+  const signalScore =
+    findingsCount * 3
+    + signals.ports.length * 2
+    + signals.services.length * 2
+    + signals.webMarkers.length
+    + signals.endpoints.length;
+  const noiseScore = signals.errors + signals.warnings;
+  const hasHardFailure = Number(result?.exitCode) !== 0 && signalScore === 0;
+  const hasStrongSignal = signalScore >= 5 && noiseScore <= 6;
+  const hasWeakSignal = signalScore > 0 && !hasStrongSignal;
+  const highNoiseLowValue = noiseScore >= 8 && signalScore <= 2;
+  const nextLook = [];
+
+  if (signals.ports.length || signals.services.length) nextLook.push('порты/сервисы');
+  if (signals.webMarkers.length) nextLook.push('web-маркеры');
+  if (signals.endpoints.length) nextLook.push('пути/endpoint');
+  if (!nextLook.length && findingsCount > 0) nextLook.push('список находок');
+  if (!nextLook.length) nextLook.push('сырой stdout/stderr');
+
+  if (hasHardFailure || highNoiseLowValue) {
+    return {
+      tone: 'bad',
+      headline: 'Шум высокий, полезность низкая: явного подтверждённого сигнала почти нет.',
+      hint: `Проверьте параметры и в первую очередь смотрите: ${nextLook.join(', ')}.`,
+    };
+  }
+  if (hasStrongSignal) {
+    return {
+      tone: 'good',
+      headline: 'Есть явный полезный сигнал: результат пригоден для следующего действия.',
+      hint: `Приоритет проверки: ${nextLook.join(', ')}.`,
+    };
+  }
+  if (hasWeakSignal) {
+    return {
+      tone: 'warn',
+      headline: 'Есть слабый сигнал: нужны ручная валидация и уточнение контекста.',
+      hint: `Сфокусируйтесь на: ${nextLook.join(', ')}.`,
+    };
+  }
+
+  const toolHint = tool === 'nmap' || tool === 'masscan'
+    ? 'порты/сервисы и сырой вывод'
+    : tool === 'ffuf' || tool === 'nikto'
+      ? 'web-маркеры, пути/endpoint и находки'
+      : 'сырой stdout/stderr и находки';
+  return {
+    tone: 'neutral',
+    headline: 'Явных полезных сигналов пока не видно.',
+    hint: `Куда смотреть дальше: ${toolHint}.`,
+  };
+}
+
 function inferTargetHintKind(selectedTarget) {
   if (!selectedTarget) return 'unknown';
   const text = `${selectedTarget?.type || ''} ${selectedTarget?.name || ''} ${selectedTarget?.host || ''} ${selectedTarget?.ip || ''}`.toLowerCase();
@@ -310,6 +373,7 @@ export default function ToolExecutorPanel({ onSessionAuditStatus, selectedTarget
   const recommendedPlan = getRecommendedToolPlan(selectedTarget);
   const semanticSummary = buildSemanticSummary(tool, result);
   const resultSignals = extractResultSignals(result);
+  const operatorOutcome = buildOperatorOutcome(result, resultSignals, tool);
   const selectedTargetHintKind = inferTargetHintKind(selectedTarget);
   const normalizedArgs = String(args || '').trim();
   const profiles = RUN_PROFILES[tool] || RUN_PROFILES.default;
@@ -1138,10 +1202,11 @@ export default function ToolExecutorPanel({ onSessionAuditStatus, selectedTarget
           <span>Время: <b style={{color:'#aaa'}}>{((result.durationMs||0)/1000).toFixed(1)}с</b></span>
           <span>Находок: <b style={{color:result.findingsExtracted?.length>0?'#ffaa00':'#444'}}>{result.findingsExtracted?.length||0}</b></span>
         </div>
-        <div style={{fontSize:'10px',color:result.exitCode===0?'#8fd3a5':'#ff9b9b',marginBottom:'4px'}}>
-          {result.exitCode===0
-            ? (result.findingsExtracted?.length>0 ? 'Запуск завершён успешно, есть находки.' : 'Запуск завершён успешно, явных находок нет.')
-            : 'Запуск завершился с ошибкой. Проверь параметры и вывод ниже.'}
+        <div style={{fontSize:'10px',color:operatorOutcome.tone === 'good' ? '#8fd3a5' : operatorOutcome.tone === 'bad' ? '#ff9b9b' : operatorOutcome.tone === 'warn' ? '#ffd38a' : '#9fb8cd',marginBottom:'2px'}}>
+          {operatorOutcome.headline}
+        </div>
+        <div style={{fontSize:'10px',color:'#8ca6bc',marginBottom:'4px'}}>
+          {operatorOutcome.hint}
         </div>
         <div style={{border:'1px solid #2b3b4d',background:'#0d1520',padding:'6px',borderRadius:'3px',marginBottom:'4px'}}>
           <div style={{fontSize:'10px',color:'#8eb6d7',marginBottom:'3px'}}>Краткий вывод</div>
