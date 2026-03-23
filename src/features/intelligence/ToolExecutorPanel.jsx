@@ -293,6 +293,67 @@ function buildOperatorOutcome(result, signals, tool) {
   };
 }
 
+function buildNextStepRecommendation(outcome, signals, tool) {
+  const hasNetworkDirection = signals.ports.length > 0 || signals.services.length > 0;
+  const hasWebDirection = signals.webMarkers.length > 0 || signals.endpoints.length > 0;
+  const dominantDirection = hasNetworkDirection && !hasWebDirection
+    ? 'network'
+    : hasWebDirection && !hasNetworkDirection
+      ? 'web'
+      : hasNetworkDirection && hasWebDirection
+        ? 'mixed'
+        : 'raw';
+
+  if (outcome.tone === 'good') {
+    if (dominantDirection === 'network') {
+      return {
+        title: 'Следующий шаг: углубить сетевую проверку',
+        reason: `Обоснование: найден полезный сигнал (${signals.ports.length} порт(ов), ${signals.services.length} сервис(ов)).`,
+      };
+    }
+    if (dominantDirection === 'web') {
+      return {
+        title: 'Следующий шаг: точечно проверить web-точки',
+        reason: `Обоснование: есть явные web-признаки (${signals.webMarkers.length} маркер(ов), ${signals.endpoints.length} путь/endpoint).`,
+      };
+    }
+    if (dominantDirection === 'mixed') {
+      return {
+        title: 'Следующий шаг: разделить проверку на сеть и web',
+        reason: 'Обоснование: одновременно есть сетевые и web-сигналы, лучше идти по двум коротким веткам.',
+      };
+    }
+    return {
+      title: 'Следующий шаг: зафиксировать находки и повторить точечно',
+      reason: 'Обоснование: результат полезный, но направление неявное — сначала зафиксируйте артефакты.',
+    };
+  }
+
+  if (outcome.tone === 'warn') {
+    return {
+      title: 'Следующий шаг: осторожный fallback с уточнением параметров',
+      reason: 'Обоснование: сигнал слабый — повторите запуск с более узкими аргументами и сравните результат.',
+    };
+  }
+
+  if (outcome.tone === 'bad') {
+    return {
+      title: 'Следующий шаг: снизить шум, затем перепроверить',
+      reason: 'Обоснование: шум высокий, полезность низкая — не переоценивайте результат до повторной проверки.',
+    };
+  }
+
+  const baselineDirection = tool === 'nmap' || tool === 'masscan'
+    ? 'базовая сеть-проверка'
+    : tool === 'ffuf' || tool === 'nikto'
+      ? 'базовая web-проверка'
+      : 'базовая проверка с ручным разбором';
+  return {
+    title: `Следующий шаг: ${baselineDirection}`,
+    reason: 'Обоснование: явного сигнала нет, начните с короткого контрольного прогона.',
+  };
+}
+
 function inferTargetHintKind(selectedTarget) {
   if (!selectedTarget) return 'unknown';
   const text = `${selectedTarget?.type || ''} ${selectedTarget?.name || ''} ${selectedTarget?.host || ''} ${selectedTarget?.ip || ''}`.toLowerCase();
@@ -374,6 +435,7 @@ export default function ToolExecutorPanel({ onSessionAuditStatus, selectedTarget
   const semanticSummary = buildSemanticSummary(tool, result);
   const resultSignals = extractResultSignals(result);
   const operatorOutcome = buildOperatorOutcome(result, resultSignals, tool);
+  const nextStepRecommendation = buildNextStepRecommendation(operatorOutcome, resultSignals, tool);
   const selectedTargetHintKind = inferTargetHintKind(selectedTarget);
   const normalizedArgs = String(args || '').trim();
   const profiles = RUN_PROFILES[tool] || RUN_PROFILES.default;
@@ -1207,6 +1269,10 @@ export default function ToolExecutorPanel({ onSessionAuditStatus, selectedTarget
         </div>
         <div style={{fontSize:'10px',color:'#8ca6bc',marginBottom:'4px'}}>
           {operatorOutcome.hint}
+        </div>
+        <div style={{border:'1px solid #334454',background:'#101823',padding:'6px',borderRadius:'3px',marginBottom:'4px'}}>
+          <div style={{fontSize:'10px',color:'#9fc2df',marginBottom:'2px'}}>{nextStepRecommendation.title}</div>
+          <div style={{fontSize:'10px',color:'#87a6c1'}}>{nextStepRecommendation.reason}</div>
         </div>
         <div style={{border:'1px solid #2b3b4d',background:'#0d1520',padding:'6px',borderRadius:'3px',marginBottom:'4px'}}>
           <div style={{fontSize:'10px',color:'#8eb6d7',marginBottom:'3px'}}>Краткий вывод</div>
