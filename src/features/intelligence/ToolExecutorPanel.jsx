@@ -159,6 +159,7 @@ const RECENT_RUN_REVIEW_SORT_PRIORITY = {
 };
 const ATTENTION_REVIEW_IDS = new Set(['manual_check', 'check_later']);
 const RESOLVED_REVIEW_ID = 'noise';
+const RECENT_RUN_RESOLVE_UNDO_TIMEOUT_MS = 8000;
 
 function getRecommendedToolPlan(selectedTarget) {
   if (!selectedTarget) return null;
@@ -468,6 +469,7 @@ export default function ToolExecutorPanel({ onSessionAuditStatus, selectedTarget
   const [favoriteChainIds, setFavoriteChainIds] = useState([]);
   const [recentRuns, setRecentRuns] = useState([]);
   const [recentRunsReviewFilter, setRecentRunsReviewFilter] = useState('all');
+  const [recentRunResolveUndo, setRecentRunResolveUndo] = useState(null);
   const [userScenarios, setUserScenarios] = useState([]);
   const [userWorkChains, setUserWorkChains] = useState([]);
   const [chainStepIndexById, setChainStepIndexById] = useState({});
@@ -626,6 +628,22 @@ export default function ToolExecutorPanel({ onSessionAuditStatus, selectedTarget
     )));
   };
 
+  const markRecentRunAsResolved = (entry) => {
+    if (!entry?.id || !ATTENTION_REVIEW_IDS.has(entry?.operatorReview)) return;
+    setRunOperatorReview(entry.id, RESOLVED_REVIEW_ID);
+    setRecentRunResolveUndo({
+      runId: entry.id,
+      previousReview: entry.operatorReview,
+      createdAt: Date.now(),
+    });
+  };
+
+  const undoResolvedRecentRun = () => {
+    if (!recentRunResolveUndo?.runId || !recentRunResolveUndo?.previousReview) return;
+    setRunOperatorReview(recentRunResolveUndo.runId, recentRunResolveUndo.previousReview);
+    setRecentRunResolveUndo(null);
+  };
+
   const applyOperatorReview = (reviewId) => {
     setCurrentResultReview(reviewId);
     setRunOperatorReview(currentResultRunId, reviewId);
@@ -638,6 +656,14 @@ export default function ToolExecutorPanel({ onSessionAuditStatus, selectedTarget
     const entry = recentRuns.find((item) => item?.id === currentResultRunId);
     setCurrentResultReview(entry?.operatorReview || null);
   }, [currentResultRunId, recentRuns]);
+
+  useEffect(() => {
+    if (!recentRunResolveUndo?.runId) return undefined;
+    const timer = setTimeout(() => {
+      setRecentRunResolveUndo((prev) => (prev?.runId === recentRunResolveUndo.runId ? null : prev));
+    }, RECENT_RUN_RESOLVE_UNDO_TIMEOUT_MS);
+    return () => clearTimeout(timer);
+  }, [recentRunResolveUndo]);
 
   const executeToolLaunch = async ({ tool: runTool, target: runTarget, args: runArgs, profileId: runProfileId }) => {
     const runEntryId = `${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
@@ -1272,6 +1298,18 @@ export default function ToolExecutorPanel({ onSessionAuditStatus, selectedTarget
             </button>
           ))}
         </div>
+        {recentRunResolveUndo?.runId && (
+          <div style={{display:'flex',alignItems:'center',gap:'6px',marginBottom:'4px',fontSize:'10px',color:'#8ea5bf'}}>
+            Запись помечена как разобранная.
+            <button
+              style={{...S.btn('#8ea5bf'),width:'auto',padding:'2px 7px',marginBottom:0,fontSize:'10px'}}
+              onClick={undoResolvedRecentRun}
+              title='Вернуть предыдущую операторскую оценку для последней помеченной записи'
+            >
+              Отменить
+            </button>
+          </div>
+        )}
         {sortedRecentRuns.length === 0 ? (
           <div style={{color:'#6f8398'}}>
             {recentRuns.length === 0
@@ -1336,7 +1374,7 @@ export default function ToolExecutorPanel({ onSessionAuditStatus, selectedTarget
                   {ATTENTION_REVIEW_IDS.has(entry.operatorReview) && (
                     <button
                       style={{...S.btn('#9fb09f'),width:'auto',padding:'4px 8px',marginBottom:0,fontSize:'10px'}}
-                      onClick={() => setRunOperatorReview(entry.id, RESOLVED_REVIEW_ID)}
+                      onClick={() => markRecentRunAsResolved(entry)}
                       title='Быстро снять запись из списка требующих внимания'
                     >
                       Пометить как разобрано
