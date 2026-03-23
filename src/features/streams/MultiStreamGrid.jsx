@@ -2,6 +2,7 @@ import React, { useMemo, useState } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import StreamPlayer from '../../StreamPlayer';
 import { toast } from '../../utils/toast';
+import { canRunStreamVerification, deriveCardKind, isCardKindGatingEnabled } from '../targets/cardKindAdapter';
 
 const GRID_LAYOUTS = {
   1: { cols: 1, rows: 1, label: '1×1' },
@@ -26,7 +27,7 @@ function buildRtspUrlFromPath(activePath, terminal, channelIndex, cleanHost) {
     .replace('{password}', encodedPass);
 }
 
-export default function MultiStreamGrid({ terminalId, targets, hubCookie, onClose }) {
+export default function MultiStreamGrid({ terminalId, targets, hubCookie, onClose, onArchiveContext }) {
   const [gridSize, setGridSize] = useState(4);
   const [slots, setSlots] = useState(Array(9).fill(null));
   const [pickerSlot, setPickerSlot] = useState(null);
@@ -79,6 +80,10 @@ export default function MultiStreamGrid({ terminalId, targets, hubCookie, onClos
         });
         resolvedRtsp = 'hub';
       } else {
+        if (!canRunStreamVerification(terminal)) {
+          toast(`Stream verification action is gated for kind=${deriveCardKind(terminal)}`);
+          return;
+        }
         const cleanHost = terminal.host.replace(/^(http:\/\/|https:\/\/|rtsp:\/\/)/i, '').split('/')[0];
         const activePath = await invoke('probe_rtsp_path', {
           host: cleanHost,
@@ -165,6 +170,7 @@ export default function MultiStreamGrid({ terminalId, targets, hubCookie, onClos
                   terminal={slot.terminal}
                   channel={slot.channel}
                   hubCookie={slot.hubCookie}
+                  onArchiveContext={onArchiveContext}
                   onClose={() => stopSlot(i)}
                 />
               </div>
@@ -205,9 +211,15 @@ export default function MultiStreamGrid({ terminalId, targets, hubCookie, onClos
                     }}
                   >
                     <option value="" disabled>+ (Слот {i + 1})</option>
-                    {terminalCameras.map((cam) => (
-                      <option key={cam.id} value={cam.id}>{cam.label}</option>
-                    ))}
+                    {terminalCameras.map((cam) => {
+                      const disabled = cam.terminal?.type !== 'hub' && !canRunStreamVerification(cam.terminal);
+                      const kindLabel = isCardKindGatingEnabled() ? ` [${deriveCardKind(cam.terminal)}]` : '';
+                      return (
+                        <option key={cam.id} value={cam.id} disabled={disabled}>
+                          {cam.label}{kindLabel}{disabled ? ' (gated)' : ''}
+                        </option>
+                      );
+                    })}
                   </select>
                 </div>
               )}
