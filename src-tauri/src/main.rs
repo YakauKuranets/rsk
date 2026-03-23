@@ -92,6 +92,7 @@ mod ioc_sharing;
 mod llm_orchestrator;
 pub mod core_types;
 mod capability_adapter;
+mod agent_minimal;
 use scout_agent::ScoutState;
 use suppaftp::FtpStream;
 use tauri::State;
@@ -144,6 +145,36 @@ struct FfmpegLimiterState {
     semaphore: Arc<Semaphore>,
 }
 
+struct TargetEnvelopeAdoptionCounters {
+    total_ops: AtomicU64,
+    warning_streak_windows: AtomicU64,
+    strict_reject_non_json_save: AtomicU64,
+    envelope_read: AtomicU64,
+    legacy_wrapped_on_read: AtomicU64,
+    legacy_wrapped_on_save: AtomicU64,
+    non_json_passthrough_on_read: AtomicU64,
+    non_json_passthrough_on_save: AtomicU64,
+    non_json_soft_wrapped_on_save: AtomicU64,
+    envelope_write_passthrough: AtomicU64,
+}
+
+impl TargetEnvelopeAdoptionCounters {
+    fn new() -> Self {
+        Self {
+            total_ops: AtomicU64::new(0),
+            warning_streak_windows: AtomicU64::new(0),
+            strict_reject_non_json_save: AtomicU64::new(0),
+            envelope_read: AtomicU64::new(0),
+            legacy_wrapped_on_read: AtomicU64::new(0),
+            legacy_wrapped_on_save: AtomicU64::new(0),
+            non_json_passthrough_on_read: AtomicU64::new(0),
+            non_json_passthrough_on_save: AtomicU64::new(0),
+            non_json_soft_wrapped_on_save: AtomicU64::new(0),
+            envelope_write_passthrough: AtomicU64::new(0),
+        }
+    }
+}
+
 // 🔥 СТЕЙТ ДЛЯ ПУЛЬТА ГИПЕРИОНА (nexus)
 struct HyperionState {
     master_tx: TokioMutex<tokio::sync::mpsc::Sender<nexus::HyperionEvent>>,
@@ -164,6 +195,212 @@ fn make_unique_task_key(base: Option<String>, prefix: &str) -> String {
     let n = SEQ.fetch_add(1, Ordering::Relaxed);
     let raw = base.unwrap_or_else(|| format!("{}_{}", prefix, Utc::now().timestamp_millis()));
     format!("{}_{}", raw, n)
+}
+
+fn target_envelope_adoption_counters() -> &'static TargetEnvelopeAdoptionCounters {
+    static COUNTERS: OnceLock<TargetEnvelopeAdoptionCounters> = OnceLock::new();
+    COUNTERS.get_or_init(TargetEnvelopeAdoptionCounters::new)
+}
+
+fn record_target_envelope_marker(state: &State<'_, LogState>, marker: &str, target_id: &str) {
+    const SUMMARY_EVERY_N_OPS: u64 = 25;
+    const POLICY_WARNING_MIN_OPS: u64 = 100;
+    const POLICY_WARNING_LEGACY_RATIO: f64 = 0.20;
+    const POLICY_WARNING_NON_JSON_RATIO: f64 = 0.05;
+    const POLICY_WARNING_STREAK_ESCALATION_WINDOWS: u64 = 3;
+    let counters = target_envelope_adoption_counters();
+
+    match marker {
+        "envelope_read" => {
+            counters.envelope_read.fetch_add(1, Ordering::Relaxed);
+        }
+        "legacy_wrapped_on_read" => {
+            counters
+                .legacy_wrapped_on_read
+                .fetch_add(1, Ordering::Relaxed);
+        }
+        "legacy_wrapped_on_save" => {
+            counters
+                .legacy_wrapped_on_save
+                .fetch_add(1, Ordering::Relaxed);
+        }
+        "non_json_passthrough_on_read" => {
+            counters
+                .non_json_passthrough_on_read
+                .fetch_add(1, Ordering::Relaxed);
+        }
+        "non_json_passthrough_on_save" => {
+            counters
+                .non_json_passthrough_on_save
+                .fetch_add(1, Ordering::Relaxed);
+        }
+        "non_json_soft_wrapped_on_save" => {
+            counters
+                .non_json_soft_wrapped_on_save
+                .fetch_add(1, Ordering::Relaxed);
+        }
+        "envelope_write_passthrough" => {
+            counters
+                .envelope_write_passthrough
+                .fetch_add(1, Ordering::Relaxed);
+        }
+        _ => {}
+    }
+
+    let total = counters.total_ops.fetch_add(1, Ordering::Relaxed) + 1;
+    push_runtime_log(
+        state,
+        format!(
+            "TARGET_ENVELOPE_ADOPTION|marker={}|targetId={}|op={}",
+            marker, target_id, total
+        ),
+    );
+
+    let precheck_reason = match marker {
+        "legacy_wrapped_on_read" => Some("legacy_path_detected_on_read"),
+        "legacy_wrapped_on_save" => Some("legacy_path_detected_on_save"),
+        "non_json_passthrough_on_read" => Some("non_json_payload_detected_on_read"),
+        "non_json_passthrough_on_save" => Some("non_json_payload_detected_on_save"),
+        "non_json_soft_wrapped_on_save" => Some("non_json_payload_soft_wrapped_on_save"),
+        _ => None,
+    };
+    if let Some(reason) = precheck_reason {
+        push_runtime_log(
+            state,
+            format!(
+                "TARGET_ENVELOPE_PRECHECK_WARNING|targetId={}|marker={}|reason={}|action=allow",
+                target_id, marker, reason
+            ),
+        );
+    }
+
+    let warning_streak = counters.warning_streak_windows.load(Ordering::Relaxed);
+    let pre_strictness_reason = match marker {
+        "non_json_passthrough_on_save" => Some("non_json_on_save_is_high_risk_for_future_strictness"),
+        "non_json_soft_wrapped_on_save" => {
+            Some("non_json_on_save_soft_wrapped_still_requires_cleanup")
+        }
+        "legacy_wrapped_on_save" if warning_streak >= 3 => {
+            Some("legacy_on_save_with_sustained_warning_streak")
+        }
+        _ => None,
+    };
+    if let Some(reason) = pre_strictness_reason {
+        push_runtime_log(
+            state,
+            format!(
+                "TARGET_ENVELOPE_PRE_STRICTNESS_WARNING|targetId={}|marker={}|warning_streak_windows={}|reason={}|action=log_only_no_enforcement",
+                target_id, marker, warning_streak, reason
+            ),
+        );
+    }
+
+    if marker == "non_json_passthrough_on_save" {
+        push_runtime_log(
+            state,
+            format!(
+                "TARGET_ENVELOPE_NON_JSON_SAVE_FALLBACK_EXCEPTION|targetId={}|marker={}|reason=soft_wrap_failed_fallback_passthrough|action=allow_log_only",
+                target_id, marker
+            ),
+        );
+    }
+
+    if total % SUMMARY_EVERY_N_OPS == 0 {
+        let envelope_read = counters.envelope_read.load(Ordering::Relaxed);
+        let legacy_wrapped_on_read = counters.legacy_wrapped_on_read.load(Ordering::Relaxed);
+        let legacy_wrapped_on_save = counters.legacy_wrapped_on_save.load(Ordering::Relaxed);
+        let non_json_passthrough_on_read = counters.non_json_passthrough_on_read.load(Ordering::Relaxed);
+        let non_json_passthrough_on_save = counters.non_json_passthrough_on_save.load(Ordering::Relaxed);
+        let non_json_soft_wrapped_on_save =
+            counters.non_json_soft_wrapped_on_save.load(Ordering::Relaxed);
+        let strict_reject_non_json_save =
+            counters.strict_reject_non_json_save.load(Ordering::Relaxed);
+        let envelope_write_passthrough = counters.envelope_write_passthrough.load(Ordering::Relaxed);
+
+        push_runtime_log(
+            state,
+            format!(
+                "TARGET_ENVELOPE_ADOPTION_SUMMARY|ops={}|envelope_read={}|legacy_wrapped_on_read={}|legacy_wrapped_on_save={}|non_json_passthrough_on_read={}|non_json_passthrough_on_save={}|non_json_soft_wrapped_on_save={}|strict_reject_non_json_save={}|envelope_write_passthrough={}",
+                total,
+                envelope_read,
+                legacy_wrapped_on_read,
+                legacy_wrapped_on_save,
+                non_json_passthrough_on_read,
+                non_json_passthrough_on_save,
+                non_json_soft_wrapped_on_save,
+                strict_reject_non_json_save,
+                envelope_write_passthrough
+            ),
+        );
+
+        if total >= POLICY_WARNING_MIN_OPS {
+            let legacy_total = legacy_wrapped_on_read + legacy_wrapped_on_save;
+            let non_json_total = non_json_passthrough_on_read
+                + non_json_passthrough_on_save
+                + non_json_soft_wrapped_on_save;
+            let legacy_ratio = (legacy_total as f64) / (total as f64);
+            let non_json_ratio = (non_json_total as f64) / (total as f64);
+            let warning_condition = legacy_ratio >= POLICY_WARNING_LEGACY_RATIO
+                || non_json_ratio >= POLICY_WARNING_NON_JSON_RATIO;
+            if warning_condition {
+                push_runtime_log(
+                    state,
+                    format!(
+                        "TARGET_ENVELOPE_POLICY_WARNING|ops={}|legacy_ratio={:.4}|non_json_ratio={:.4}|legacy_total={}|non_json_total={}|note=policy_tightening_may_be_premature_non_json_soft_wrap_included",
+                        total,
+                        legacy_ratio,
+                        non_json_ratio,
+                        legacy_total,
+                        non_json_total
+                    ),
+                );
+
+                let warning_streak = counters
+                    .warning_streak_windows
+                    .fetch_add(1, Ordering::Relaxed)
+                    + 1;
+                if warning_streak >= POLICY_WARNING_STREAK_ESCALATION_WINDOWS {
+                    push_runtime_log(
+                        state,
+                        format!(
+                            "TARGET_ENVELOPE_POLICY_ESCALATION_WARNING|ops={}|warning_streak_windows={}|legacy_ratio={:.4}|non_json_ratio={:.4}|action=log_only_no_enforcement",
+                            total,
+                            warning_streak,
+                            legacy_ratio,
+                            non_json_ratio
+                        ),
+                    );
+                }
+            } else {
+                counters.warning_streak_windows.store(0, Ordering::Relaxed);
+            }
+        }
+    }
+}
+
+fn record_non_json_save_strict_reject(state: &State<'_, LogState>, target_id: &str, reason: &str) {
+    const STRICT_REJECT_SUMMARY_EVERY_N: u64 = 5;
+    let counters = target_envelope_adoption_counters();
+    let reject_count = counters
+        .strict_reject_non_json_save
+        .fetch_add(1, Ordering::Relaxed)
+        + 1;
+    push_runtime_log(
+        state,
+        format!(
+            "TARGET_ENVELOPE_STRICT_REJECT|targetId={}|reason={}|rejectCount={}|action=deny_non_json_fallback_save",
+            target_id, reason, reject_count
+        ),
+    );
+    if reject_count % STRICT_REJECT_SUMMARY_EVERY_N == 0 {
+        push_runtime_log(
+            state,
+            format!(
+                "TARGET_ENVELOPE_STRICT_REJECT_SUMMARY|strict_reject_non_json_save={}|lastReason={}|note=watch_trend",
+                reject_count, reason
+            ),
+        );
+    }
 }
 
 pub fn push_runtime_log(state: &State<'_, LogState>, message: impl Into<String>) {
@@ -985,7 +1222,14 @@ fn save_target(
     payload: String,
     db_state: State<'_, TargetsDb>,
     vault_state: State<'_, VaultState>,
+    log_state: State<'_, LogState>,
 ) -> Result<String, String> {
+    let (normalized_payload, normalization_marker) =
+        normalize_target_payload_for_storage(&payload, Some(&target_id)).map_err(|reason| {
+            record_non_json_save_strict_reject(&log_state, &target_id, &reason);
+            reason
+        })?;
+    record_target_envelope_marker(&log_state, normalization_marker, &target_id);
     let key = current_vault_key(&vault_state)?;
     let cipher = Aes256Gcm::new(&key.into());
 
@@ -994,7 +1238,7 @@ fn save_target(
     let nonce = Nonce::from_slice(&nonce_bytes);
 
     let ciphertext = cipher
-        .encrypt(nonce, payload.as_bytes())
+        .encrypt(nonce, normalized_payload.as_bytes())
         .map_err(|_| "Encryption error".to_string())?;
 
     let mut stored = nonce_bytes.to_vec();
@@ -1007,11 +1251,264 @@ fn save_target(
     Ok("Saved".into())
 }
 
+fn is_non_empty_string(value: Option<&Value>) -> bool {
+    value
+        .and_then(|v| v.as_str())
+        .map(|s| !s.trim().is_empty())
+        .unwrap_or(false)
+}
+
+fn infer_target_kind(payload: &serde_json::Map<String, Value>) -> String {
+    let explicit_kind = payload
+        .get("kind")
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .trim()
+        .to_lowercase();
+    if explicit_kind == "discovery" || explicit_kind == "verified" || explicit_kind == "promoted" {
+        return explicit_kind;
+    }
+
+    let has_promotion = payload.contains_key("promotionId")
+        || payload.contains_key("promotionStatus")
+        || payload.contains_key("sourceDiscoveryCardId");
+    if has_promotion {
+        return "promoted".to_string();
+    }
+
+    let has_credentials = payload.contains_key("credentialRef")
+        || is_non_empty_string(payload.get("password"))
+        || is_non_empty_string(payload.get("login"));
+    if has_credentials {
+        return "verified".to_string();
+    }
+
+    if payload.contains_key("host") || payload.contains_key("ip") || payload.contains_key("address") {
+        return "discovery".to_string();
+    }
+
+    "legacy".to_string()
+}
+
+fn is_supported_target_kind(kind: &str) -> bool {
+    matches!(kind, "discovery" | "verified" | "promoted" | "legacy")
+}
+
+fn is_valid_target_envelope(value: &Value) -> bool {
+    let obj = match value.as_object() {
+        Some(obj) => obj,
+        None => return false,
+    };
+
+    let version = obj.get("version").and_then(|v| v.as_i64());
+    if version != Some(1) {
+        return false;
+    }
+
+    let kind = obj
+        .get("kind")
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .trim()
+        .to_lowercase();
+    if !is_supported_target_kind(&kind) {
+        return false;
+    }
+
+    obj.get("payload").map(|v| v.is_object()).unwrap_or(false)
+}
+
+fn normalize_envelope_json(value: Value, source: &str, touch_written_at: bool) -> Value {
+    if let Some(mut obj) = value.as_object().cloned() {
+        let normalized_kind = obj
+            .get("kind")
+            .and_then(|v| v.as_str())
+            .unwrap_or("legacy")
+            .trim()
+            .to_lowercase();
+        obj.insert("kind".to_string(), Value::String(normalized_kind));
+        obj.insert("version".to_string(), Value::from(1));
+
+        if !obj.get("metadata").map(|m| m.is_object()).unwrap_or(false) {
+            obj.insert("metadata".to_string(), Value::Object(serde_json::Map::new()));
+        }
+        if let Some(metadata) = obj.get_mut("metadata").and_then(|m| m.as_object_mut()) {
+            metadata.insert("normalizedBy".to_string(), Value::String("backend_target_adapter_v1".to_string()));
+            if !metadata.contains_key("source") {
+                metadata.insert("source".to_string(), Value::String(source.to_string()));
+            }
+            if touch_written_at {
+                metadata.insert("writtenAt".to_string(), Value::String(Utc::now().to_rfc3339()));
+            }
+        }
+
+        return Value::Object(obj);
+    }
+    value
+}
+
+fn wrap_legacy_target_as_envelope(
+    value: Value,
+    source: &str,
+    include_written_at: bool,
+    target_id: Option<&str>,
+) -> Value {
+    let mut payload_obj = match value {
+        Value::Object(obj) => obj,
+        other => {
+            let mut map = serde_json::Map::new();
+            map.insert("legacyValue".to_string(), other);
+            map
+        }
+    };
+
+    if !payload_obj.contains_key("id") {
+        let fallback_id = target_id
+            .map(|x| x.to_string())
+            .unwrap_or_else(|| "legacy_unkeyed".to_string());
+        payload_obj.insert("id".to_string(), Value::String(fallback_id));
+    }
+    let inferred_kind = infer_target_kind(&payload_obj);
+
+    let mut metadata = serde_json::Map::new();
+    metadata.insert("source".to_string(), Value::String(source.to_string()));
+    if include_written_at {
+        metadata.insert("writtenAt".to_string(), Value::String(Utc::now().to_rfc3339()));
+    }
+    metadata.insert("normalizedBy".to_string(), Value::String("backend_target_adapter_v1".to_string()));
+
+    let mut envelope = serde_json::Map::new();
+    envelope.insert("version".to_string(), Value::from(1));
+    envelope.insert("kind".to_string(), Value::String(inferred_kind));
+    envelope.insert("metadata".to_string(), Value::Object(metadata));
+    envelope.insert("payload".to_string(), Value::Object(payload_obj));
+
+    Value::Object(envelope)
+}
+
+fn normalize_target_payload_for_storage(
+    payload: &str,
+    target_id: Option<&str>,
+) -> Result<(String, &'static str), String> {
+    let parsed = match serde_json::from_str::<Value>(payload) {
+        Ok(v) => v,
+        Err(_) => {
+            let (wrapped, wrapped_ok) = wrap_non_json_payload_as_envelope(payload, target_id);
+            let marker = if wrapped_ok {
+                "non_json_soft_wrapped_on_save"
+            } else {
+                return Err(
+                    "non_json_payload_rejected: soft_wrap_failed_and_passthrough_disabled"
+                        .to_string(),
+                );
+            };
+            return Ok((wrapped, marker));
+        }
+    };
+    let is_envelope = is_valid_target_envelope(&parsed);
+
+    let normalized = if is_envelope {
+        normalize_envelope_json(parsed, "backend.save_target", true)
+    } else {
+        wrap_legacy_target_as_envelope(
+            parsed,
+            "backend.save_target.wrap_legacy",
+            true,
+            target_id,
+        )
+    };
+
+    let marker = if is_envelope {
+        "envelope_write_passthrough"
+    } else {
+        "legacy_wrapped_on_save"
+    };
+    Ok((
+        serde_json::to_string(&normalized).unwrap_or_else(|_| payload.to_string()),
+        marker,
+    ))
+}
+
+fn wrap_non_json_payload_as_envelope(payload: &str, target_id: Option<&str>) -> (String, bool) {
+    let id = target_id
+        .map(|x| x.to_string())
+        .unwrap_or_else(|| format!("legacy_non_json_{}", Utc::now().timestamp_millis()));
+    let mut metadata = serde_json::Map::new();
+    metadata.insert(
+        "source".to_string(),
+        Value::String("backend.save_target.wrap_non_json_soft_strictness".to_string()),
+    );
+    metadata.insert("writtenAt".to_string(), Value::String(Utc::now().to_rfc3339()));
+    metadata.insert(
+        "normalizedBy".to_string(),
+        Value::String("backend_target_adapter_v1".to_string()),
+    );
+    metadata.insert(
+        "strictnessStep".to_string(),
+        Value::String("phase11_non_json_save_soft_wrap".to_string()),
+    );
+
+    let mut payload_obj = serde_json::Map::new();
+    payload_obj.insert("id".to_string(), Value::String(id));
+    payload_obj.insert(
+        "legacyRawPayload".to_string(),
+        Value::String(payload.to_string()),
+    );
+    payload_obj.insert(
+        "legacyRawFormat".to_string(),
+        Value::String("utf8_string_non_json".to_string()),
+    );
+
+    let mut envelope = serde_json::Map::new();
+    envelope.insert("version".to_string(), Value::from(1));
+    envelope.insert("kind".to_string(), Value::String("legacy".to_string()));
+    envelope.insert("metadata".to_string(), Value::Object(metadata));
+    envelope.insert("payload".to_string(), Value::Object(payload_obj));
+
+    match serde_json::to_string(&Value::Object(envelope)) {
+        Ok(value) => (value, true),
+        Err(_) => (payload.to_string(), false),
+    }
+}
+
+fn normalize_target_payload_for_read(
+    payload: &str,
+    target_id: Option<&str>,
+) -> (String, &'static str) {
+    let parsed = match serde_json::from_str::<Value>(payload) {
+        Ok(v) => v,
+        Err(_) => return (payload.to_string(), "non_json_passthrough_on_read"),
+    };
+    let is_envelope = is_valid_target_envelope(&parsed);
+
+    let normalized = if is_envelope {
+        normalize_envelope_json(parsed, "backend.read_target", false)
+    } else {
+        wrap_legacy_target_as_envelope(
+            parsed,
+            "backend.read_target.wrap_legacy",
+            false,
+            target_id,
+        )
+    };
+
+    let marker = if is_envelope {
+        "envelope_read"
+    } else {
+        "legacy_wrapped_on_read"
+    };
+    (
+        serde_json::to_string(&normalized).unwrap_or_else(|_| payload.to_string()),
+        marker,
+    )
+}
+
 #[tauri::command]
 fn read_target(
     target_id: String,
     db_state: State<'_, TargetsDb>,
     vault_state: State<'_, VaultState>,
+    log_state: State<'_, LogState>,
 ) -> Result<String, String> {
     if let Some(data) = db_state
         .db
@@ -1029,7 +1526,10 @@ fn read_target(
         let decrypted = cipher
             .decrypt(Nonce::from_slice(nonce_bytes), ciphertext)
             .map_err(|_| "Access denied".to_string())?;
-        String::from_utf8(decrypted).map_err(|_| "UTF-8 error".to_string())
+        let raw = String::from_utf8(decrypted).map_err(|_| "UTF-8 error".to_string())?;
+        let (normalized, marker) = normalize_target_payload_for_read(&raw, Some(&target_id));
+        record_target_envelope_marker(&log_state, marker, &target_id);
+        Ok(normalized)
     } else {
         Err("Not found".to_string())
     }
@@ -2424,6 +2924,30 @@ fn get_runtime_logs(
 
     let start = all_logs.len().saturating_sub(limit);
     Ok(all_logs[start..].to_vec())
+}
+
+#[tauri::command]
+fn push_runtime_log_entry(message: String, state: State<'_, LogState>) -> Result<(), String> {
+    let cleaned = message.trim();
+    if cleaned.is_empty() {
+        return Err("runtime log entry is empty".into());
+    }
+
+    let safe_message = if cleaned.chars().count() > 400 {
+        let mut out = String::new();
+        for (idx, ch) in cleaned.chars().enumerate() {
+            if idx >= 400 {
+                break;
+            }
+            out.push(ch);
+        }
+        format!("{out}…")
+    } else {
+        cleaned.to_string()
+    };
+
+    push_runtime_log(&state, safe_message);
+    Ok(())
 }
 
 #[tauri::command]
@@ -6946,6 +7470,7 @@ fn main() {
             streaming::start_hub_stream,
             system_cmds::scan_host_ports,
             get_runtime_logs,
+            push_runtime_log_entry,
             archive::cancel_download_task,
             probe_nvr_protocols,
             fetch_nvr_device_info,
@@ -7077,6 +7602,7 @@ fn main() {
             tool_executor::execute_tool,
             tool_executor::check_tools_available,
             capability_adapter::execute_capability,
+            agent_minimal::run_agent_minimal,
             meta_agent::run_meta_campaign,
             meta_agent::get_meta_recommendations,
             scout_agent::start_scout_agent,

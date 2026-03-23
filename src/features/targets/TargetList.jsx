@@ -1,4 +1,13 @@
 import React from 'react';
+import {
+  canRunArchiveExport,
+  canRunDiscoveryActions,
+  canRunPromotionActions,
+  canRunStreamVerification,
+  canRunVerifiedActions,
+  deriveCardKind,
+  isCardKindGatingEnabled,
+} from './cardKindAdapter';
 
 export default function TargetList({
   targets,
@@ -41,30 +50,54 @@ export default function TargetList({
         <div key={t.id} style={{ border: '1px solid #222', padding: '10px', marginBottom: '8px', position: 'relative', backgroundColor: '#0a0a0c' }}>
           <div style={{ color: t.type === 'hub' ? '#ff00ff' : '#00f0ff', fontSize: '0.9rem', paddingRight: '20px' }}>{t.name}</div>
           <div style={{ fontSize: '10px', color: '#555', marginBottom: '8px' }}>{t.host}</div>
+          {isCardKindGatingEnabled() && (
+            <div style={{ fontSize: '10px', color: '#888', marginBottom: '8px' }}>
+              kind: {deriveCardKind(t)}
+            </div>
+          )}
 
           {t.type !== 'hub' && (
             <>
-              <button onClick={() => onNemesis?.(t)} style={{ width: '100%', background: 'linear-gradient(90deg, #2a0808, #0a0808)', color: '#ff003c', border: '1px solid #ff003c', padding: '6px', cursor: 'pointer', fontSize: '11px', fontWeight: 'bold', letterSpacing: '1px' }}>
-                ☢ NEMESIS ARCHIVE
-              </button>
-              <button onClick={() => onMemoryRequest?.(t)} style={{ width: '100%', marginTop: '6px', backgroundColor: '#4a1a4a', color: '#ff9900', border: 'none', padding: '5px', cursor: 'pointer', fontSize: '11px', fontWeight: 'bold' }}>
-                ⏳ ЗАПРОС ПАМЯТИ
-              </button>
-              <button onClick={() => onIsapiInfo?.(t)} style={{ width: '100%', marginTop: '6px', backgroundColor: '#1a1a4a', color: '#9fc2ff', border: 'none', padding: '5px', cursor: 'pointer', fontSize: '11px', fontWeight: 'bold' }}>
-                ℹ ISAPI DEVICE INFO
-              </button>
-              <button onClick={() => onIsapiSearch?.(t)} style={{ width: '100%', marginTop: '6px', backgroundColor: '#1f2d4a', color: '#9fd7ff', border: 'none', padding: '5px', cursor: 'pointer', fontSize: '11px', fontWeight: 'bold' }}>
-                🔎 ISAPI SEARCH RECORDS
-              </button>
-              <button onClick={() => onOnvifInfo?.(t)} style={{ width: '100%', marginTop: '6px', backgroundColor: '#1a3a1a', color: '#a8ffb0', border: 'none', padding: '5px', cursor: 'pointer', fontSize: '11px', fontWeight: 'bold' }}>
-                ℹ ONVIF DEVICE INFO
-              </button>
-              <button onClick={() => onOnvifRecordings?.(t)} style={{ width: '100%', marginTop: '6px', backgroundColor: '#1a3a1a', color: '#b9ffcf', border: '1px solid #2a5a36', padding: '5px', cursor: 'pointer', fontSize: '11px', fontWeight: 'bold' }}>
-                🔎 ONVIF RECORDINGS
-              </button>
-              <button onClick={() => onArchiveEndpoints?.(t)} style={{ width: '100%', marginTop: '6px', backgroundColor: '#3a2a1a', color: '#ffd27a', border: 'none', padding: '5px', cursor: 'pointer', fontSize: '11px', fontWeight: 'bold' }}>
-                📦 PROBE EXPORT ENDPOINTS
-              </button>
+              {canRunVerifiedActions(t) && (
+                <button onClick={() => onNemesis?.(t)} style={{ width: '100%', background: 'linear-gradient(90deg, #2a0808, #0a0808)', color: '#ff003c', border: '1px solid #ff003c', padding: '6px', cursor: 'pointer', fontSize: '11px', fontWeight: 'bold', letterSpacing: '1px' }}>
+                  ☢ NEMESIS ARCHIVE
+                </button>
+              )}
+              {canRunDiscoveryActions(t) && (
+                <button onClick={() => onMemoryRequest?.(t)} style={{ width: '100%', marginTop: '6px', backgroundColor: '#4a1a4a', color: '#ff9900', border: 'none', padding: '5px', cursor: 'pointer', fontSize: '11px', fontWeight: 'bold' }}>
+                  ⏳ ЗАПРОС ПАМЯТИ
+                </button>
+              )}
+              {canRunStreamVerification(t) && (
+                <button onClick={() => onIsapiInfo?.(t)} style={{ width: '100%', marginTop: '6px', backgroundColor: '#1a1a4a', color: '#9fc2ff', border: 'none', padding: '5px', cursor: 'pointer', fontSize: '11px', fontWeight: 'bold' }}>
+                  ℹ ISAPI DEVICE INFO
+                </button>
+              )}
+              {canRunVerifiedActions(t) && (
+                <button onClick={() => onIsapiSearch?.(t)} style={{ width: '100%', marginTop: '6px', backgroundColor: '#1f2d4a', color: '#9fd7ff', border: 'none', padding: '5px', cursor: 'pointer', fontSize: '11px', fontWeight: 'bold' }}>
+                  🔎 ISAPI SEARCH RECORDS
+                </button>
+              )}
+              {canRunStreamVerification(t) && (
+                <button onClick={() => onOnvifInfo?.(t)} style={{ width: '100%', marginTop: '6px', backgroundColor: '#1a3a1a', color: '#a8ffb0', border: 'none', padding: '5px', cursor: 'pointer', fontSize: '11px', fontWeight: 'bold' }}>
+                  ℹ ONVIF DEVICE INFO
+                </button>
+              )}
+              {canRunVerifiedActions(t) && (
+                <button onClick={() => onOnvifRecordings?.(t)} style={{ width: '100%', marginTop: '6px', backgroundColor: '#1a3a1a', color: '#b9ffcf', border: '1px solid #2a5a36', padding: '5px', cursor: 'pointer', fontSize: '11px', fontWeight: 'bold' }}>
+                  🔎 ONVIF RECORDINGS
+                </button>
+              )}
+              {canRunArchiveExport(t) && (
+                <button onClick={() => onArchiveEndpoints?.(t)} style={{ width: '100%', marginTop: '6px', backgroundColor: '#3a2a1a', color: '#ffd27a', border: 'none', padding: '5px', cursor: 'pointer', fontSize: '11px', fontWeight: 'bold' }}>
+                  📦 PROBE EXPORT ENDPOINTS
+                </button>
+              )}
+              {isCardKindGatingEnabled() && canRunPromotionActions(t) && (
+                <div style={{ marginTop: '6px', fontSize: '10px', color: '#6a6a6a' }}>
+                  promotion path available
+                </div>
+              )}
             </>
           )}
 
