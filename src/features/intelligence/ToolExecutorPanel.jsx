@@ -117,6 +117,12 @@ const TOOL_EXEC_USER_SCENARIOS_LIMIT = 10;
 const TOOL_EXEC_FAVORITE_CHAINS_KEY = 'hyperion_tool_executor_favorite_chains_v1';
 const TOOL_EXEC_USER_WORK_CHAINS_KEY = 'hyperion_tool_executor_user_work_chains_v1';
 const TOOL_EXEC_USER_WORK_CHAINS_LIMIT = 8;
+const OPERATOR_REVIEW_OPTIONS = [
+  { id: 'useful_signal', label: 'Полезный сигнал', color: '#76c893' },
+  { id: 'check_later', label: 'Проверить позже', color: '#9db4c8' },
+  { id: 'noise', label: 'Шум', color: '#d48a8a' },
+  { id: 'manual_check', label: 'Нужна ручная проверка', color: '#d9b36c' },
+];
 
 function getRecommendedToolPlan(selectedTarget) {
   if (!selectedTarget) return null;
@@ -417,6 +423,8 @@ export default function ToolExecutorPanel({ onSessionAuditStatus, selectedTarget
   const [selectedPresetByTool, setSelectedPresetByTool] = useState({});
   const [load,setLoad]=useState(false);
   const [result,setResult]=useState(null);
+  const [currentResultRunId, setCurrentResultRunId] = useState(null);
+  const [currentResultReview, setCurrentResultReview] = useState(null);
   const [avail,setAvail]=useState([]);
   const [sessionResult, setSessionResult] = useState('');
   const [sessionDebug, setSessionDebug] = useState(null);
@@ -441,6 +449,7 @@ export default function ToolExecutorPanel({ onSessionAuditStatus, selectedTarget
   const profiles = RUN_PROFILES[tool] || RUN_PROFILES.default;
   const activePresetId = selectedPresetByTool?.[tool] || null;
   const launchReadiness = computeLaunchReadiness({ intelligenceTarget, permit, args: normalizedArgs });
+  const currentReviewMeta = OPERATOR_REVIEW_OPTIONS.find((item) => item.id === currentResultReview) || null;
 
   useEffect(() => {
     const restored = restoreToolExecState(localStorage.getItem(TOOL_EXEC_STATE_KEY), {
@@ -538,9 +547,34 @@ export default function ToolExecutorPanel({ onSessionAuditStatus, selectedTarget
     });
   };
 
+  const setRunOperatorReview = (runId, reviewId) => {
+    if (!runId || !reviewId) return;
+    setRecentRuns((prev) => prev.map((item) => (
+      item?.id === runId
+        ? { ...item, operatorReview: reviewId, operatorReviewedAt: new Date().toISOString() }
+        : item
+    )));
+  };
+
+  const applyOperatorReview = (reviewId) => {
+    setCurrentResultReview(reviewId);
+    setRunOperatorReview(currentResultRunId, reviewId);
+  };
+
+  const getOperatorReviewMeta = (reviewId) => OPERATOR_REVIEW_OPTIONS.find((item) => item.id === reviewId) || null;
+
+  useEffect(() => {
+    if (!currentResultRunId) return;
+    const entry = recentRuns.find((item) => item?.id === currentResultRunId);
+    setCurrentResultReview(entry?.operatorReview || null);
+  }, [currentResultRunId, recentRuns]);
+
   const executeToolLaunch = async ({ tool: runTool, target: runTarget, args: runArgs, profileId: runProfileId }) => {
+    const runEntryId = `${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
     setLoad(true);
     setResult(null);
+    setCurrentResultRunId(runEntryId);
+    setCurrentResultReview(null);
     try {
       const response = await invoke('execute_tool', {
         req: {
@@ -558,12 +592,13 @@ export default function ToolExecutorPanel({ onSessionAuditStatus, selectedTarget
       return false;
     } finally {
       appendRecentRun({
-        id: `${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+        id: runEntryId,
         tool: runTool,
         target: String(runTarget || '').trim(),
         args: String(runArgs || '').trim(),
         profileId: runProfileId || null,
         executedAt: new Date().toISOString(),
+        operatorReview: null,
       });
       setLoad(false);
     }
@@ -1156,6 +1191,20 @@ export default function ToolExecutorPanel({ onSessionAuditStatus, selectedTarget
                   <span style={{marginLeft:'6px',fontSize:'9px',color:getScenarioCompatibility(entry).color}}>
                     {getScenarioCompatibility(entry).text}
                   </span>
+                  {entry.operatorReview && (
+                    <span
+                      style={{
+                        marginLeft:'6px',
+                        fontSize:'9px',
+                        color:getOperatorReviewMeta(entry.operatorReview)?.color || '#9db4c8',
+                        border:'1px solid '+((getOperatorReviewMeta(entry.operatorReview)?.color || '#9db4c8') + '55'),
+                        padding:'1px 5px',
+                        borderRadius:'999px',
+                      }}
+                    >
+                      Оценка: {getOperatorReviewMeta(entry.operatorReview)?.label || '—'}
+                    </span>
+                  )}
                 </div>
                 <div style={{color:'#7d91a5',fontFamily:'monospace',marginBottom:'4px',whiteSpace:'pre-wrap',wordBreak:'break-word'}}>
                   {entry.args || '(без аргументов)'}
@@ -1269,6 +1318,31 @@ export default function ToolExecutorPanel({ onSessionAuditStatus, selectedTarget
         </div>
         <div style={{fontSize:'10px',color:'#8ca6bc',marginBottom:'5px'}}>
           {operatorOutcome.hint}
+        </div>
+        <div style={{border:'1px solid #2e3d4c',background:'#10151d',padding:'6px',borderRadius:'3px',marginBottom:'5px'}}>
+          <div style={{fontSize:'10px',color:'#9bb4ca',marginBottom:'3px'}}>
+            Операторская оценка результата
+            {currentReviewMeta ? <span style={{marginLeft:'6px',color:currentReviewMeta.color}}>· {currentReviewMeta.label}</span> : null}
+          </div>
+          <div style={{display:'flex',gap:'4px',flexWrap:'wrap'}}>
+            {OPERATOR_REVIEW_OPTIONS.map((option) => (
+              <button
+                key={option.id}
+                style={{
+                  ...S.btn(currentResultReview === option.id ? option.color : '#63758a'),
+                  width:'auto',
+                  padding:'4px 8px',
+                  marginBottom:0,
+                  fontSize:'10px',
+                  opacity: result ? 1 : 0.6,
+                }}
+                onClick={() => applyOperatorReview(option.id)}
+                disabled={!result}
+              >
+                {option.label}
+              </button>
+            ))}
+          </div>
         </div>
         <div style={{border:'1px solid #334454',background:'#101823',padding:'6px',borderRadius:'3px',marginBottom:'5px'}}>
           <div style={{fontSize:'10px',color:'#9fc2df',marginBottom:'1px'}}>{nextStepRecommendation.title}</div>
