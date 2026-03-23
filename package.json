@@ -8,7 +8,8 @@
     "build": "vite build",
     "preview": "vite preview",
     "tauri": "tauri",
-    "lint": "eslint src/"
+    "lint": "eslint src/",
+    "smoke:ui-flow": "node ./src/dev/runUiFlowSmokeChecks.js"
   },
   "dependencies": {
     "@tauri-apps/api": "^2",
