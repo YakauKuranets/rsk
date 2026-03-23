@@ -262,22 +262,22 @@ function buildOperatorOutcome(result, signals, tool) {
   if (hasHardFailure || highNoiseLowValue) {
     return {
       tone: 'bad',
-      headline: 'Шум высокий, полезность низкая: явного подтверждённого сигнала почти нет.',
-      hint: `Проверьте параметры и в первую очередь смотрите: ${nextLook.join(', ')}.`,
+      headline: 'Шум высокий, полезный сигнал не подтверждён.',
+      hint: `Сейчас главное: ${nextLook.join(', ')}.`,
     };
   }
   if (hasStrongSignal) {
     return {
       tone: 'good',
-      headline: 'Есть явный полезный сигнал: результат пригоден для следующего действия.',
-      hint: `Приоритет проверки: ${nextLook.join(', ')}.`,
+      headline: 'Есть полезный сигнал, можно углубляться.',
+      hint: `Приоритет: ${nextLook.join(', ')}.`,
     };
   }
   if (hasWeakSignal) {
     return {
       tone: 'warn',
-      headline: 'Есть слабый сигнал: нужны ручная валидация и уточнение контекста.',
-      hint: `Сфокусируйтесь на: ${nextLook.join(', ')}.`,
+      headline: 'Сигнал слабый, нужна осторожная проверка.',
+      hint: `Проверьте вручную: ${nextLook.join(', ')}.`,
     };
   }
 
@@ -288,8 +288,8 @@ function buildOperatorOutcome(result, signals, tool) {
       : 'сырой stdout/stderr и находки';
   return {
     tone: 'neutral',
-    headline: 'Явных полезных сигналов пока не видно.',
-    hint: `Куда смотреть дальше: ${toolHint}.`,
+    headline: 'Явных сигналов пока нет.',
+    hint: `Дальше: ${toolHint}.`,
   };
 }
 
@@ -308,38 +308,38 @@ function buildNextStepRecommendation(outcome, signals, tool) {
     if (dominantDirection === 'network') {
       return {
         title: 'Следующий шаг: углубить сетевую проверку',
-        reason: `Обоснование: найден полезный сигнал (${signals.ports.length} порт(ов), ${signals.services.length} сервис(ов)).`,
+        reason: `Почему: найден сигнал (${signals.ports.length} порт(ов), ${signals.services.length} сервис(ов)).`,
       };
     }
     if (dominantDirection === 'web') {
       return {
         title: 'Следующий шаг: точечно проверить web-точки',
-        reason: `Обоснование: есть явные web-признаки (${signals.webMarkers.length} маркер(ов), ${signals.endpoints.length} путь/endpoint).`,
+        reason: `Почему: есть web-признаки (${signals.webMarkers.length} маркер(ов), ${signals.endpoints.length} путь/endpoint).`,
       };
     }
     if (dominantDirection === 'mixed') {
       return {
         title: 'Следующий шаг: разделить проверку на сеть и web',
-        reason: 'Обоснование: одновременно есть сетевые и web-сигналы, лучше идти по двум коротким веткам.',
+        reason: 'Почему: видны и сетевые, и web-сигналы; лучше идти двумя короткими ветками.',
       };
     }
     return {
       title: 'Следующий шаг: зафиксировать находки и повторить точечно',
-      reason: 'Обоснование: результат полезный, но направление неявное — сначала зафиксируйте артефакты.',
+      reason: 'Почему: результат полезный, но направление пока неявное.',
     };
   }
 
   if (outcome.tone === 'warn') {
     return {
       title: 'Следующий шаг: осторожный fallback с уточнением параметров',
-      reason: 'Обоснование: сигнал слабый — повторите запуск с более узкими аргументами и сравните результат.',
+      reason: 'Почему: сигнал слабый; повторите запуск с более узкими аргументами.',
     };
   }
 
   if (outcome.tone === 'bad') {
     return {
       title: 'Следующий шаг: снизить шум, затем перепроверить',
-      reason: 'Обоснование: шум высокий, полезность низкая — не переоценивайте результат до повторной проверки.',
+      reason: 'Почему: при высоком шуме результат легко переоценить.',
     };
   }
 
@@ -350,7 +350,7 @@ function buildNextStepRecommendation(outcome, signals, tool) {
       : 'базовая проверка с ручным разбором';
   return {
     title: `Следующий шаг: ${baselineDirection}`,
-    reason: 'Обоснование: явного сигнала нет, начните с короткого контрольного прогона.',
+    reason: 'Почему: явного сигнала нет, начните с короткого контрольного прогона.',
   };
 }
 
@@ -1264,18 +1264,18 @@ export default function ToolExecutorPanel({ onSessionAuditStatus, selectedTarget
           <span>Время: <b style={{color:'#aaa'}}>{((result.durationMs||0)/1000).toFixed(1)}с</b></span>
           <span>Находок: <b style={{color:result.findingsExtracted?.length>0?'#ffaa00':'#444'}}>{result.findingsExtracted?.length||0}</b></span>
         </div>
-        <div style={{fontSize:'10px',color:operatorOutcome.tone === 'good' ? '#8fd3a5' : operatorOutcome.tone === 'bad' ? '#ff9b9b' : operatorOutcome.tone === 'warn' ? '#ffd38a' : '#9fb8cd',marginBottom:'2px'}}>
+        <div style={{fontSize:'10px',color:operatorOutcome.tone === 'good' ? '#8fd3a5' : operatorOutcome.tone === 'bad' ? '#ff9b9b' : operatorOutcome.tone === 'warn' ? '#ffd38a' : '#9fb8cd',marginBottom:'1px'}}>
           {operatorOutcome.headline}
         </div>
-        <div style={{fontSize:'10px',color:'#8ca6bc',marginBottom:'4px'}}>
+        <div style={{fontSize:'10px',color:'#8ca6bc',marginBottom:'5px'}}>
           {operatorOutcome.hint}
         </div>
-        <div style={{border:'1px solid #334454',background:'#101823',padding:'6px',borderRadius:'3px',marginBottom:'4px'}}>
-          <div style={{fontSize:'10px',color:'#9fc2df',marginBottom:'2px'}}>{nextStepRecommendation.title}</div>
+        <div style={{border:'1px solid #334454',background:'#101823',padding:'6px',borderRadius:'3px',marginBottom:'5px'}}>
+          <div style={{fontSize:'10px',color:'#9fc2df',marginBottom:'1px'}}>{nextStepRecommendation.title}</div>
           <div style={{fontSize:'10px',color:'#87a6c1'}}>{nextStepRecommendation.reason}</div>
         </div>
         <div style={{border:'1px solid #2b3b4d',background:'#0d1520',padding:'6px',borderRadius:'3px',marginBottom:'4px'}}>
-          <div style={{fontSize:'10px',color:'#8eb6d7',marginBottom:'3px'}}>Краткий вывод</div>
+          <div style={{fontSize:'10px',color:'#8eb6d7',marginBottom:'2px'}}>Смысловая сводка</div>
           <div style={{fontSize:'10px',color:'#9fb8cd'}}>{semanticSummary}</div>
         </div>
         <div style={{border:'1px solid #2f2f2f',background:'#0f1114',padding:'6px',borderRadius:'3px',marginBottom:'4px'}}>
