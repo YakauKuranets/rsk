@@ -158,6 +158,7 @@ const RECENT_RUN_REVIEW_SORT_PRIORITY = {
   noise: 3,
 };
 const ATTENTION_REVIEW_IDS = new Set(['manual_check', 'check_later']);
+const RESOLVED_REVIEW_ID = 'noise';
 
 function getRecommendedToolPlan(selectedTarget) {
   if (!selectedTarget) return null;
@@ -1332,6 +1333,15 @@ export default function ToolExecutorPanel({ onSessionAuditStatus, selectedTarget
                   {entry.args || '(без аргументов)'}
                 </div>
                 <div style={{display:'flex',gap:'4px',flexWrap:'wrap'}}>
+                  {ATTENTION_REVIEW_IDS.has(entry.operatorReview) && (
+                    <button
+                      style={{...S.btn('#9fb09f'),width:'auto',padding:'4px 8px',marginBottom:0,fontSize:'10px'}}
+                      onClick={() => setRunOperatorReview(entry.id, RESOLVED_REVIEW_ID)}
+                      title='Быстро снять запись из списка требующих внимания'
+                    >
+                      Пометить как разобрано
+                    </button>
+                  )}
                   <button style={{...S.btn('#7bb7ff'),width:'auto',padding:'4px 8px',marginBottom:0,fontSize:'10px'}} onClick={()=>repeatRecentRun(entry)}>
                     Повторить
                   </button>
