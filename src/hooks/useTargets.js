@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { invoke } from '@tauri-apps/api/core';
+import { buildTargetEnvelope, unwrapTargetEnvelope } from '../features/targets/targetEnvelope';
 
 export function useTargets() {
   const [targets, setTargets] = useState([]);
@@ -14,7 +15,8 @@ export function useTargets() {
           // Must call read_target for EACH key to get the actual data
           const jsonStr = await invoke('read_target', { targetId: key });
           const obj = typeof jsonStr === "string" ? JSON.parse(jsonStr) : jsonStr;
-          if (obj && typeof obj === "object") loaded.push(obj);
+          const { target } = unwrapTargetEnvelope(obj);
+          if (target && typeof target === "object") loaded.push(target);
         } catch (e) {
           console.warn("Failed to read target", key, e);
         }
@@ -28,7 +30,7 @@ export function useTargets() {
   const saveTarget = async (data) => {
     // FIX: correct param names for Rust fn save_target(target_id, payload)
     const targetId = data.id || `nvr_${Date.now()}`;
-    const payload = JSON.stringify({ ...data, id: targetId });
+    const payload = JSON.stringify(buildTargetEnvelope({ ...data, id: targetId }, 'useTargets.saveTarget'));
     await invoke('save_target', { targetId, payload });
     await loadTargets();
   };

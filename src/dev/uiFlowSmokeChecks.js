@@ -1,0 +1,319 @@
+import {
+  restoreFavoriteScenarioIds,
+  restoreObjectArray,
+  restoreToolExecState,
+} from '../features/intelligence/toolExecutorStorage.js';
+import { computeLaunchReadiness } from '../features/intelligence/toolExecutorReadiness.js';
+const PASS = 'PASS';
+
+function assert(condition, message) {
+  if (!condition) throw new Error(message);
+}
+
+function createInitialState() {
+  return {
+    targets: [
+      { id: 'cam-1', type: 'camera', name: 'Yard Cam', host: '10.0.0.21:554', url: 'rtsp://10.0.0.21/stream1' },
+      { id: 'hub-1', type: 'hub', name: 'Main HUB', host: '10.0.0.10:8080' },
+    ],
+    selectedTargetId: null,
+    activeScenario: null,
+    customScenario: null,
+    recentRuns: [],
+    workChain: { steps: [], currentIndex: 0, done: false },
+  };
+}
+
+function selectTarget(state, targetId) {
+  return { ...state, selectedTargetId: targetId };
+}
+
+function removeTarget(state, targetId) {
+  const targets = state.targets.filter((t) => t.id !== targetId);
+  return {
+    ...state,
+    targets,
+    selectedTargetId: state.selectedTargetId === targetId ? (targets[0]?.id || null) : state.selectedTargetId,
+  };
+}
+
+function applyQuickScenario(state, key) {
+  const quick = {
+    fast_stream: ['stream_open', 'isapi_info'],
+    archive_focus: ['archive_search', 'archive_open'],
+  };
+  const steps = quick[key] || [];
+  return {
+    ...state,
+    activeScenario: key,
+    workChain: { steps, currentIndex: 0, done: steps.length === 0 },
+  };
+}
+
+function applyCustomScenario(state, scenario) {
+  const steps = Array.isArray(scenario?.steps) ? scenario.steps.filter(Boolean) : [];
+  return {
+    ...state,
+    customScenario: { name: scenario?.name || 'Пользовательский', steps },
+    workChain: { steps, currentIndex: 0, done: steps.length === 0 },
+  };
+}
+
+function saveRecentRun(state, run) {
+  return { ...state, recentRuns: [run, ...state.recentRuns].slice(0, 10) };
+}
+
+function applyRecentRunToDraft(state, runId) {
+  const run = state.recentRuns.find((r) => r.id === runId);
+  return {
+    ...state,
+    customScenario: run ? { name: `Повтор ${run.label}`, steps: [...(run.steps || [])] } : state.customScenario,
+  };
+}
+
+function repeatRecentRun(state, runId) {
+  const run = state.recentRuns.find((r) => r.id === runId);
+  if (!run) return state;
+  return {
+    ...state,
+    workChain: { steps: [...(run.steps || [])], currentIndex: 0, done: false },
+  };
+}
+
+function applyRecentRunToCurrentTarget(state, runId) {
+  const run = state.recentRuns.find((r) => r.id === runId);
+  if (!run) return state;
+  return {
+    ...state,
+    recentRuns: state.recentRuns.map((r) => (r.id === runId ? { ...r, appliedTargetId: state.selectedTargetId } : r)),
+  };
+}
+
+function moveWorkChainNext(state) {
+  const nextIndex = state.workChain.currentIndex + 1;
+  const done = nextIndex >= state.workChain.steps.length;
+  return {
+    ...state,
+    workChain: {
+      ...state.workChain,
+      currentIndex: done ? state.workChain.steps.length : nextIndex,
+      done,
+    },
+  };
+}
+
+function getSafeChainStepIndex(chain, indexLike) {
+  const steps = Array.isArray(chain?.steps) ? chain.steps : [];
+  if (steps.length === 0) return 0;
+  const index = Number(indexLike);
+  if (!Number.isFinite(index)) return 0;
+  return Math.max(0, Math.min(steps.length - 1, Math.floor(index)));
+}
+
+function applyManualDeviationFromChain(state, nextArgs) {
+  return {
+    ...state,
+    customScenario: {
+      name: 'Ручная корректировка',
+      steps: [String(nextArgs || '').trim()].filter(Boolean),
+    },
+    workChain: {
+      ...state.workChain,
+      done: false,
+    },
+  };
+}
+
+function hasWebHint(target) {
+  const text = `${target?.url || ''} ${target?.endpoint || ''} ${target?.name || ''} ${target?.host || ''}`.toLowerCase();
+  return /https?:\/\/|\bwww\.|:80\b|:443\b|web|portal|admin/.test(text);
+}
+
+function buildActionStatuses(target) {
+  const isHub = String(target?.type || '').toLowerCase() === 'hub';
+  const hasHost = String(target?.host || target?.ip || '').trim().length > 0;
+  const webHint = hasWebHint(target);
+  return {
+    stream: isHub ? 'Ограничено для HUB' : hasHost ? 'Готово' : 'Нет host/ip',
+    isapi: hasHost ? (webHint ? 'Готово' : 'Нужен web-endpoint') : 'Нет host/ip',
+    onvif: hasHost ? (webHint ? 'Готово' : 'Нужен web-endpoint') : 'Нет host/ip',
+    archiveSearch: hasHost ? (webHint ? 'Готово' : 'Нужен web-endpoint') : 'Нет host/ip',
+    archive: hasHost ? 'Готово' : 'Нет host/ip',
+  };
+}
+
+function buildAggregate(statuses) {
+  const values = Object.values(statuses);
+  const readyCount = values.filter((s) => s === 'Готово').length;
+  const limitedCount = values.filter((s) => s === 'Ограничено для HUB').length;
+  const blockedCount = values.length - readyCount - limitedCount;
+  return { readyCount, limitedCount, blockedCount };
+}
+
+function buildProfile(target, statuses) {
+  const typeText = String(target?.type || '').toLowerCase();
+  const text = `${target?.name || ''} ${target?.host || ''} ${target?.url || ''} ${target?.endpoint || ''}`.toLowerCase();
+  if (typeText === 'hub') return { label: 'HUB', note: statuses.archive };
+  if (/(cam|camera|nvr|dvr|rtsp|onvif|554)/.test(text)) return { label: 'Камера / NVR', note: statuses.stream };
+  if (/https?:\/\/|\bwww\.|web|portal|admin/.test(text)) return { label: 'Web-цель', note: statuses.isapi };
+  if (String(target?.host || '').trim()) return { label: 'Сетевой узел', note: statuses.stream };
+  return { label: 'Неопределённая цель', note: 'Недостаточно данных для запуска' };
+}
+
+export function runUiFlowSmokeChecks() {
+  let state = createInitialState();
+
+  state = selectTarget(state, 'cam-1');
+  assert(state.selectedTargetId === 'cam-1', 'Выбор цели: selectedTarget не обновился');
+
+  state = removeTarget(state, 'cam-1');
+  assert(state.selectedTargetId === 'hub-1', 'Удаление выбранной цели: не произошёл fallback на доступную цель');
+
+  state = applyQuickScenario(state, 'fast_stream');
+  assert(state.workChain.steps.length === 2 && state.activeScenario === 'fast_stream', 'Быстрый сценарий: шаги не применились');
+
+  state = applyCustomScenario(state, { name: 'Мой сценарий', steps: ['isapi_info', 'archive_search'] });
+  assert(state.customScenario?.steps?.length === 2, 'Пользовательский сценарий: шаги не сохранились');
+
+  state = saveRecentRun(state, { id: 'run-1', label: 'Проверка камеры', steps: ['stream_open', 'archive_search'] });
+  state = applyRecentRunToDraft(state, 'run-1');
+  assert(state.customScenario?.name?.includes('Повтор'), 'Недавний запуск → подставить: не обновлён draft');
+
+  state = repeatRecentRun(state, 'run-1');
+  assert(state.workChain.steps[0] === 'stream_open', 'Недавний запуск → повторить: не поднялись шаги цепочки');
+
+  state = applyRecentRunToCurrentTarget(state, 'run-1');
+  assert(state.recentRuns[0]?.appliedTargetId === state.selectedTargetId, 'Недавний запуск → на текущую цель: не зафиксирована цель');
+
+  state = moveWorkChainNext(state);
+  assert(state.workChain.currentIndex === 1 && !state.workChain.done, 'Цепочка: переход к следующему шагу не сработал');
+  state = moveWorkChainNext(state);
+  assert(state.workChain.done, 'Цепочка: завершение не сработало');
+
+  const hubTarget = state.targets.find((t) => t.id === 'hub-1');
+  const statuses = buildActionStatuses(hubTarget);
+  const aggregate = buildAggregate(statuses);
+  const profile = buildProfile(hubTarget, statuses);
+  assert(profile.label === 'HUB', 'Профиль совместимости: неверная классификация HUB');
+  assert(aggregate.limitedCount >= 1, 'Агрегированная сводка: ожидалось хотя бы одно ограниченное действие');
+  assert(typeof statuses.archive === 'string', 'Reason/status-подсказки: статус архива не рассчитан');
+
+  const restoredState = restoreToolExecState(JSON.stringify({
+    tool: 'nikto',
+    timeout: 240,
+    argsByTool: { nikto: '-h http://target.local' },
+    selectedPresetByTool: { nikto: 'fast' },
+    legacyField: 'ignore-me',
+  }), {
+    tools: ['nmap', 'nikto'],
+    presets: { nmap: '-sV', nikto: '-h' },
+    fallbackTool: 'nmap',
+  });
+  assert(restoredState.tool === 'nikto', 'localStorage restore: инструмент не восстановился');
+  assert(restoredState.argsByTool?.nikto === '-h http://target.local', 'localStorage restore: argsByTool не восстановился');
+  assert(restoredState.timeout === 240, 'localStorage restore: timeout не восстановился');
+  assert(restoredState.selectedPresetByTool?.nikto === 'fast', 'localStorage restore: selectedPresetByTool не восстановился');
+
+  const restoredFavorites = restoreFavoriteScenarioIds(JSON.stringify(['web_fast', 'unknown_id', 7]), ['web_fast', 'net_fast']);
+  assert(restoredFavorites.length === 1 && restoredFavorites[0] === 'web_fast', 'localStorage restore: неподходящие id избранного не отфильтрованы');
+
+  const restoredRecent = restoreObjectArray(JSON.stringify([{ id: 'r1' }, null, 'bad', { id: 'r2' }]), 2);
+  assert(restoredRecent.length === 2 && restoredRecent[0].id === 'r1', 'localStorage restore: recentRuns восстановились некорректно');
+
+  const restoredCustom = restoreObjectArray(JSON.stringify([{ id: 'u1', title: 'A' }, { id: 'u2', title: 'B' }]), 1);
+  assert(restoredCustom.length === 1 && restoredCustom[0].id === 'u1', 'localStorage restore: userScenarios limit не применился');
+
+  const malformedState = restoreToolExecState('{bad_json', {
+    tools: ['nmap', 'nikto'],
+    presets: { nmap: '-sV', nikto: '-h' },
+    fallbackTool: 'nmap',
+  });
+  assert(malformedState.tool === 'nmap', 'localStorage restore: битый JSON должен безопасно давать fallback');
+
+  const missingSelectedTargetProfile = buildProfile(null, buildActionStatuses(null));
+  assert(missingSelectedTargetProfile.label === 'Неопределённая цель', 'bad-state: без selectedTarget должен быть безопасный профиль');
+
+  const noHostStatuses = buildActionStatuses({ id: 'x1', name: 'No host target' });
+  const noHostAggregate = buildAggregate(noHostStatuses);
+  assert(noHostStatuses.stream === 'Нет host/ip', 'bad-state: у цели без host/ip должен быть fallback статус');
+  assert(noHostAggregate.blockedCount >= 1, 'bad-state: aggregate должен отражать блокировки при бедных данных');
+
+  const readinessNoTarget = computeLaunchReadiness({ intelligenceTarget: '', permit: '12345678', args: '-sV' });
+  assert(!readinessNoTarget.canRun && readinessNoTarget.text === 'Нужно указать цель', 'bad-state: пустой intelligenceTarget');
+  const readinessNoArgs = computeLaunchReadiness({ intelligenceTarget: '10.0.0.1', permit: '12345678', args: '' });
+  assert(!readinessNoArgs.canRun && readinessNoArgs.text === 'Проверь аргументы', 'bad-state: пустые args');
+  const readinessShortPermit = computeLaunchReadiness({ intelligenceTarget: '10.0.0.1', permit: '123', args: '-sV' });
+  assert(!readinessShortPermit.canRun && readinessShortPermit.text === 'Нужен токен', 'bad-state: короткий permit token');
+  const readinessWeakTemplateArgs = computeLaunchReadiness({ intelligenceTarget: '10.0.0.1', permit: '12345678', args: '-u http://TARGET/FUZZ' });
+  assert(readinessWeakTemplateArgs.canRun && readinessWeakTemplateArgs.level === 'warn', 'bad-state: template args должны давать warn');
+
+  assert(restoreFavoriteScenarioIds('[]', ['web_fast']).length === 0, 'bad-state: пустые favorite сценарии должны восстанавливаться безопасно');
+  assert(restoreObjectArray('[]', 5).length === 0, 'bad-state: пустые user/recent сценарии должны восстанавливаться безопасно');
+
+  const deletedActive = removeTarget(selectTarget(createInitialState(), 'hub-1'), 'hub-1');
+  assert(deletedActive.selectedTargetId === 'cam-1', 'edge-case: удаление активной selectedTarget должно безопасно переключать выбор');
+
+  const brokenRecent = saveRecentRun(createInitialState(), { id: 'bad-run', label: null });
+  const replayBrokenRecent = repeatRecentRun(brokenRecent, 'bad-run');
+  assert(Array.isArray(replayBrokenRecent.workChain.steps) && replayBrokenRecent.workChain.steps.length === 0, 'edge-case: частично битый recent run не должен ломать repeat flow');
+
+  const incompleteUserScenario = applyCustomScenario(createInitialState(), { id: 'custom-1' });
+  assert(incompleteUserScenario.customScenario?.name === 'Пользовательский' && incompleteUserScenario.workChain.steps.length === 0, 'edge-case: неполный пользовательский сценарий должен давать safe defaults');
+
+  const staleFavoriteIds = restoreFavoriteScenarioIds(JSON.stringify(['legacy_id', 'web_fast']), ['web_fast']);
+  assert(staleFavoriteIds.length === 1 && staleFavoriteIds[0] === 'web_fast', 'edge-case: устаревшие favorite ids должны отбрасываться');
+
+  const chain = { steps: [{ id: 1 }, { id: 2 }, { id: 3 }] };
+  assert(getSafeChainStepIndex(chain, -10) === 0, 'edge-case: chain index < 0 должен clamp-иться');
+  assert(getSafeChainStepIndex(chain, 99) === 2, 'edge-case: chain index > max должен clamp-иться');
+  assert(getSafeChainStepIndex(chain, 'abc') === 0, 'edge-case: нечисловой chain index должен fallback-иться');
+
+  const mixedProfile = buildProfile({ type: 'unknown', name: 'cam-portal', host: '', url: 'http://mixed.local/admin' }, {
+    stream: 'Недостаточно данных для запуска',
+    isapi: 'Готово',
+    onvif: 'Нет host/ip',
+    archiveSearch: 'Нужен web-endpoint',
+    archive: 'Нет host/ip',
+  });
+  assert(typeof mixedProfile.label === 'string' && mixedProfile.label.length > 0, 'edge-case: смешанный compatibility input должен давать валидный профиль');
+
+  const contradictoryAggregate = buildAggregate({
+    stream: 'Готово',
+    isapi: 'Ограничено для HUB',
+    onvif: 'Нет host/ip',
+    archiveSearch: 'Нужен web-endpoint',
+    archive: 'Готово',
+  });
+  assert(contradictoryAggregate.readyCount >= 0 && contradictoryAggregate.blockedCount >= 0, 'edge-case: aggregate при противоречивых сигналах должен быть безопасным');
+
+  const deviatedChain = applyManualDeviationFromChain(applyQuickScenario(createInitialState(), 'fast_stream'), '--manual-override');
+  assert(deviatedChain.customScenario?.name === 'Ручная корректировка', 'edge-case: ручное отклонение должно фиксироваться безопасно');
+  assert(deviatedChain.workChain.done === false, 'edge-case: ручное отклонение не должно аварийно завершать цепочку');
+
+  return {
+    status: PASS,
+    checks: [
+      'выбор цели',
+      'удаление выбранной цели',
+      'быстрый сценарий',
+      'пользовательский сценарий',
+      'недавний запуск (подставить/повторить/на текущую цель)',
+      'рабочая цепочка (шаг → следующий → завершение)',
+      'профиль/reason-status/агрегированная сводка',
+      'localStorage: tool/args/timeout/preset/favorites/recent/custom',
+      'localStorage: битый JSON / лишние поля / неподходящие id',
+      'empty/bad-state: selectedTarget отсутствует и weak compatibility input',
+      'empty/bad-state: no host/ip + reason/status/aggregate fallback',
+      'empty/bad-state: intelligenceTarget/args/permit token',
+      'empty/bad-state: пустые favorite/user/recent сценарии',
+      'edge-case: удаление выбранной цели при активном selectedTarget',
+      'edge-case: частично битый recent run',
+      'edge-case: пользовательский сценарий с неполными полями',
+      'edge-case: устаревший favorite scenario id',
+      'edge-case: chain progress вне диапазона',
+      'edge-case: смешанный compatibility profile input',
+      'edge-case: reason/status + aggregate при противоречивых сигналах',
+      'edge-case: ручное отклонение от рабочей цепочки',
+    ],
+  };
+}

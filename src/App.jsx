@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { scanHostPorts } from './api/tauri';
 import { listen } from '@tauri-apps/api/event';
@@ -16,6 +16,16 @@ import { useAppStore } from './store/appStore';
 import ToastHost from './components/ToastHost';
 import { toast } from './utils/toast';
 import Sidebar from './features/ui/Sidebar';
+import {
+  canRunArchiveExport,
+  canRunDiscoveryActions,
+  canRunStreamVerification,
+  canRunVerifiedActions,
+  deriveCardKind,
+} from './features/targets/cardKindAdapter';
+import { useArchiveTargetContext } from './hooks/useArchiveTargetContext';
+import { buildTargetEnvelope, unwrapTargetEnvelope } from './features/targets/targetEnvelope';
+import { probeStreamPreferred, shouldStopStreamOnProbe } from './api/capabilities';
 
 function normalizeTargetRecords(rawTargets) {
   const normalized = [];
@@ -141,8 +151,18 @@ export default function App() {
   const [agentScope, setAgentScope] = useState('demo.local');
   const [agentPacket, setAgentPacket] = useState(null);
   const [agentStatus, setAgentStatus] = useState('');
+  const [targetSaveStatus, setTargetSaveStatus] = useState(null);
   const capture = useCapturePanel();
   const hubRecon = useHubRecon();
+  const {
+    setArchiveContextFromTarget,
+    resolveArchiveContext,
+    ensureArchiveEligibility,
+  } = useArchiveTargetContext({
+    targets,
+    streamTerminal,
+    onDenied: toast,
+  });
 
   const hubConfig = { cookie: '' };
 
@@ -328,7 +348,8 @@ export default function App() {
         try {
           const jsonStr = await invoke('read_target', { targetId: key });
           const obj = typeof jsonStr === 'string' ? JSON.parse(jsonStr) : jsonStr;
-          if (obj && typeof obj === 'object') loaded.push(obj);
+          const { target } = unwrapTargetEnvelope(obj);
+          if (target && typeof target === 'object') loaded.push(target);
         } catch (e) {
           // One bad record does NOT kill the rest
           console.warn('[vault] skipped unreadable target', key, e.message || e);
@@ -344,9 +365,28 @@ export default function App() {
     if (!form.host) return toast("Требуется IP");
     const autoId = `nvr_${Date.now()}`;
     const channels = Array.from({length: form.channelCount}, (_, i) => ({ id: `ch${i+1}`, index: i+1, name: `Камера ${i+1}` }));
-    const payload = JSON.stringify({ ...form, id: autoId, channels });
-    await invoke('save_target', { targetId: autoId, payload });
-    loadTargets();
+    const envelope = buildTargetEnvelope({ ...form, id: autoId, channels }, 'handleSmartSave');
+    const payload = JSON.stringify(envelope);
+    try {
+      await invoke('save_target', { targetId: autoId, payload });
+      const rawSaved = await invoke('read_target', { targetId: autoId });
+      const savedObj = typeof rawSaved === 'string' ? JSON.parse(rawSaved) : rawSaved;
+      const strictnessStep = savedObj?.metadata?.strictnessStep || null;
+      if (strictnessStep === 'phase11_non_json_save_soft_wrap') {
+        setTargetSaveStatus({ level: 'warn', text: '⚠️ Сохранено через мягкую обёртку non-JSON (compat path).' });
+      } else {
+        setTargetSaveStatus({ level: 'ok', text: `✅ Цель сохранена (${autoId})` });
+      }
+      loadTargets();
+    } catch (err) {
+      const msg = String(err || '');
+      if (msg.includes('non_json_payload_rejected')) {
+        setTargetSaveStatus({ level: 'error', text: '❌ Сохранение отклонено: strict reject non-JSON fallback.' });
+      } else {
+        setTargetSaveStatus({ level: 'error', text: `❌ Ошибка сохранения: ${msg}` });
+      }
+      toast(`Ошибка сохранения: ${msg}`);
+    }
   };
 
   const handleDeleteTarget = async (id) => {
@@ -365,6 +405,9 @@ export default function App() {
 
   const handleStartStream = async (terminal, channel) => {
     try {
+      if (terminal?.type !== 'hub' && !canRunStreamVerification(terminal)) {
+        return toast(`Stream action gated for kind=${deriveCardKind(terminal)}`);
+      }
       if (activeTargetId) {
         await invoke('stop_stream', { targetId: activeTargetId });
       }
@@ -418,20 +461,28 @@ export default function App() {
       setStreamRtspUrl(rtspUrlForRecovery);
       setStreamTerminal(terminal);
       setStreamChannel(channel);
+      setArchiveContextFromTarget(terminal, 'handleStartStream');
 
       setStreamType('ws-flv');
       setActiveTargetId(streamSessionId);
       setActiveCameraName(`${terminal.name} :: ${channel.name}`);
       setLoading(false);
 
+      // Guard against overlapping probe ticks to avoid extra load on slow paths.
+      let healthProbeInFlight = false;
       healthCheckRef.current = setInterval(async () => {
+        if (healthProbeInFlight) return;
+        healthProbeInFlight = true;
         try {
-          const alive = await invoke('check_stream_alive', { targetId: streamSessionId });
-          if (!alive) {
+          const probe = await probeStreamPreferred(streamSessionId, 'discovery_mode');
+          if (shouldStopStreamOnProbe(probe)) {
             clearInterval(healthCheckRef.current);
             console.warn('[STREAM] FFmpeg process died for', streamSessionId);
           }
-        } catch (e) {}
+        } catch (e) {
+        } finally {
+          healthProbeInFlight = false;
+        }
       }, 5000);
     } catch (err) {
       toast("СБОЙ: " + err);
@@ -474,6 +525,8 @@ export default function App() {
 
   const handlePlayArchive = async (playbackUri) => {
     if (!activeTargetId) return;
+    const ctx = resolveArchiveContext('handlePlayArchive', streamTerminal);
+    if (!ensureArchiveEligibility(ctx, 'archiveExport', 'Archive playback')) return;
     setLoading(true);
     setRadarStatus('ПОДКЛЮЧЕНИЕ К АРХИВУ...');
     try {
@@ -949,14 +1002,44 @@ export default function App() {
     const lng = mapCenter[1];
     const autoId = `hub_${cam.id}_${Date.now()}`;
     const channels = cam.channels.map(ch => ({ id: `ch${ch}`, index: ch, name: `Камера ${parseInt(ch) + 1}` }));
-    const payload = JSON.stringify({
+    const envelope = buildTargetEnvelope({
       id: autoId, name: `ХАБ: ${cam.ip}`, host: `streamhub_user${cam.id}`, hub_id: cam.id, type: 'hub', lat: lat, lng: lng, channels: channels
-    });
-    await invoke('save_target', { targetId: autoId, payload });
-    loadTargets();
+    }, 'handleSaveHubToLocal');
+    const payload = JSON.stringify(envelope);
+    try {
+      await invoke('save_target', { targetId: autoId, payload });
+      setTargetSaveStatus({ level: 'ok', text: `✅ HUB-цель сохранена (${autoId})` });
+      loadTargets();
+    } catch (err) {
+      const msg = String(err || '');
+      if (msg.includes('non_json_payload_rejected')) {
+        setTargetSaveStatus({ level: 'error', text: '❌ Сохранение HUB отклонено: strict reject non-JSON fallback.' });
+      } else {
+        setTargetSaveStatus({ level: 'error', text: `❌ Ошибка сохранения HUB: ${msg}` });
+      }
+      toast(`Ошибка сохранения HUB: ${msg}`);
+    }
+  };
+
+  const handleQuickStartSelectedTargetStream = async (target) => {
+    if (!target || String(target?.type || '').toLowerCase() === 'hub') {
+      return toast('Быстрый запуск потока доступен только для локальной не-HUB цели.');
+    }
+    const channels = Array.isArray(target?.channels) && target.channels.length > 0
+      ? target.channels
+      : [{ id: 'ch1', index: 1, name: 'Камера 1' }];
+    const firstRaw = channels[0] || { id: 'ch1', index: 1, name: 'Камера 1' };
+    const firstChannel = {
+      id: firstRaw.id || 'ch1',
+      index: Number(firstRaw.index || firstRaw.id || 1) || 1,
+      name: firstRaw.name || 'Камера 1',
+    };
+    await handleStartStream(target, firstChannel);
   };
 
   const handleLocalArchive = async (terminal) => {
+    const ctx = setArchiveContextFromTarget(terminal, 'handleLocalArchive');
+    if (!ensureArchiveEligibility(ctx, 'discovery', 'Discovery action')) return;
     setLoading(true);
     setRadarStatus(`ПРОВЕРКА ПРОТОКОЛОВ NVR: ${terminal.host}`);
     try {
@@ -977,6 +1060,8 @@ export default function App() {
   };
 
   const handleFetchNvrDeviceInfo = async (terminal) => {
+    const ctx = setArchiveContextFromTarget(terminal, 'handleFetchNvrDeviceInfo');
+    if (!ensureArchiveEligibility(ctx, 'streamVerification', 'Stream verification')) return;
     setLoading(true);
     setRadarStatus(`ISAPI DEVICE INFO: ${terminal.host}`);
     try {
@@ -994,6 +1079,8 @@ export default function App() {
   };
 
   const handleSearchIsapiRecordings = async (terminal) => {
+    const ctx = setArchiveContextFromTarget(terminal, 'handleSearchIsapiRecordings');
+    if (!ensureArchiveEligibility(ctx, 'verified', 'Verified action')) return;
     setLoading(true);
     setRadarStatus(`ISAPI SEARCH: ${terminal.host}`);
     try {
@@ -1026,6 +1113,8 @@ confidence(avg/max): ${avgConfidence}/${maxConfidence}`);
   };
 
   const handleFetchOnvifDeviceInfo = async (terminal) => {
+    const ctx = setArchiveContextFromTarget(terminal, 'handleFetchOnvifDeviceInfo');
+    if (!ensureArchiveEligibility(ctx, 'streamVerification', 'Stream verification')) return;
     setLoading(true);
     setRadarStatus(`ONVIF DEVICE INFO: ${terminal.host}`);
     try {
@@ -1082,6 +1171,8 @@ confidence(avg/max): ${avgConfidence}/${maxConfidence}`);
   };
 
   const handleCaptureIsapiPlayback = async (item) => {
+    const ctx = resolveArchiveContext('handleCaptureIsapiPlayback');
+    if (!ensureArchiveEligibility(ctx, 'archiveExport', 'Archive capture')) return;
     if (!item?.playbackUri) {
       return toast('Для этой записи отсутствует playback URI');
     }
@@ -1094,6 +1185,8 @@ confidence(avg/max): ${avgConfidence}/${maxConfidence}`);
   };
 
   const handleDownloadIsapiPlayback = async (item) => {
+    const ctx = resolveArchiveContext('handleDownloadIsapiPlayback');
+    if (!ensureArchiveEligibility(ctx, 'archiveExport', 'Archive export')) return;
     if (!item?.playbackUri) {
       return toast('Для этой записи отсутствует playback URI');
     }
@@ -1128,7 +1221,7 @@ confidence(avg/max): ${avgConfidence}/${maxConfidence}`);
         playbackUri: normalizedUri,
         login: nvr.isapiSearchAuth.login || 'admin',
         pass: nvr.isapiSearchAuth.pass || '',
-        sourceHost: terminal.host || '',
+        sourceHost: ctx?.targetSnapshot?.host || streamTerminal?.host || '',
         filenameHint,
         taskId,
       });
@@ -1189,6 +1282,8 @@ confidence(avg/max): ${avgConfidence}/${maxConfidence}`);
   };
 
   const handleSearchOnvifRecordings = async (terminal) => {
+    const ctx = setArchiveContextFromTarget(terminal, 'handleSearchOnvifRecordings');
+    if (!ensureArchiveEligibility(ctx, 'verified', 'Verified action')) return;
     setLoading(true);
     setRadarStatus(`ONVIF RECORDINGS SEARCH: ${terminal.host}`);
     try {
@@ -1211,6 +1306,8 @@ confidence(avg/max): ${avgConfidence}/${maxConfidence}`);
   };
 
   const handleDownloadOnvifToken = async (item) => {
+    const ctx = resolveArchiveContext('handleDownloadOnvifToken');
+    if (!ensureArchiveEligibility(ctx, 'archiveExport', 'Archive export')) return;
     if (!item?.token || !item?.endpoint) return;
 
     const taskId = `onvif_${Date.now()}`;
@@ -1258,6 +1355,8 @@ confidence(avg/max): ${avgConfidence}/${maxConfidence}`);
   };
 
   const handleProbeArchiveExport = async (terminal) => {
+    const ctx = setArchiveContextFromTarget(terminal, 'handleProbeArchiveExport');
+    if (!ensureArchiveEligibility(ctx, 'archiveExport', 'Archive export probe')) return;
     setLoading(true);
     setRadarStatus(`ARCHIVE EXPORT PROBE: ${terminal.host}`);
     try {
@@ -1298,6 +1397,9 @@ confidence(avg/max): ${avgConfidence}/${maxConfidence}`);
 
   const startSingleStream = async (camera) => {
     if (!camera?.terminal || !camera?.channel) return;
+    if (camera.terminal.type !== 'hub' && !canRunStreamVerification(camera.terminal)) {
+      return toast(`Single stream gated for kind=${deriveCardKind(camera.terminal)}`);
+    }
     try {
       if (singleStreamSession?.targetId) {
         await invoke('stop_stream', { targetId: singleStreamSession.targetId });
@@ -1450,6 +1552,7 @@ const handleSecurityAudit = async () => {
                 terminal={singleStreamSession.terminal}
                 channel={singleStreamSession.channel}
                 hubCookie={hubConfig.cookie}
+                onArchiveContext={setArchiveContextFromTarget}
                 onClose={async () => {
                   if (singleStreamSession?.targetId) {
                     try {
@@ -1472,6 +1575,7 @@ const handleSecurityAudit = async () => {
                 terminalId={selectedTerminal}
                 targets={filteredTargets}
                 hubCookie={hubConfig.cookie}
+                onArchiveContext={setArchiveContextFromTarget}
                 onClose={() => {
                   setStreamViewMode('none');
                   setSelectedTerminal(null);
@@ -1494,6 +1598,7 @@ const handleSecurityAudit = async () => {
           setArchiveOnly={setArchiveOnly}
           form={form}
           setForm={setForm}
+          targetSaveStatus={targetSaveStatus}
           hubRecon={hubRecon}
           handleSmartSave={handleSmartSave}
           handleDeleteTarget={handleDeleteTarget}
@@ -1556,6 +1661,7 @@ const handleSecurityAudit = async () => {
           isDownloadableRecord={isDownloadableRecord}
           handleCaptureArchive={handleCaptureArchive}
           handleDownloadHttp={handleDownloadHttp}
+          onQuickStartStream={handleQuickStartSelectedTargetStream}
           activeTargetId={activeTargetId}
           streamRtspUrl={streamRtspUrl}
           activeCameraName={activeCameraName}
