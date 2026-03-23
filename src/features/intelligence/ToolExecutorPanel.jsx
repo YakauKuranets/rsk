@@ -201,6 +201,35 @@ function buildSemanticSummary(tool, result) {
   return `Сигналы слабые: данных для уверенного вывода мало. ${noiseText}.`;
 }
 
+function extractResultSignals(result) {
+  const mergedOutput = `${result?.stdout || ''}\n${result?.stderr || ''}`;
+  const portMatches = mergedOutput.match(/\b(\d{1,5})\/(tcp|udp)\s+open\b/gi) || [];
+  const serviceMatches = mergedOutput.match(/\b(open|filtered)\s+([a-z0-9_.-]{2,20})\b/gi) || [];
+  const webMatches = mergedOutput.match(/\b(vuln|xss|sql|csrf|interesting|directory|admin|login|exposed|cve|waf|cookie)\b/gi) || [];
+  const pathMatches = mergedOutput.match(/\b(?:https?:\/\/[^\s"'<>]+|\/[a-z0-9._\-\/]{2,})/gi) || [];
+  const errorMatches = mergedOutput.match(/\b(error|failed|timeout|unreachable|refused|denied)\b/gi) || [];
+  const warningMatches = mergedOutput.match(/\b(warn|warning|notice|retry|slow|fallback)\b/gi) || [];
+
+  const ports = [...new Set(portMatches.map((item) => (String(item).match(/\d{1,5}/) || [''])[0]).filter(Boolean))].slice(0, 4);
+  const services = [...new Set(serviceMatches.map((item) => ((String(item).match(/\b(open|filtered)\s+([a-z0-9_.-]{2,20})\b/i) || [])[2] || '')).filter(Boolean))].slice(0, 4);
+  const webMarkers = [...new Set(webMatches.map((item) => String(item).toLowerCase()))].slice(0, 5);
+  const endpoints = [...new Set(pathMatches.map((item) => String(item).trim()))].slice(0, 4);
+
+  const endpointsSafe = endpoints.map((item) => (item.length > 52 ? `${item.slice(0, 49)}...` : item));
+  const noiseScore = errorMatches.length + warningMatches.length;
+  const noiseLabel = noiseScore >= 8 ? 'высокий' : noiseScore >= 3 ? 'умеренный' : 'низкий';
+
+  return {
+    ports,
+    services,
+    webMarkers,
+    endpoints: endpointsSafe,
+    errors: errorMatches.length,
+    warnings: warningMatches.length,
+    noiseLabel,
+  };
+}
+
 function inferTargetHintKind(selectedTarget) {
   if (!selectedTarget) return 'unknown';
   const text = `${selectedTarget?.type || ''} ${selectedTarget?.name || ''} ${selectedTarget?.host || ''} ${selectedTarget?.ip || ''}`.toLowerCase();
@@ -280,6 +309,7 @@ export default function ToolExecutorPanel({ onSessionAuditStatus, selectedTarget
   const selectedTargetEndpoint = selectedTarget?.host || selectedTarget?.ip || '';
   const recommendedPlan = getRecommendedToolPlan(selectedTarget);
   const semanticSummary = buildSemanticSummary(tool, result);
+  const resultSignals = extractResultSignals(result);
   const selectedTargetHintKind = inferTargetHintKind(selectedTarget);
   const normalizedArgs = String(args || '').trim();
   const profiles = RUN_PROFILES[tool] || RUN_PROFILES.default;
@@ -1116,6 +1146,29 @@ export default function ToolExecutorPanel({ onSessionAuditStatus, selectedTarget
         <div style={{border:'1px solid #2b3b4d',background:'#0d1520',padding:'6px',borderRadius:'3px',marginBottom:'4px'}}>
           <div style={{fontSize:'10px',color:'#8eb6d7',marginBottom:'3px'}}>Краткий вывод</div>
           <div style={{fontSize:'10px',color:'#9fb8cd'}}>{semanticSummary}</div>
+        </div>
+        <div style={{border:'1px solid #2f2f2f',background:'#0f1114',padding:'6px',borderRadius:'3px',marginBottom:'4px'}}>
+          <div style={{fontSize:'10px',color:'#95a9bf',marginBottom:'4px'}}>Ключевые признаки stdout/stderr</div>
+          <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'4px 8px'}}>
+            <div style={{fontSize:'10px',color:'#9bc9f2'}}>
+              <b style={{color:'#7cb8e8'}}>Порты/сервисы:</b>{' '}
+              {resultSignals.ports.length || resultSignals.services.length
+                ? `${resultSignals.ports.join(', ') || '—'}${resultSignals.services.length ? ` · ${resultSignals.services.join(', ')}` : ''}`
+                : 'не выделены'}
+            </div>
+            <div style={{fontSize:'10px',color:'#b8d9a0'}}>
+              <b style={{color:'#8fc27a'}}>Web-маркеры:</b>{' '}
+              {resultSignals.webMarkers.length ? resultSignals.webMarkers.join(', ') : 'не выделены'}
+            </div>
+            <div style={{fontSize:'10px',color:'#d7c9a0'}}>
+              <b style={{color:'#e0b871'}}>Пути/endpoint:</b>{' '}
+              {resultSignals.endpoints.length ? resultSignals.endpoints.join(', ') : 'не выделены'}
+            </div>
+            <div style={{fontSize:'10px',color:'#d3b4b4'}}>
+              <b style={{color:'#d48a8a'}}>Шум:</b>{' '}
+              {`ошибки ${resultSignals.errors}, предупреждения ${resultSignals.warnings}, уровень ${resultSignals.noiseLabel}`}
+            </div>
+          </div>
         </div>
         {activeChain && activeChainStepIndex != null && (
           <div style={{border:'1px solid #2e3a2a',background:'#11170f',padding:'6px',borderRadius:'3px',marginBottom:'4px'}}>
