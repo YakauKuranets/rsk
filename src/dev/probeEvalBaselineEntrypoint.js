@@ -32,6 +32,7 @@ import {
   formatCredentialHygieneBaselineCompactSummary,
   runCredentialHygieneBaselinePackV1,
 } from '../api/credentialHygieneBaselinePack';
+import { spiderFullScanNormalized } from '../api/tauri';
 
 async function runFromDevConsole({
   inputs,
@@ -154,6 +155,32 @@ export function registerProbeEvalBaselineEntrypoint() {
       ...result,
     };
   };
+  window.__runSurfaceScanNormalizationV1 = async ({
+    targetUrl = 'http://localhost',
+    maxDepth = 1,
+    maxPages = 10,
+  } = {}) => {
+    const result = await spiderFullScanNormalized({
+      targetUrl,
+      maxDepth,
+      maxPages,
+      dirBruteforce: false,
+      enableVulnVerification: false,
+      enableOsintImport: false,
+      enableTopologyDiscovery: false,
+      enableSnapshotRefresh: false,
+      enableVideoStreamAnalyzer: false,
+      enableCredentialDepthAudit: false,
+      enablePassiveArpDiscovery: false,
+      enableUptimeMonitoring: false,
+      enableNeighborDiscovery: false,
+      enableThreatIntel: false,
+      enableScheduledAudits: false,
+    });
+    console.log(`[SURFACE_SCAN_NORMALIZATION_V1]\\n${result.marker}`);
+    console.log(result.surfaceScanResult);
+    return result;
+  };
   console.info('[DEV] __runProbeEvalBaseline is ready');
   console.info('[DEV] __runSessionLifecycleKnownBadPackV1 is ready');
   console.info('[DEV] __runArchiveBaselinePackV1 is ready');
@@ -161,4 +188,5 @@ export function registerProbeEvalBaselineEntrypoint() {
   console.info('[DEV] __runSafeArchiveFuzzLayerV1 is ready');
   console.info('[DEV] __runCredentialHygieneAuditorV1 is ready');
   console.info('[DEV] __runCredentialHygieneBaselinePackV1 is ready');
+  console.info('[DEV] __runSurfaceScanNormalizationV1 is ready');
 }

@@ -1,4 +1,8 @@
 import { invoke } from '@tauri-apps/api/core';
+import {
+  formatSurfaceScanResultV1Marker,
+  normalizeSpiderFullScanResultV1,
+} from './surfaceScanResultContract';
 
 // ═══ Targets ═══
 export const saveTarget = (data) => invoke('save_target', { data: JSON.stringify(data) });
@@ -42,6 +46,17 @@ export const searchOnvifRecordings = (host, login, pass) =>
 
 // ═══ Spider ═══
 export const spiderFullScan = (params) => invoke('spider_full_scan', params);
+export const spiderFullScanNormalized = async (params = {}) => {
+  const raw = await invoke('spider_full_scan', params);
+  const normalized = normalizeSpiderFullScanResultV1(raw, {
+    targetId: params?.targetUrl || params?.targetId || null,
+  });
+  return {
+    raw,
+    surfaceScanResult: normalized,
+    marker: formatSurfaceScanResultV1Marker(normalized),
+  };
+};
 export const fuzzCctvApi = (params) => invoke('fuzz_cctv_api', params);
 
 // ═══ Audit ═══
