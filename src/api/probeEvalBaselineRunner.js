@@ -1,6 +1,8 @@
 import {
   compareVerifySessionCookieEvalSnapshots,
   compareProbeEvalSnapshots,
+  DEFAULT_SESSION_LIFECYCLE_KNOWN_BAD_PACK_V1,
+  runSessionLifecycleKnownBadPackV1,
   runVerifySessionCookieEvalSnapshot,
   runProbeStreamEvalSnapshot,
 } from './probeEvalHarness';
@@ -266,4 +268,27 @@ export function formatProbeEvalBaselineCompactReport(runResult) {
   ];
 
   return lines.join('\n');
+}
+
+export { DEFAULT_SESSION_LIFECYCLE_KNOWN_BAD_PACK_V1 };
+
+export async function runSessionLifecycleKnownBadPackV1Runner({
+  mode = 'discovery_mode',
+  cases = DEFAULT_SESSION_LIFECYCLE_KNOWN_BAD_PACK_V1,
+} = {}) {
+  const pack = await runSessionLifecycleKnownBadPackV1({ mode, cases });
+  const compact = [
+    `packId=${pack.packId}`,
+    `mode=${pack.mode}`,
+    `totalCases=${pack.totalCases}`,
+    `passed=${pack.passed}`,
+    `failed=${pack.failed}`,
+    `inconclusive=${pack.inconclusive}`,
+    `successRate=${Number(pack.successRate || 0).toFixed(4)}`,
+  ].join(' | ');
+
+  return {
+    compact,
+    ...pack,
+  };
 }

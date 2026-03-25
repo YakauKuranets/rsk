@@ -1,8 +1,10 @@
 import {
   DEFAULT_COOKIE_EVAL_BASELINE_INPUTS,
   DEFAULT_PROBE_EVAL_BASELINE_INPUTS,
+  DEFAULT_SESSION_LIFECYCLE_KNOWN_BAD_PACK_V1,
   formatProbeEvalBaselineCompactReport,
   runProbeEvalBaselineRunner,
+  runSessionLifecycleKnownBadPackV1Runner,
 } from '../api/probeEvalBaselineRunner';
 
 async function runFromDevConsole({
@@ -39,5 +41,15 @@ export function registerProbeEvalBaselineEntrypoint() {
   if (window.__runProbeEvalBaseline) return;
 
   window.__runProbeEvalBaseline = runFromDevConsole;
+  window.__runSessionLifecycleKnownBadPackV1 = async ({
+    mode = 'discovery_mode',
+    cases = DEFAULT_SESSION_LIFECYCLE_KNOWN_BAD_PACK_V1,
+  } = {}) => {
+    const result = await runSessionLifecycleKnownBadPackV1Runner({ mode, cases });
+    console.log('[SESSION_LIFECYCLE_KNOWN_BAD_PACK_V1]\n' + result.compact);
+    console.table(result.reports);
+    return result;
+  };
   console.info('[DEV] __runProbeEvalBaseline is ready');
+  console.info('[DEV] __runSessionLifecycleKnownBadPackV1 is ready');
 }

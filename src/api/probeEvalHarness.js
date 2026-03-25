@@ -5,6 +5,27 @@ import {
 } from './capabilities';
 import { runAgentMinimal } from './tauri';
 
+export const DEFAULT_SESSION_LIFECYCLE_KNOWN_BAD_PACK_V1 = [
+  {
+    caseId: 'known_good_local_tls',
+    label: 'Known-good',
+    target: 'https://localhost',
+    expected: 'secure',
+  },
+  {
+    caseId: 'known_bad_local_http',
+    label: 'Known-bad',
+    target: 'http://localhost',
+    expected: 'insecure',
+  },
+  {
+    caseId: 'ambiguous_unreachable_local',
+    label: 'Ambiguous',
+    target: 'http://127.0.0.1:1',
+    expected: 'inconclusive',
+  },
+];
+
 function toRate(count, total) {
   if (!total) return 0;
   return Number((count / total).toFixed(4));
@@ -243,6 +264,100 @@ export async function runCookieResultInvariantChecks({
     fallbackCheck,
     shapeCompatible: preferredShapeOk && fallbackShapeOk,
     allPassed: preferredCheck.ok && fallbackCheck.ok && preferredShapeOk && fallbackShapeOk,
+  };
+}
+
+function evaluateSessionLifecycleExpectation(result, expected) {
+  const normalizedExpected = String(expected || '').toLowerCase();
+  const outcome = {
+    passed: false,
+    inconclusive: false,
+    note: 'unhandled_expectation',
+  };
+
+  if (normalizedExpected === 'secure') {
+    if (!result?.ok || result?.inconclusive) {
+      outcome.inconclusive = true;
+      outcome.note = 'known_good_case_not_reachable_or_inconclusive';
+      return outcome;
+    }
+    outcome.passed = result?.secure === true && Number(result?.issuesCount || 0) === 0;
+    outcome.note = outcome.passed
+      ? 'known_good_confirmed_as_secure'
+      : 'known_good_not_secure';
+    return outcome;
+  }
+
+  if (normalizedExpected === 'insecure') {
+    if (!result?.ok || result?.inconclusive) {
+      outcome.inconclusive = true;
+      outcome.note = 'known_bad_case_not_reachable_or_inconclusive';
+      return outcome;
+    }
+    outcome.passed = result?.secure === false || Number(result?.issuesCount || 0) > 0;
+    outcome.note = outcome.passed
+      ? 'known_bad_detected'
+      : 'known_bad_not_detected';
+    return outcome;
+  }
+
+  if (normalizedExpected === 'inconclusive') {
+    outcome.passed = Boolean(result?.inconclusive) || !Boolean(result?.ok);
+    outcome.note = outcome.passed
+      ? 'ambiguous_case_stayed_inconclusive'
+      : 'ambiguous_case_became_overconfident';
+    return outcome;
+  }
+
+  return outcome;
+}
+
+export async function runSessionLifecycleKnownBadPackV1({
+  mode = 'discovery_mode',
+  cases = DEFAULT_SESSION_LIFECYCLE_KNOWN_BAD_PACK_V1,
+} = {}) {
+  const normalizedCases = (Array.isArray(cases) ? cases : []).map((item, idx) => ({
+    caseId: item?.caseId || `session_lifecycle_case_${idx + 1}`,
+    label: item?.label || `Case ${idx + 1}`,
+    target: String(item?.target || '').trim(),
+    expected: item?.expected || 'inconclusive',
+  }));
+
+  const reports = [];
+  for (const item of normalizedCases) {
+    const result = await verifySessionCookieFlagsCapability(item.target, mode);
+    const evaluation = evaluateSessionLifecycleExpectation(result, item.expected);
+    reports.push({
+      ...item,
+      status: evaluation.passed ? 'passed' : evaluation.inconclusive ? 'inconclusive' : 'failed',
+      evaluationNote: evaluation.note,
+      result: {
+        ok: Boolean(result?.ok),
+        source: result?.source || 'unknown',
+        secure: typeof result?.secure === 'boolean' ? result.secure : null,
+        issuesCount: Number(result?.issuesCount || 0),
+        issues: Array.isArray(result?.issues) ? result.issues : [],
+        fallbackUsed: Boolean(result?.fallbackUsed),
+        inconclusive: Boolean(result?.inconclusive),
+        contractVersion: result?.contractVersion || null,
+      },
+    });
+  }
+
+  const passed = reports.filter((item) => item.status === 'passed').length;
+  const failed = reports.filter((item) => item.status === 'failed').length;
+  const inconclusive = reports.filter((item) => item.status === 'inconclusive').length;
+
+  return {
+    packId: 'session_lifecycle_known_bad_pack_v1',
+    mode,
+    createdAt: new Date().toISOString(),
+    totalCases: reports.length,
+    passed,
+    failed,
+    inconclusive,
+    successRate: reports.length ? Number((passed / reports.length).toFixed(4)) : 0,
+    reports,
   };
 }
 

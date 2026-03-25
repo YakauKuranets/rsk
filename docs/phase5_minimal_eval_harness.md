@@ -49,6 +49,28 @@
 - `inconclusive` does not conflict with confident states
 - preferred and forced-fallback results expose the same consumer shape
 
+## Session lifecycle known-bad pack v1 (controlled)
+
+- Pack id: `session_lifecycle_known_bad_pack_v1`
+- Cases:
+  1. `known_good_local_tls` (`https://localhost`) — expected `secure`
+  2. `known_bad_local_http` (`http://localhost`) — expected `insecure`
+  3. `ambiguous_unreachable_local` (`http://127.0.0.1:1`) — expected `inconclusive`
+- Runtime path: `verifySessionCookieFlagsCapability(...)` (preferred minimal-agent + legacy fallback boundary preserved).
+
+### Manual run (browser console)
+
+```js
+const out = await window.__runSessionLifecycleKnownBadPackV1();
+console.log(out.compact);
+console.table(out.reports);
+```
+
+Interpretation:
+- `status=passed` — expectation confirmed.
+- `status=failed` — safety regression candidate (must investigate).
+- `status=inconclusive` — environment/case ambiguity; not auto-pass and not auto-fail.
+
 ## Manual run example (browser console)
 
 ```js
