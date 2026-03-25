@@ -11,6 +11,11 @@ import {
   formatArchiveBaselineCompactSummary,
   runArchiveBaselinePackV1,
 } from '../api/archiveBaselinePack';
+import {
+  DEFAULT_ARCHIVE_EDGE_CASES_V1,
+  formatArchiveEdgeCaseCompactSummary,
+  runArchiveEdgeCaseHarnessV1,
+} from '../api/archiveEdgeCaseHarness';
 
 async function runFromDevConsole({
   inputs,
@@ -67,7 +72,21 @@ export function registerProbeEvalBaselineEntrypoint() {
       ...result,
     };
   };
+  window.__runArchiveEdgeCaseHarnessV1 = async ({
+    cases = DEFAULT_ARCHIVE_EDGE_CASES_V1,
+    includeBaseline = true,
+  } = {}) => {
+    const result = await runArchiveEdgeCaseHarnessV1({ cases, includeBaseline });
+    const compact = formatArchiveEdgeCaseCompactSummary(result);
+    console.log('[ARCHIVE_EDGE_CASE_HARNESS_V1]\n' + compact);
+    console.table(result.edgeCaseReports);
+    return {
+      compact,
+      ...result,
+    };
+  };
   console.info('[DEV] __runProbeEvalBaseline is ready');
   console.info('[DEV] __runSessionLifecycleKnownBadPackV1 is ready');
   console.info('[DEV] __runArchiveBaselinePackV1 is ready');
+  console.info('[DEV] __runArchiveEdgeCaseHarnessV1 is ready');
 }
