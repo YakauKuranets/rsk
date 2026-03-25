@@ -3,6 +3,7 @@ import {
   shouldStopStreamOnProbe,
   verifySessionCookieFlagsCapability,
 } from './capabilities';
+import { validateAuthResultV1Shape } from './authResultContract';
 import { runAgentMinimal } from './tauri';
 
 export const DEFAULT_SESSION_LIFECYCLE_KNOWN_BAD_PACK_V1 = [
@@ -253,9 +254,12 @@ export async function runCookieResultInvariantChecks({
     'fallbackUsed',
     'inconclusive',
     'contractVersion',
+    'authResult',
   ];
   const preferredShapeOk = requiredKeys.every((k) => Object.prototype.hasOwnProperty.call(preferred, k));
   const fallbackShapeOk = requiredKeys.every((k) => Object.prototype.hasOwnProperty.call(fallback, k));
+  const preferredAuthShape = validateAuthResultV1Shape(preferred?.authResult);
+  const fallbackAuthShape = validateAuthResultV1Shape(fallback?.authResult);
 
   return {
     preferred,
@@ -263,7 +267,14 @@ export async function runCookieResultInvariantChecks({
     preferredCheck,
     fallbackCheck,
     shapeCompatible: preferredShapeOk && fallbackShapeOk,
-    allPassed: preferredCheck.ok && fallbackCheck.ok && preferredShapeOk && fallbackShapeOk,
+    authResultShapeCompatible: preferredAuthShape.ok && fallbackAuthShape.ok,
+    allPassed:
+      preferredCheck.ok &&
+      fallbackCheck.ok &&
+      preferredShapeOk &&
+      fallbackShapeOk &&
+      preferredAuthShape.ok &&
+      fallbackAuthShape.ok,
   };
 }
 
@@ -548,6 +559,7 @@ export async function runVerifySessionCookieEvalSnapshot({
       caseId: input.caseId,
       allPassed: Boolean(report?.invariants?.allPassed),
       shapeCompatible: Boolean(report?.invariants?.shapeCompatible),
+      authResultShapeCompatible: Boolean(report?.invariants?.authResultShapeCompatible),
       preferredViolations: Array.isArray(report?.invariants?.preferredCheck?.violations)
         ? report.invariants.preferredCheck.violations
         : [],

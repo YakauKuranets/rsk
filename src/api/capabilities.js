@@ -1,5 +1,6 @@
 import { invoke } from '@tauri-apps/api/core';
 import { runAgentMinimal } from './tauri';
+import { normalizeSessionCookieAuthResultV1 } from './authResultContract';
 
 export async function executeCapabilityRequest(req) {
   return invoke('execute_capability', { req });
@@ -38,6 +39,8 @@ function normalizeCookieResult(raw) {
   const fallbackUsed = Boolean(raw?.fallbackUsed);
   const inconclusive = !ok && !fallbackUsed;
 
+  const targetId = String(raw?.targetId || raw?.ipOrUrl || '').trim() || null;
+
   return {
     ok,
     source: String(raw?.source || 'unknown'),
@@ -51,6 +54,16 @@ function normalizeCookieResult(raw) {
     fallbackUsed,
     inconclusive,
     contractVersion: 'cookie_result_v1',
+    authResult: normalizeSessionCookieAuthResultV1({
+      targetId,
+      cookieResult: {
+        source: raw?.source,
+        secure,
+        issues,
+        inconclusive,
+        evidenceRefs: Array.isArray(raw?.evidenceRefs) ? raw.evidenceRefs : [],
+      },
+    }),
   };
 }
 
@@ -95,6 +108,7 @@ export async function verifySessionCookieFlagsCapability(ipOrUrl, mode = 'discov
         return normalizeCookieResult({
           ok: true,
           source: 'minimal-agent',
+          targetId: target,
           secure,
           issues,
           issuesCount:
@@ -121,6 +135,7 @@ async function verifySessionCookieFlagsLegacyCapability(target, mode = 'discover
       ok: false,
       source: 'client-validation',
       message: 'ipOrUrl is empty',
+      targetId: target,
       secure: null,
       issues: [],
       fallbackUsed: true,
@@ -139,6 +154,7 @@ async function verifySessionCookieFlagsLegacyCapability(target, mode = 'discover
       return normalizeCookieResult({
         ok: true,
         source: 'legacy-capability',
+        targetId: target,
         secure: Boolean(out.secure),
         issues: out.issues,
         issuesCount: Array.isArray(out.issues) ? out.issues.length : 0,
@@ -152,6 +168,7 @@ async function verifySessionCookieFlagsLegacyCapability(target, mode = 'discover
       return normalizeCookieResult({
         ok: true,
         source: 'legacy-fallback',
+        targetId: target,
         secure: String(fallback).includes('выглядят безопасно'),
         issues: String(fallback).replace('[SESSION_AUDIT] ', '').split(' | ').filter(Boolean),
         legacyText: String(fallback),
@@ -161,6 +178,7 @@ async function verifySessionCookieFlagsLegacyCapability(target, mode = 'discover
 
     return normalizeCookieResult({
       ...normalizeCapabilityError(res),
+      targetId: target,
       secure: null,
       issues: [],
       fallbackUsed: true,
@@ -171,6 +189,7 @@ async function verifySessionCookieFlagsLegacyCapability(target, mode = 'discover
       return normalizeCookieResult({
         ok: true,
         source: 'legacy-fallback',
+        targetId: target,
         secure: String(fallback).includes('выглядят безопасно'),
         issues: String(fallback).replace('[SESSION_AUDIT] ', '').split(' | ').filter(Boolean),
         legacyText: String(fallback),
@@ -180,6 +199,7 @@ async function verifySessionCookieFlagsLegacyCapability(target, mode = 'discover
       return normalizeCookieResult({
         ok: false,
         source: 'error',
+        targetId: target,
         message: String(fallbackError),
         secure: null,
         issues: [],
