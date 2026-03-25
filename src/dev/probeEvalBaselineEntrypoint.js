@@ -21,6 +21,11 @@ import {
   formatArchiveFuzzCompactSummary,
   runSafeArchiveFuzzLayerV1,
 } from '../api/archiveSafeFuzzLayer';
+import {
+  DEFAULT_CREDENTIAL_HYGIENE_PROFILES_V1,
+  formatCredentialHygieneCompactSummary,
+  runCredentialHygieneAuditorV1,
+} from '../api/credentialHygieneAuditor';
 
 async function runFromDevConsole({
   inputs,
@@ -110,9 +115,23 @@ export function registerProbeEvalBaselineEntrypoint() {
       ...result,
     };
   };
+  window.__runCredentialHygieneAuditorV1 = async ({
+    profiles = DEFAULT_CREDENTIAL_HYGIENE_PROFILES_V1,
+    mode = 'discovery_mode',
+  } = {}) => {
+    const result = await runCredentialHygieneAuditorV1({ profiles, mode });
+    const compact = formatCredentialHygieneCompactSummary(result);
+    console.log('[CREDENTIAL_HYGIENE_AUDITOR_V1]\n' + compact);
+    console.table(result.reports);
+    return {
+      compact,
+      ...result,
+    };
+  };
   console.info('[DEV] __runProbeEvalBaseline is ready');
   console.info('[DEV] __runSessionLifecycleKnownBadPackV1 is ready');
   console.info('[DEV] __runArchiveBaselinePackV1 is ready');
   console.info('[DEV] __runArchiveEdgeCaseHarnessV1 is ready');
   console.info('[DEV] __runSafeArchiveFuzzLayerV1 is ready');
+  console.info('[DEV] __runCredentialHygieneAuditorV1 is ready');
 }
