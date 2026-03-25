@@ -26,6 +26,11 @@ import {
 import { useArchiveTargetContext } from './hooks/useArchiveTargetContext';
 import { buildTargetEnvelope, unwrapTargetEnvelope } from './features/targets/targetEnvelope';
 import { probeStreamPreferred, shouldStopStreamOnProbe } from './api/capabilities';
+import {
+  ARCHIVE_RESULT_CONTRACT_VERSION,
+  normalizeArchiveExportResultV1,
+  normalizeArchiveSearchResultV1,
+} from './api/archiveResultContract';
 
 function normalizeTargetRecords(rawTargets) {
   const normalized = [];
@@ -1100,12 +1105,34 @@ export default function App() {
       const confidences = (result || []).map((x) => Number(x?.confidence ?? 0)).filter((x) => Number.isFinite(x));
       const maxConfidence = confidences.length ? Math.max(...confidences) : 0;
       const avgConfidence = confidences.length ? Math.round(confidences.reduce((a, b) => a + b, 0) / confidences.length) : 0;
+      const normalized = normalizeArchiveSearchResultV1({
+        targetId: terminal.host,
+        archivePathType: 'isapi_search',
+        records: result,
+        evidenceRefs: ['path:isapi_search', `playable:${playableCount}`, `downloadable:${downloadableCount}`],
+      });
+      setRuntimeLogs((prev) => ([...prev, {
+        time: new Date().toLocaleTimeString(),
+        message: `ARCHIVE_RESULT_V1|v=${ARCHIVE_RESULT_CONTRACT_VERSION}|path=${normalized.archive_path_type}|target=${normalized.target_id}|class=${normalized.resultClass}|issues=${normalized.issuesCount}|confidence=${normalized.confidence}`,
+      }]).slice(-300));
       toast(`ISAPI search (${terminal.host})
 Найдено записей: ${result.length}
 playable: ${playableCount}
 downloadable: ${downloadableCount}
 confidence(avg/max): ${avgConfidence}/${maxConfidence}`);
     } catch (err) {
+      const normalized = normalizeArchiveSearchResultV1({
+        targetId: terminal.host,
+        archivePathType: 'isapi_search',
+        records: [],
+        timeoutDetected: String(err).toLowerCase().includes('timeout'),
+        evidenceRefs: ['path:isapi_search'],
+        errors: [String(err)],
+      });
+      setRuntimeLogs((prev) => ([...prev, {
+        time: new Date().toLocaleTimeString(),
+        message: `ARCHIVE_RESULT_V1|v=${ARCHIVE_RESULT_CONTRACT_VERSION}|path=${normalized.archive_path_type}|target=${normalized.target_id}|class=${normalized.resultClass}|issues=${normalized.issuesCount}|confidence=${normalized.confidence}`,
+      }]).slice(-300));
       toast(`Ошибка ISAPI search: ${err}`);
     } finally {
       setLoading(false);
@@ -1237,6 +1264,20 @@ confidence(avg/max): ${avgConfidence}/${maxConfidence}`);
         setDownloadTasks(prev => prev.map(t =>
           t.id === taskId ? { ...t, status: 'error', percent: 0, error: reason || 'Archive export failed', stageSummary, stageDetails, finalStatus: job?.finalStatus || 'failed', retryCount: Number(job?.retryCount || 0), stageCount: Number(job?.stageCount || stageDetails.length), fallbackDurationSeconds: Number(job?.fallbackDurationSeconds || 0) } : t,
         ));
+        const normalized = normalizeArchiveExportResultV1({
+          targetId: ctx?.targetSnapshot?.host || streamTerminal?.host || '',
+          archivePathType: `isapi_export_${job?.selectedStage || 'unknown'}`,
+          ok: false,
+          partialAccessDetected: (job?.selectedStage || '') !== 'direct' && Boolean(job?.selectedStage),
+          timeoutDetected: String(reason || '').toLowerCase().includes('timeout'),
+          integrityStatus: 'failed',
+          issues: [reason || 'archive_export_failed'],
+          evidenceRefs: (job?.stages || []).map((s) => `stage:${s.stage}:${s.success ? 'ok' : 'fail'}`),
+        });
+        setRuntimeLogs((prev) => ([...prev, {
+          time: new Date().toLocaleTimeString(),
+          message: `ARCHIVE_RESULT_V1|v=${ARCHIVE_RESULT_CONTRACT_VERSION}|path=${normalized.archive_path_type}|target=${normalized.target_id}|class=${normalized.resultClass}|issues=${normalized.issuesCount}|confidence=${normalized.confidence}`,
+        }]).slice(-300));
         toast(`Ошибка ISAPI download: ${reason || 'Archive export failed'}`);
         return;
       }
@@ -1271,10 +1312,41 @@ confidence(avg/max): ${avgConfidence}/${maxConfidence}`);
         const note = job.finalReason ? `\nПричина direct: ${job.finalReason}` : '';
         toast(`Прямой export отказал, задача завершена через ${job.selectedStage}.${note}`);
       }
+      const normalized = normalizeArchiveExportResultV1({
+        targetId: ctx?.targetSnapshot?.host || streamTerminal?.host || '',
+        archivePathType: `isapi_export_${job?.selectedStage || 'direct'}`,
+        ok: true,
+        partialAccessDetected: job?.selectedStage !== 'direct',
+        timeoutDetected: false,
+        integrityStatus: job?.selectedStage === 'direct' ? 'ok' : 'degraded',
+        issues: job?.selectedStage === 'direct' ? [] : [job?.finalReason || 'direct_export_not_available'],
+        evidenceRefs: [
+          `bytes:${report.totalBytes || report.bytesWritten || 0}`,
+          `stages:${Number(job.stageCount || (job.stages || []).length)}`,
+          `retries:${Number(job.retryCount || 0)}`,
+        ],
+      });
+      setRuntimeLogs((prev) => ([...prev, {
+        time: new Date().toLocaleTimeString(),
+        message: `ARCHIVE_RESULT_V1|v=${ARCHIVE_RESULT_CONTRACT_VERSION}|path=${normalized.archive_path_type}|target=${normalized.target_id}|class=${normalized.resultClass}|issues=${normalized.issuesCount}|confidence=${normalized.confidence}`,
+      }]).slice(-300));
     } catch (err) {
       setDownloadTasks(prev => prev.map(t =>
         t.id === taskId ? { ...t, status: 'error', percent: 0, error: String(err) } : t,
       ));
+      const normalized = normalizeArchiveExportResultV1({
+        targetId: ctx?.targetSnapshot?.host || streamTerminal?.host || '',
+        archivePathType: 'isapi_export_direct',
+        ok: false,
+        timeoutDetected: String(err).toLowerCase().includes('timeout'),
+        integrityStatus: 'failed',
+        issues: [String(err)],
+        evidenceRefs: ['path:isapi_export_direct'],
+      });
+      setRuntimeLogs((prev) => ([...prev, {
+        time: new Date().toLocaleTimeString(),
+        message: `ARCHIVE_RESULT_V1|v=${ARCHIVE_RESULT_CONTRACT_VERSION}|path=${normalized.archive_path_type}|target=${normalized.target_id}|class=${normalized.resultClass}|issues=${normalized.issuesCount}|confidence=${normalized.confidence}`,
+      }]).slice(-300));
       toast(`Ошибка ISAPI download: ${err}`);
     } finally {
       setLoading(false);
@@ -1296,9 +1368,31 @@ confidence(avg/max): ${avgConfidence}/${maxConfidence}`);
       });
       nvr.setOnvifRecordingTokens(result);
       nvr.setOnvifSearchAuth({ login, pass });
+      const normalized = normalizeArchiveSearchResultV1({
+        targetId: terminal.host,
+        archivePathType: 'onvif_search',
+        records: result,
+        evidenceRefs: ['path:onvif_search'],
+      });
+      setRuntimeLogs((prev) => ([...prev, {
+        time: new Date().toLocaleTimeString(),
+        message: `ARCHIVE_RESULT_V1|v=${ARCHIVE_RESULT_CONTRACT_VERSION}|path=${normalized.archive_path_type}|target=${normalized.target_id}|class=${normalized.resultClass}|issues=${normalized.issuesCount}|confidence=${normalized.confidence}`,
+      }]).slice(-300));
       toast(`ONVIF recordings (${terminal.host})
 Найдено токенов: ${result.length}`);
     } catch (err) {
+      const normalized = normalizeArchiveSearchResultV1({
+        targetId: terminal.host,
+        archivePathType: 'onvif_search',
+        records: [],
+        timeoutDetected: String(err).toLowerCase().includes('timeout'),
+        evidenceRefs: ['path:onvif_search'],
+        errors: [String(err)],
+      });
+      setRuntimeLogs((prev) => ([...prev, {
+        time: new Date().toLocaleTimeString(),
+        message: `ARCHIVE_RESULT_V1|v=${ARCHIVE_RESULT_CONTRACT_VERSION}|path=${normalized.archive_path_type}|target=${normalized.target_id}|class=${normalized.resultClass}|issues=${normalized.issuesCount}|confidence=${normalized.confidence}`,
+      }]).slice(-300));
       toast(`Ошибка ONVIF recordings search: ${err}`);
     } finally {
       setLoading(false);
@@ -1344,10 +1438,35 @@ confidence(avg/max): ${avgConfidence}/${maxConfidence}`);
           ? { ...t, status: 'done', percent: 100, bytesWritten: report.totalBytes || report.bytesWritten || 0, speedBytesSec, savePath: report.savePath }
           : t,
       ));
+      const normalized = normalizeArchiveExportResultV1({
+        targetId: ctx?.targetSnapshot?.host || streamTerminal?.host || '',
+        archivePathType: 'onvif_export',
+        ok: true,
+        integrityStatus: 'ok',
+        issues: [],
+        evidenceRefs: [`bytes:${report.totalBytes || report.bytesWritten || 0}`],
+      });
+      setRuntimeLogs((prev) => ([...prev, {
+        time: new Date().toLocaleTimeString(),
+        message: `ARCHIVE_RESULT_V1|v=${ARCHIVE_RESULT_CONTRACT_VERSION}|path=${normalized.archive_path_type}|target=${normalized.target_id}|class=${normalized.resultClass}|issues=${normalized.issuesCount}|confidence=${normalized.confidence}`,
+      }]).slice(-300));
     } catch (err) {
       setDownloadTasks(prev => prev.map(t =>
         t.id === taskId ? { ...t, status: 'error', percent: 0, error: String(err) } : t,
       ));
+      const normalized = normalizeArchiveExportResultV1({
+        targetId: ctx?.targetSnapshot?.host || streamTerminal?.host || '',
+        archivePathType: 'onvif_export',
+        ok: false,
+        timeoutDetected: String(err).toLowerCase().includes('timeout'),
+        integrityStatus: 'failed',
+        issues: [String(err)],
+        evidenceRefs: ['path:onvif_export'],
+      });
+      setRuntimeLogs((prev) => ([...prev, {
+        time: new Date().toLocaleTimeString(),
+        message: `ARCHIVE_RESULT_V1|v=${ARCHIVE_RESULT_CONTRACT_VERSION}|path=${normalized.archive_path_type}|target=${normalized.target_id}|class=${normalized.resultClass}|issues=${normalized.issuesCount}|confidence=${normalized.confidence}`,
+      }]).slice(-300));
       toast(`Ошибка ONVIF download: ${err}`);
     } finally {
       setLoading(false);
@@ -1367,10 +1486,35 @@ confidence(avg/max): ${avgConfidence}/${maxConfidence}`);
       });
       nvr.setArchiveProbeResults(result);
       const detected = result.filter((x) => x.status === 'detected').length;
+      const timeoutDetected = result.some((x) => x.status === 'unreachable');
+      const normalized = normalizeArchiveSearchResultV1({
+        targetId: terminal.host,
+        archivePathType: 'archive_export_probe',
+        records: result.filter((x) => x.status === 'detected'),
+        timeoutDetected,
+        partialAccessDetected: detected > 0 && detected < result.length,
+        evidenceRefs: result.map((x) => `${x.protocol}:${x.status}`),
+      });
+      setRuntimeLogs((prev) => ([...prev, {
+        time: new Date().toLocaleTimeString(),
+        message: `ARCHIVE_RESULT_V1|v=${ARCHIVE_RESULT_CONTRACT_VERSION}|path=${normalized.archive_path_type}|target=${normalized.target_id}|class=${normalized.resultClass}|issues=${normalized.issuesCount}|confidence=${normalized.confidence}`,
+      }]).slice(-300));
       toast(`ПРОВЕРКА EXPORT-ENDPOINT (${terminal.host})
 
 Найдено потенциальных endpoint: ${detected} из ${result.length}.`);
     } catch (err) {
+      const normalized = normalizeArchiveSearchResultV1({
+        targetId: terminal.host,
+        archivePathType: 'archive_export_probe',
+        records: [],
+        timeoutDetected: String(err).toLowerCase().includes('timeout'),
+        evidenceRefs: ['path:archive_export_probe'],
+        errors: [String(err)],
+      });
+      setRuntimeLogs((prev) => ([...prev, {
+        time: new Date().toLocaleTimeString(),
+        message: `ARCHIVE_RESULT_V1|v=${ARCHIVE_RESULT_CONTRACT_VERSION}|path=${normalized.archive_path_type}|target=${normalized.target_id}|class=${normalized.resultClass}|issues=${normalized.issuesCount}|confidence=${normalized.confidence}`,
+      }]).slice(-300));
       toast(`Ошибка проверки export-endpoint: ${err}`);
     } finally {
       setLoading(false);
