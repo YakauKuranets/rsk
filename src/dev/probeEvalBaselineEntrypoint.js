@@ -16,6 +16,11 @@ import {
   formatArchiveEdgeCaseCompactSummary,
   runArchiveEdgeCaseHarnessV1,
 } from '../api/archiveEdgeCaseHarness';
+import {
+  DEFAULT_ARCHIVE_FUZZ_SEEDS_V1,
+  formatArchiveFuzzCompactSummary,
+  runSafeArchiveFuzzLayerV1,
+} from '../api/archiveSafeFuzzLayer';
 
 async function runFromDevConsole({
   inputs,
@@ -85,8 +90,29 @@ export function registerProbeEvalBaselineEntrypoint() {
       ...result,
     };
   };
+  window.__runSafeArchiveFuzzLayerV1 = async ({
+    seeds = DEFAULT_ARCHIVE_FUZZ_SEEDS_V1,
+    maxMutationsPerRun,
+    maxRuntimeMs,
+    includeContinuity = true,
+  } = {}) => {
+    const result = await runSafeArchiveFuzzLayerV1({
+      seeds,
+      maxMutationsPerRun,
+      maxRuntimeMs,
+      includeContinuity,
+    });
+    const compact = formatArchiveFuzzCompactSummary(result);
+    console.log('[SAFE_ARCHIVE_FUZZ_LAYER_V1]\n' + compact);
+    console.table(result.mutationReports);
+    return {
+      compact,
+      ...result,
+    };
+  };
   console.info('[DEV] __runProbeEvalBaseline is ready');
   console.info('[DEV] __runSessionLifecycleKnownBadPackV1 is ready');
   console.info('[DEV] __runArchiveBaselinePackV1 is ready');
   console.info('[DEV] __runArchiveEdgeCaseHarnessV1 is ready');
+  console.info('[DEV] __runSafeArchiveFuzzLayerV1 is ready');
 }
