@@ -3,6 +3,10 @@ import {
   formatSurfaceScanResultV1Marker,
   normalizeSpiderFullScanResultV1,
 } from './surfaceScanResultContract';
+import {
+  formatPortScanResultV1Marker,
+  normalizeScanHostPortsResultV1,
+} from './portScanResultContract';
 
 // ═══ Targets ═══
 export const saveTarget = (data) => invoke('save_target', { data: JSON.stringify(data) });
@@ -30,6 +34,15 @@ export const externalSearch = (country, city) => invoke('external_search', { cou
 export const searchGlobalHub = (query, cookie) => invoke('search_global_hub', { query, cookie });
 export const geocodeAddress = (address) => invoke('geocode_address', { address });
 export const scanHostPorts = (host) => invoke('scan_host_ports', { host });
+export const scanHostPortsNormalized = async (host) => {
+  const raw = await invoke('scan_host_ports', { host });
+  const portScanResult = normalizeScanHostPortsResultV1(raw, { host });
+  return {
+    raw,
+    portScanResult,
+    marker: formatPortScanResultV1Marker(portScanResult),
+  };
+};
 export const analyzeSecurityHeaders = (targetUrl) => invoke('analyze_security_headers', { targetUrl });
 
 // ═══ NVR/Archive ═══
