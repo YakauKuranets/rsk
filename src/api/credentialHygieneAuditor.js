@@ -55,6 +55,46 @@ export const DEFAULT_CREDENTIAL_HYGIENE_PROFILES_V1 = [
   },
 ];
 
+export const DEFAULT_CREDENTIAL_HYGIENE_EXPANDED_PROFILES_V1 = [
+  ...DEFAULT_CREDENTIAL_HYGIENE_PROFILES_V1,
+  {
+    profileId: 'direct_known_good_strong_boundary',
+    label: 'Direct known-good strong boundary',
+    sourceType: 'direct_auth_fixture',
+    authInput: {
+      target_id: 'fixture_known_good_target',
+      auth_path_type: 'controlled_fixture:known_good',
+      auth_required: true,
+      weak_password_detected: false,
+      default_credential_detected: false,
+      auth_boundary_strength: 'strong',
+      partial_access_detected: false,
+      issues: [],
+      evidenceRefs: ['fixture:known_good'],
+      confidence: 0.95,
+      resultClass: 'passed',
+    },
+  },
+  {
+    profileId: 'direct_ambiguous_insufficient_signal',
+    label: 'Direct ambiguous insufficient signal',
+    sourceType: 'direct_auth_fixture',
+    authInput: {
+      target_id: 'fixture_ambiguous_target',
+      auth_path_type: 'controlled_fixture:ambiguous',
+      auth_required: true,
+      weak_password_detected: false,
+      default_credential_detected: false,
+      auth_boundary_strength: 'unknown',
+      partial_access_detected: false,
+      issues: ['insufficient_signal'],
+      evidenceRefs: ['fixture:ambiguous'],
+      confidence: 0.35,
+      resultClass: 'inconclusive',
+    },
+  },
+];
+
 function clampClass(value) {
   return ['passed', 'failed', 'inconclusive'].includes(value) ? value : 'inconclusive';
 }

@@ -23,9 +23,15 @@ import {
 } from '../api/archiveSafeFuzzLayer';
 import {
   DEFAULT_CREDENTIAL_HYGIENE_PROFILES_V1,
+  DEFAULT_CREDENTIAL_HYGIENE_EXPANDED_PROFILES_V1,
   formatCredentialHygieneCompactSummary,
   runCredentialHygieneAuditorV1,
 } from '../api/credentialHygieneAuditor';
+import {
+  DEFAULT_CREDENTIAL_HYGIENE_BASELINE_CASES_V1,
+  formatCredentialHygieneBaselineCompactSummary,
+  runCredentialHygieneBaselinePackV1,
+} from '../api/credentialHygieneBaselinePack';
 
 async function runFromDevConsole({
   inputs,
@@ -128,10 +134,31 @@ export function registerProbeEvalBaselineEntrypoint() {
       ...result,
     };
   };
+  window.__runCredentialHygieneBaselinePackV1 = async ({
+    cases = DEFAULT_CREDENTIAL_HYGIENE_BASELINE_CASES_V1,
+    profiles = DEFAULT_CREDENTIAL_HYGIENE_EXPANDED_PROFILES_V1,
+    mode = 'discovery_mode',
+    includeContinuity = true,
+  } = {}) => {
+    const result = await runCredentialHygieneBaselinePackV1({
+      cases,
+      profiles,
+      mode,
+      includeContinuity,
+    });
+    const compact = formatCredentialHygieneBaselineCompactSummary(result);
+    console.log('[CREDENTIAL_HYGIENE_BASELINE_PACK_V1]\n' + compact);
+    console.table(result.caseReports);
+    return {
+      compact,
+      ...result,
+    };
+  };
   console.info('[DEV] __runProbeEvalBaseline is ready');
   console.info('[DEV] __runSessionLifecycleKnownBadPackV1 is ready');
   console.info('[DEV] __runArchiveBaselinePackV1 is ready');
   console.info('[DEV] __runArchiveEdgeCaseHarnessV1 is ready');
   console.info('[DEV] __runSafeArchiveFuzzLayerV1 is ready');
   console.info('[DEV] __runCredentialHygieneAuditorV1 is ready');
+  console.info('[DEV] __runCredentialHygieneBaselinePackV1 is ready');
 }
