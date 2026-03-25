@@ -6,6 +6,11 @@ import {
   runProbeEvalBaselineRunner,
   runSessionLifecycleKnownBadPackV1Runner,
 } from '../api/probeEvalBaselineRunner';
+import {
+  DEFAULT_ARCHIVE_BASELINE_PACK_V1_CASES,
+  formatArchiveBaselineCompactSummary,
+  runArchiveBaselinePackV1,
+} from '../api/archiveBaselinePack';
 
 async function runFromDevConsole({
   inputs,
@@ -50,6 +55,19 @@ export function registerProbeEvalBaselineEntrypoint() {
     console.table(result.reports);
     return result;
   };
+  window.__runArchiveBaselinePackV1 = async ({
+    cases = DEFAULT_ARCHIVE_BASELINE_PACK_V1_CASES,
+  } = {}) => {
+    const result = await runArchiveBaselinePackV1({ cases });
+    const compact = formatArchiveBaselineCompactSummary(result);
+    console.log('[ARCHIVE_BASELINE_PACK_V1]\n' + compact);
+    console.table(result.caseReports);
+    return {
+      compact,
+      ...result,
+    };
+  };
   console.info('[DEV] __runProbeEvalBaseline is ready');
   console.info('[DEV] __runSessionLifecycleKnownBadPackV1 is ready');
+  console.info('[DEV] __runArchiveBaselinePackV1 is ready');
 }
