@@ -1,4 +1,5 @@
 import { ARCHIVE_RESULT_CONTRACT_VERSION, normalizeArchiveResultV1 } from './archiveResultContract';
+import { AUTH_RESULT_CONTRACT_VERSION, validateAuthResultV1Shape } from './authResultContract';
 import { runArchiveBaselinePackV1 } from './archiveBaselinePack';
 
 export const DEFAULT_ARCHIVE_EDGE_CASES_V1 = [
@@ -154,10 +155,14 @@ function buildEdgeCaseReport(item, normalized) {
   const classMatch = expectedClass === actualClass;
   const issuesCountMatch = normalized.issuesCount === normalized.issues.length;
   const contractVersionOk = normalized.contractVersion === ARCHIVE_RESULT_CONTRACT_VERSION;
+  const authShapeOk = validateAuthResultV1Shape(normalized?.authResult).ok;
+  const authTargetMatch = normalized?.authResult?.target_id === normalized?.target_id;
+  const authPathTypeMatch =
+    normalized?.authResult?.auth_path_type === `archive:${String(normalized?.archive_path_type || 'unknown')}`;
 
-  const status = classMatch && issuesCountMatch && contractVersionOk
+  const status = classMatch && issuesCountMatch && contractVersionOk && authShapeOk && authTargetMatch && authPathTypeMatch
     ? 'passed'
-    : !issuesCountMatch || !contractVersionOk
+    : !issuesCountMatch || !contractVersionOk || !authShapeOk
       ? 'failed'
       : 'inconclusive';
 
@@ -171,6 +176,9 @@ function buildEdgeCaseReport(item, normalized) {
       classMatch,
       issuesCountMatch,
       contractVersionOk,
+      authShapeOk,
+      authTargetMatch,
+      authPathTypeMatch,
     },
     result: normalized,
   };
@@ -243,5 +251,7 @@ export function formatArchiveEdgeCaseCompactSummary(report) {
     `inconclusive=${Number(metrics.byStatus?.inconclusive || 0)}`,
     `classMatchRate=${Number(metrics.classMatchRate || 0).toFixed(4)}`,
     `byCategory=${JSON.stringify(metrics.byCategory || {})}`,
+    `authContractVersion=${AUTH_RESULT_CONTRACT_VERSION}`,
+    `AUTH_RESULT_V1|present=${(report?.edgeCaseReports || []).filter((x) => x?.checks?.authShapeOk).length}/${(report?.edgeCaseReports || []).length || 0}`,
   ].join(' | ');
 }

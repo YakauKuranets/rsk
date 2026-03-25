@@ -1,4 +1,5 @@
 import { ARCHIVE_RESULT_CONTRACT_VERSION, normalizeArchiveResultV1 } from './archiveResultContract';
+import { AUTH_RESULT_CONTRACT_VERSION, validateAuthResultV1Shape } from './authResultContract';
 
 export const DEFAULT_ARCHIVE_BASELINE_PACK_V1_CASES = [
   {
@@ -72,10 +73,14 @@ function buildCaseReport(item, normalized) {
   const classMatch = normalized.resultClass === expectedClass;
   const issuesCountMatch = normalized.issuesCount === normalized.issues.length;
   const hasContractVersion = normalized.contractVersion === ARCHIVE_RESULT_CONTRACT_VERSION;
+  const authShapeOk = validateAuthResultV1Shape(normalized?.authResult).ok;
+  const authTargetMatch = normalized?.authResult?.target_id === normalized?.target_id;
+  const authPathTypeMatch =
+    normalized?.authResult?.auth_path_type === `archive:${String(normalized?.archive_path_type || 'unknown')}`;
 
-  const status = classMatch && issuesCountMatch && hasContractVersion
+  const status = classMatch && issuesCountMatch && hasContractVersion && authShapeOk && authTargetMatch && authPathTypeMatch
     ? 'passed'
-    : classMatch || issuesCountMatch || hasContractVersion
+    : classMatch || issuesCountMatch || hasContractVersion || authShapeOk
       ? 'inconclusive'
       : 'failed';
 
@@ -89,6 +94,9 @@ function buildCaseReport(item, normalized) {
       classMatch,
       issuesCountMatch,
       hasContractVersion,
+      authShapeOk,
+      authTargetMatch,
+      authPathTypeMatch,
     },
     result: normalized,
   };
@@ -152,5 +160,7 @@ export function formatArchiveBaselineCompactSummary(report) {
     `inconclusive=${Number(metrics.byStatus?.inconclusive || 0)}`,
     `passRate=${Number(metrics.passRate || 0).toFixed(4)}`,
     `classDist=${JSON.stringify(metrics.byActualClass || {})}`,
+    `authContractVersion=${AUTH_RESULT_CONTRACT_VERSION}`,
+    `AUTH_RESULT_V1|present=${(report?.caseReports || []).filter((x) => x?.checks?.authShapeOk).length}/${(report?.caseReports || []).length || 0}`,
   ].join(' | ');
 }

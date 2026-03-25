@@ -1,4 +1,5 @@
 import { ARCHIVE_RESULT_CONTRACT_VERSION, normalizeArchiveResultV1 } from './archiveResultContract';
+import { AUTH_RESULT_CONTRACT_VERSION, validateAuthResultV1Shape } from './authResultContract';
 import { runArchiveBaselinePackV1 } from './archiveBaselinePack';
 import { runArchiveEdgeCaseHarnessV1 } from './archiveEdgeCaseHarness';
 
@@ -167,10 +168,14 @@ function buildMutationReport({ seed, mutationType, mutationDetail, expectedBehav
   const classMatch = actualBehavior === expectedBehavior;
   const issuesCountMatch = normalized.issuesCount === normalized.issues.length;
   const contractVersionOk = normalized.contractVersion === ARCHIVE_RESULT_CONTRACT_VERSION;
+  const authShapeOk = validateAuthResultV1Shape(normalized?.authResult).ok;
+  const authTargetMatch = normalized?.authResult?.target_id === normalized?.target_id;
+  const authPathTypeMatch =
+    normalized?.authResult?.auth_path_type === `archive:${String(normalized?.archive_path_type || 'unknown')}`;
 
-  const status = classMatch && issuesCountMatch && contractVersionOk
+  const status = classMatch && issuesCountMatch && contractVersionOk && authShapeOk && authTargetMatch && authPathTypeMatch
     ? 'passed'
-    : !issuesCountMatch || !contractVersionOk
+    : !issuesCountMatch || !contractVersionOk || !authShapeOk
       ? 'failed'
       : 'inconclusive';
 
@@ -185,6 +190,9 @@ function buildMutationReport({ seed, mutationType, mutationDetail, expectedBehav
       classMatch,
       issuesCountMatch,
       contractVersionOk,
+      authShapeOk,
+      authTargetMatch,
+      authPathTypeMatch,
     },
     result: normalized,
   };
@@ -286,5 +294,7 @@ export function formatArchiveFuzzCompactSummary(report) {
     `classMatchRate=${Number(metrics.classMatchRate || 0).toFixed(4)}`,
     `mutationTypes=${JSON.stringify(metrics.byMutationType || {})}`,
     `safeLimits=${JSON.stringify(report?.safeLimits || {})}`,
+    `authContractVersion=${AUTH_RESULT_CONTRACT_VERSION}`,
+    `AUTH_RESULT_V1|present=${(report?.mutationReports || []).filter((x) => x?.checks?.authShapeOk).length}/${(report?.mutationReports || []).length || 0}`,
   ].join(' | ');
 }

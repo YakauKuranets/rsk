@@ -133,3 +133,56 @@ export function validateAuthResultV1Shape(input = {}) {
     missingKeys,
   };
 }
+
+export function normalizeArchiveAuthResultV1({
+  archiveResult,
+} = {}) {
+  const normalizedArchive = archiveResult || {};
+  const searchRequiresAuth = typeof normalizedArchive.search_requires_auth === 'boolean'
+    ? normalizedArchive.search_requires_auth
+    : true;
+  const exportRequiresAuth = typeof normalizedArchive.export_requires_auth === 'boolean'
+    ? normalizedArchive.export_requires_auth
+    : true;
+  const authRequired = searchRequiresAuth || exportRequiresAuth;
+  const partialAccessDetected = Boolean(normalizedArchive.partial_access_detected);
+  const archiveClass = String(normalizedArchive.resultClass || 'inconclusive');
+  const authPathType = `archive:${String(normalizedArchive.archive_path_type || 'unknown')}`;
+  const issues = toStringArray(normalizedArchive.issues);
+
+  const authBoundaryStrength = !authRequired || partialAccessDetected
+    ? 'weak'
+    : archiveClass === 'passed'
+      ? 'strong'
+      : 'unknown';
+
+  const resultClass = !authRequired
+    ? 'failed'
+    : partialAccessDetected
+      ? 'inconclusive'
+      : archiveClass === 'passed'
+        ? 'passed'
+        : archiveClass === 'failed'
+          ? 'failed'
+          : 'inconclusive';
+
+  return normalizeAuthResultV1({
+    target_id: normalizedArchive.target_id || null,
+    auth_path_type: authPathType,
+    auth_required: authRequired,
+    weak_password_detected: false,
+    default_credential_detected: false,
+    auth_boundary_strength: authBoundaryStrength,
+    partial_access_detected: partialAccessDetected,
+    issues: !authRequired && !issues.includes('archive_auth_not_required')
+      ? [...issues, 'archive_auth_not_required']
+      : issues,
+    evidenceRefs: [
+      ...(Array.isArray(normalizedArchive.evidenceRefs) ? normalizedArchive.evidenceRefs : []),
+      `search_requires_auth:${searchRequiresAuth}`,
+      `export_requires_auth:${exportRequiresAuth}`,
+    ],
+    confidence: Number(normalizedArchive.confidence || 0),
+    resultClass,
+  });
+}

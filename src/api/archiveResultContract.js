@@ -1,3 +1,5 @@
+import { normalizeArchiveAuthResultV1 } from './authResultContract';
+
 export const ARCHIVE_RESULT_CONTRACT_VERSION = 'archive_result_v1';
 
 const DEFAULT_RESULT = {
@@ -41,7 +43,7 @@ export function normalizeArchiveResultV1(input = {}) {
     ? input.resultClass
     : 'inconclusive';
 
-  return {
+  const normalized = {
     ...DEFAULT_RESULT,
     ...input,
     contractVersion: ARCHIVE_RESULT_CONTRACT_VERSION,
@@ -61,6 +63,13 @@ export function normalizeArchiveResultV1(input = {}) {
     evidenceRefs,
     confidence: clampConfidence(input.confidence),
     resultClass,
+  };
+
+  return {
+    ...normalized,
+    authResult: normalizeArchiveAuthResultV1({
+      archiveResult: normalized,
+    }),
   };
 }
 
