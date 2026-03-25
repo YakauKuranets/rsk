@@ -639,6 +639,7 @@ function OpsPanel({
   isSniffing,handleStartSniffer,interceptLogs,implementationStatus,onPlayCamera,
   handleStartNemesis,handleAnalyzeSources,handlePlayFuzzedLink,
   hubRecon,capture,hubConfig,fuzzPath,formatBytes,handleCaptureArchive,
+  labMode,
 }){
   const [showPb,setShowPb]=useState(false);
   const [showCamp,setShowCamp]=useState(false);
@@ -648,24 +649,15 @@ function OpsPanel({
 
   return(
     <>
-      <Section icon='🤖' title='Агент-конвейер' color={T.cyan}>
+      {labMode && <Section icon='🤖' title='LAB: Агент-конвейер' color={T.cyan}>
         <div style={{fontSize:'10px',color:T.muted,marginBottom:'3px'}}>Область сканирования</div>
         <input style={css.input} value={agentScope} onChange={e=>setAgentScope(e.target.value)} placeholder='Хост или подсеть: 192.168.1.0/24'/>
         <button style={css.btnFull(T.cyan)} onClick={handleRunReconAgent}>▶ Запустить разведчика</button>
         {agentStatus&&<div style={{fontSize:'11px',color:T.muted,marginTop:'4px'}}>{agentStatus}</div>}
         {agentPacket&&<AgentReport packet={agentPacket} nextAgent='ExploitVerifyAgent' onHandoff={handleAgentHandoff}/>}
-      </Section>
+      </Section>}
 
       <Section icon='🛠' title='Инструменты' color={T.purp} defaultOpen={false}>
-        <button style={css.btnFull(isSniffing?T.grn:T.cyan)} onClick={handleStartSniffer} disabled={isSniffing}>
-          {isSniffing?'🎧 Перехват активен...':'🎧 Пассивный перехват'}</button>
-        {interceptLogs.length>0&&<div style={{background:T.bg0,border:'1px solid '+T.grn+'30',padding:'8px',fontSize:'10px',color:T.grn,maxHeight:'80px',overflowY:'auto',borderRadius:'4px',marginBottom:'6px'}}>
-          {interceptLogs.map((l,i)=><div key={i}>[{l.protocol}] {l.details}</div>)}</div>}
-        <SpiderControl
-          handleStartNemesis={handleStartNemesis}
-          handleAnalyzeSources={handleAnalyzeSources}
-          handlePlayFuzzedLink={handlePlayFuzzedLink}
-        />
         <button style={css.btnFull(T.purp)} onClick={()=>setShowPb(v=>!v)}>📋 {showPb?'Скрыть плейбуки':'Плейбуки'}</button>
         {showPb&&<PlaybookRunner/>}
         <button style={css.btnFull(T.amb)} onClick={()=>setShowCamp(v=>!v)}>📁 {showCamp?'Скрыть кампании':'Кампании'}</button>
@@ -676,6 +668,18 @@ function OpsPanel({
         {showRadar&&<CameraScanPanel onPlayCamera={onPlayCamera}/>}        
         <MassAudit/>
       </Section>
+
+      {labMode && <Section icon='🧪' title='LAB: Экспериментальные операции' color={T.red} defaultOpen={false}>
+        <button style={css.btnFull(isSniffing?T.grn:T.cyan)} onClick={handleStartSniffer} disabled={isSniffing}>
+          {isSniffing?'🎧 Перехват активен...':'🎧 Пассивный перехват'}</button>
+        {interceptLogs.length>0&&<div style={{background:T.bg0,border:'1px solid '+T.grn+'30',padding:'8px',fontSize:'10px',color:T.grn,maxHeight:'80px',overflowY:'auto',borderRadius:'4px',marginBottom:'6px'}}>
+          {interceptLogs.map((l,i)=><div key={i}>[{l.protocol}] {l.details}</div>)}</div>}
+        <SpiderControl
+          handleStartNemesis={handleStartNemesis}
+          handleAnalyzeSources={handleAnalyzeSources}
+          handlePlayFuzzedLink={handlePlayFuzzedLink}
+        />
+      </Section>}
 
       <Section icon='🔍' title='Разведка архива (HUB)' color={T.grn} defaultOpen={false}>
         <HubReconPanel hubRecon={hubRecon} capture={capture} hubConfig={hubConfig} fuzzPath={fuzzPath} formatBytes={formatBytes} handleCaptureArchive={handleCaptureArchive}/>
@@ -758,6 +762,13 @@ export default function Sidebar(props){
   }=props;
 
   const [tab,setTab]=useState('targets');
+  const [labMode, setLabMode] = useState(() => {
+    try {
+      return localStorage.getItem('hyperion_lab_mode_v1') === '1';
+    } catch {
+      return false;
+    }
+  });
   const [sessionAuditStatus, setSessionAuditStatus] = useState(null);
   const [selectedTarget, setSelectedTarget] = useState(null);
 
@@ -771,12 +782,25 @@ export default function Sidebar(props){
     if (!stillExists) setSelectedTarget(null);
   }, [targets, selectedTarget]);
 
+  useEffect(() => {
+    try {
+      localStorage.setItem('hyperion_lab_mode_v1', labMode ? '1' : '0');
+    } catch {}
+  }, [labMode]);
+
   return(
     <div style={css.panel}>
       <div style={{padding:'10px 14px 8px',borderBottom:'1px solid '+T.line,flexShrink:0,background:T.bg1}}>
         <div style={{display:'flex',alignItems:'baseline',gap:'8px'}}>
           <span style={{color:T.red,fontSize:'13px',fontWeight:800,letterSpacing:'.12em'}}>HYPERION</span>
           <span style={{color:T.dim,fontSize:'10px'}}>NODE</span>
+          <button
+            style={{...css.btn(labMode ? T.amb : T.muted),padding:'3px 7px',fontSize:'9px',marginLeft:'8px'}}
+            onClick={() => setLabMode((v) => !v)}
+            title='Переключить экспериментальные панели'
+          >
+            {labMode ? 'LAB ON' : 'LAB OFF'}
+          </button>
           <span style={{marginLeft:'auto',fontSize:'10px',color:T.grn}}>● онлайн</span>
         </div>
       </div>
@@ -829,8 +853,9 @@ export default function Sidebar(props){
           onPlayCamera={onPlayCamera} handleStartNemesis={handleStartNemesis}
           hubRecon={hubRecon} capture={capture} hubConfig={hubConfig}
           fuzzPath={fuzzPath} formatBytes={formatBytes} handleCaptureArchive={handleCaptureArchive}
+          labMode={labMode}
         />}
-        {tab==='intel'&&<IntelHub onSessionAuditStatus={setSessionAuditStatus} selectedTarget={selectedTarget}/>}
+        {tab==='intel'&&<IntelHub onSessionAuditStatus={setSessionAuditStatus} selectedTarget={selectedTarget} labMode={labMode}/>}
         {tab==='system'&&<SystemPanel
           runtimeLogs={runtimeLogs} setRuntimeLogs={setRuntimeLogs}
           downloadTasks={downloadTasks} resumeDownloads={resumeDownloads}
