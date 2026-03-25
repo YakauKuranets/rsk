@@ -32,7 +32,11 @@ import {
   formatCredentialHygieneBaselineCompactSummary,
   runCredentialHygieneBaselinePackV1,
 } from '../api/credentialHygieneBaselinePack';
-import { scanHostPortsNormalized, spiderFullScanNormalized } from '../api/tauri';
+import {
+  auditHostPortsNormalized,
+  scanHostPortsNormalized,
+  spiderFullScanNormalized,
+} from '../api/tauri';
 
 async function runFromDevConsole({
   inputs,
@@ -189,6 +193,15 @@ export function registerProbeEvalBaselineEntrypoint() {
     console.log(result.portScanResult);
     return result;
   };
+  window.__runPortAuditNormalizationV1 = async ({
+    host = '127.0.0.1',
+    expectedOpenPorts = [80, 443, 554],
+  } = {}) => {
+    const result = await auditHostPortsNormalized(host, { expectedOpenPorts });
+    console.log(`[PORT_AUDIT_NORMALIZATION_V1]\\n${result.marker}`);
+    console.log(result.portAuditResult);
+    return result;
+  };
   console.info('[DEV] __runProbeEvalBaseline is ready');
   console.info('[DEV] __runSessionLifecycleKnownBadPackV1 is ready');
   console.info('[DEV] __runArchiveBaselinePackV1 is ready');
@@ -198,4 +211,5 @@ export function registerProbeEvalBaselineEntrypoint() {
   console.info('[DEV] __runCredentialHygieneBaselinePackV1 is ready');
   console.info('[DEV] __runSurfaceScanNormalizationV1 is ready');
   console.info('[DEV] __runPortScanNormalizationV1 is ready');
+  console.info('[DEV] __runPortAuditNormalizationV1 is ready');
 }

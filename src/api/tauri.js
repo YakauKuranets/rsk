@@ -7,6 +7,10 @@ import {
   formatPortScanResultV1Marker,
   normalizeScanHostPortsResultV1,
 } from './portScanResultContract';
+import {
+  formatPortAuditResultV1Marker,
+  normalizePortAuditFromScanResultV1,
+} from './portAuditResultContract';
 
 // ═══ Targets ═══
 export const saveTarget = (data) => invoke('save_target', { data: JSON.stringify(data) });
@@ -41,6 +45,16 @@ export const scanHostPortsNormalized = async (host) => {
     raw,
     portScanResult,
     marker: formatPortScanResultV1Marker(portScanResult),
+  };
+};
+export const auditHostPortsNormalized = async (host, options = {}) => {
+  const { portScanResult, raw } = await scanHostPortsNormalized(host);
+  const portAuditResult = normalizePortAuditFromScanResultV1(portScanResult, options);
+  return {
+    raw,
+    portScanResult,
+    portAuditResult,
+    marker: formatPortAuditResultV1Marker(portAuditResult),
   };
 };
 export const analyzeSecurityHeaders = (targetUrl) => invoke('analyze_security_headers', { targetUrl });
