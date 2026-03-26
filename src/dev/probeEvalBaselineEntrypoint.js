@@ -56,6 +56,7 @@ import {
   spiderFullScanNormalized,
   runPassiveTrafficAnalyzerV1,
   runKvDualWriteDiagnostic,
+  runKvReadAnalyticsV1,
 } from '../api/tauri';
 
 async function runFromDevConsole({
@@ -343,6 +344,13 @@ export function registerProbeEvalBaselineEntrypoint() {
     console.log(`[KV_DUAL_WRITE_V1]\n${marker}`);
     return marker;
   };
+
+  window.__runKvReadAnalyticsV1 = async () => {
+    const report = await runKvReadAnalyticsV1();
+    console.log(`[KV_READ_ANALYTICS_V1]\n${report.marker}`);
+    console.log(report);
+    return report;
+  };
   window.__runPortScanNormalizationV1 = async ({
     host = '127.0.0.1',
   } = {}) => {
@@ -387,6 +395,7 @@ export function registerProbeEvalBaselineEntrypoint() {
   console.info('[DEV] __runPassiveTrafficAnalyzerV1 is ready');
   console.info('[DEV] __runPassiveTrafficBaselinePackV1 is ready');
   console.info('[DEV] __runKvDualWriteDiagnostic is ready');
+  console.info('[DEV] __runKvReadAnalyticsV1 is ready');
   console.info('[DEV] __runPortScanNormalizationV1 is ready');
   console.info('[DEV] __runPortAuditNormalizationV1 is ready');
   console.info('[DEV] __runPortScanAuditBaselinePackV1 is ready');

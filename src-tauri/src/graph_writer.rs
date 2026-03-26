@@ -255,8 +255,13 @@ async fn write_projection(
          SET r.created_at=timestamp(), r.shadow_mode=true \
          MERGE (c:Capability {{capability_key:'{cap}'}}) \
          MERGE (vp:ValidationPath {{path_key:'{mode}'}}) \
+         MERGE (env:Environment {{environment_key:'shadow_default'}}) \
+         MERGE (v:Vendor {{name:'unknown'}}) \
          MERGE (f:Finding {{finding_id:'{finding}'}}) \
          SET f.severity='{severity}', f.summary='{summary}', f.shadow_mode=true \
+         MERGE (d)-[:FROM_VENDOR]->(v) \
+         MERGE (r)-[:TARGET_DEVICE]->(d) \
+         MERGE (r)-[:IN_ENVIRONMENT]->(env) \
          MERGE (r)-[:USED_CAPABILITY]->(c) \
          MERGE (r)-[:USED_PATH]->(vp) \
          MERGE (r)-[:PRODUCED_FINDING]->(f)"
