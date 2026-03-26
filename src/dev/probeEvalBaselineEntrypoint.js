@@ -43,10 +43,18 @@ import {
   formatSpiderBaselineCompactSummaryV1,
   runSpiderBaselinePackV1,
 } from '../api/spiderBaselinePack';
+
+
+import {
+  DEFAULT_PASSIVE_TRAFFIC_BASELINE_CASES_V1,
+  formatPassiveTrafficBaselineCompactSummaryV1,
+  runPassiveTrafficBaselinePackV1,
+} from '../api/passiveTrafficBaselinePack';
 import {
   auditHostPortsNormalized,
   scanHostPortsNormalized,
   spiderFullScanNormalized,
+  runPassiveTrafficAnalyzerV1,
 } from '../api/tauri';
 
 async function runFromDevConsole({
@@ -296,6 +304,38 @@ export function registerProbeEvalBaselineEntrypoint() {
       ...result,
     };
   };
+
+  window.__runPassiveTrafficAnalyzerV1 = async ({
+    interfaceName = 'any',
+    durationSecs = 15,
+    targetId = null,
+    host = null,
+    surfaceScanResult = null,
+  } = {}) => {
+    const result = await runPassiveTrafficAnalyzerV1({
+      interfaceName,
+      durationSecs,
+      targetId,
+      host,
+      surfaceScanResult,
+    });
+    console.log(`[PASSIVE_OBSERVATION_V1]\n${result.marker}`);
+    console.log(result.passiveObservation);
+    return result;
+  };
+  window.__runPassiveTrafficBaselinePackV1 = async ({
+    cases = DEFAULT_PASSIVE_TRAFFIC_BASELINE_CASES_V1,
+    includeContinuity = true,
+  } = {}) => {
+    const result = await runPassiveTrafficBaselinePackV1({ cases, includeContinuity });
+    const compact = formatPassiveTrafficBaselineCompactSummaryV1(result);
+    console.log('[PASSIVE_TRAFFIC_BASELINE_PACK_V1]\n' + compact);
+    console.table(result.caseReports);
+    return {
+      compact,
+      ...result,
+    };
+  };
   window.__runPortScanNormalizationV1 = async ({
     host = '127.0.0.1',
   } = {}) => {
@@ -337,6 +377,8 @@ export function registerProbeEvalBaselineEntrypoint() {
   console.info('[DEV] __runSpiderAuthBoundaryHintsV1 is ready');
   console.info('[DEV] __runSpiderEvidenceReportV1 is ready');
   console.info('[DEV] __runSpiderBaselinePackV1 is ready');
+  console.info('[DEV] __runPassiveTrafficAnalyzerV1 is ready');
+  console.info('[DEV] __runPassiveTrafficBaselinePackV1 is ready');
   console.info('[DEV] __runPortScanNormalizationV1 is ready');
   console.info('[DEV] __runPortAuditNormalizationV1 is ready');
   console.info('[DEV] __runPortScanAuditBaselinePackV1 is ready');

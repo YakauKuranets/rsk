@@ -24,6 +24,11 @@ import {
   normalizePortAuditFromScanResultV1,
 } from './portAuditResultContract';
 
+import {
+  formatPassiveObservationCompactSummaryV1,
+  normalizePassiveObservationResultV1,
+} from './passiveObservationResultContract';
+
 // ═══ Targets ═══
 export const saveTarget = (data) => invoke('save_target', { data: JSON.stringify(data) });
 export const readTarget = (id) => invoke('read_target', { id });
@@ -70,6 +75,36 @@ export const auditHostPortsNormalized = async (host, options = {}) => {
   };
 };
 export const analyzeSecurityHeaders = (targetUrl) => invoke('analyze_security_headers', { targetUrl });
+
+
+export const runPassiveTrafficAnalyzerV1 = async ({
+  interfaceName,
+  durationSecs = 30,
+  targetId = null,
+  host = null,
+  surfaceScanResult = null,
+} = {}) => {
+  const iface = String(interfaceName || '').trim() || 'any';
+  const raw = await invoke('analyze_traffic', {
+    interface: iface,
+    durationSecs,
+  });
+
+  const passiveObservation = normalizePassiveObservationResultV1(raw, {
+    targetId,
+    host,
+    surfaceScanResult,
+    observationWindowSec: durationSecs,
+    interface: iface,
+  });
+
+  return {
+    raw,
+    passiveObservation,
+    marker: formatPassiveObservationCompactSummaryV1(passiveObservation),
+  };
+};
+
 
 // ═══ NVR/Archive ═══
 export const generateNvrChannels = (host, login, password, channelCount) =>
