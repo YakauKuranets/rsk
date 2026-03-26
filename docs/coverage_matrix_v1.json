@@ -1,0 +1,123 @@
+{
+  "matrix_version": "coverage_matrix_v1",
+  "created_at": "2026-03-26T00:00:00Z",
+  "principles": {
+    "honesty_over_optimism": true,
+    "no_ui_inference": true,
+    "coverage_is_not_safety_proof": true
+  },
+  "entries": [
+    {
+      "tool_name": "archive_result_v1",
+      "capability": "archive discovery/export normalization for ISAPI/ONVIF/FTP/XM/HTTP",
+      "coverage_level": "partial",
+      "evidence_quality": "backed",
+      "known_gaps": [
+        "Vendor-specific archive quirks still require manual triage",
+        "Live-environment protocol variability can degrade reliability",
+        "No guarantee of complete archive route discovery for proprietary stacks"
+      ],
+      "false_safety_risk": "Medium: normalized archive output can look complete while target-specific routes remain undiscovered"
+    },
+    {
+      "tool_name": "auth_result_v1",
+      "capability": "auth/session posture normalization across HTTP/RTSP/ISAPI/ONVIF/FTP",
+      "coverage_level": "partial",
+      "evidence_quality": "backed",
+      "known_gaps": [
+        "Complex multi-step auth flows may be underrepresented",
+        "Some auth verdicts depend on fallback paths",
+        "Credential hygiene still relies on sampled scenarios"
+      ],
+      "false_safety_risk": "High: secure-looking flags may mask untested auth boundary conditions"
+    },
+    {
+      "tool_name": "surface_scan_result_v1 + spider fingerprint",
+      "capability": "surface discovery and fingerprint hints",
+      "coverage_level": "partial",
+      "evidence_quality": "backed",
+      "known_gaps": [
+        "Fingerprint hints are probabilistic and can be noisy",
+        "Coverage depends on crawl visibility and endpoint exposure",
+        "Not a full asset inventory guarantee"
+      ],
+      "false_safety_risk": "High: strong-looking hints can be mistaken for definitive product identification"
+    },
+    {
+      "tool_name": "spider evidence/baseline layers",
+      "capability": "explainable grouping and known-good/known-bad baseline validation for spider outputs",
+      "coverage_level": "partial",
+      "evidence_quality": "backed",
+      "known_gaps": [
+        "Evidence quality bounded by upstream surface signal",
+        "Inconclusive outcomes increase under sparse data",
+        "No active validation of hidden paths in this layer"
+      ],
+      "false_safety_risk": "Medium: structured reports can be over-trusted when source signal is weak"
+    },
+    {
+      "tool_name": "port_scan_result_v1",
+      "capability": "port exposure normalization",
+      "coverage_level": "strong",
+      "evidence_quality": "backed",
+      "known_gaps": [
+        "Transient network conditions can cause misses",
+        "Service identity still depends on limited banners/hints"
+      ],
+      "false_safety_risk": "Medium: closed/quiet scan windows can be mistaken for hardened posture"
+    },
+    {
+      "tool_name": "port_audit_result_v1",
+      "capability": "risk-oriented audit over normalized port scan",
+      "coverage_level": "partial",
+      "evidence_quality": "backed",
+      "known_gaps": [
+        "Risk scoring is rule-based and may miss environment context",
+        "Expected-port assumptions can be stale"
+      ],
+      "false_safety_risk": "High: low risk score may hide non-port attack surface"
+    },
+    {
+      "tool_name": "passive_observation_result_v1",
+      "capability": "passive traffic observation and correlation with surface",
+      "coverage_level": "partial",
+      "evidence_quality": "indirect",
+      "known_gaps": [
+        "Observation quality depends on traffic volume in capture window",
+        "Sparse traffic frequently yields inconclusive outputs",
+        "Passive view cannot prove absence of risky behavior"
+      ],
+      "false_safety_risk": "High: quiet windows can be misread as safe behavior"
+    },
+    {
+      "tool_name": "session_lifecycle_known_bad_pack_v1",
+      "capability": "session/cookie lifecycle baseline scenarios",
+      "coverage_level": "partial",
+      "evidence_quality": "backed",
+      "known_gaps": [
+        "Scenario pack is finite and not exhaustive",
+        "Complex real-world session transitions may be unmodeled"
+      ],
+      "false_safety_risk": "Medium: passing baseline cases does not guarantee robust lifecycle security"
+    }
+  ],
+  "summary": {
+    "strongest_contours": [
+      "port_scan_result_v1 (normalized exposure inventory)"
+    ],
+    "weakest_contours": [
+      "passive_observation_result_v1 under low-traffic windows",
+      "surface/spider fingerprint confidence under sparse discovery"
+    ],
+    "top_false_safety_zones": [
+      "Auth/session appears secure under fallback-limited evidence",
+      "Fingerprint hints treated as definitive attribution",
+      "Quiet passive window interpreted as absence of risk"
+    ],
+    "next_priorities": [
+      "Phase 31.3 Validation quality report layer",
+      "Tighter confidence calibration for sparse-signal contours",
+      "Explicit confidence-to-action guardrails"
+    ]
+  }
+}
