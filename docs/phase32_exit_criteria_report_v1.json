@@ -1,0 +1,36 @@
+{
+  "report_version": "phase32_exit_criteria_report_v1",
+  "generated_at": "2026-03-26T06:35:16Z",
+  "overall_status": "blocked",
+  "marker": "KV_EXIT_CRITERIA_V1|status=blocked|blocked=2|ts=2026-03-26T06:35:16Z",
+  "criteria": {
+    "dual_write_stability": {
+      "status": "blocked",
+      "notes": ["100-event integrated runtime load test not executed in this environment"]
+    },
+    "no_raw_secrets": {
+      "status": "pass_with_notes",
+      "notes": ["Code-level sanitization and hashed evidence refs are present"]
+    },
+    "ingest_no_data_loss": {
+      "status": "blocked",
+      "notes": ["Primary-vs-shadow count reconciliation window not executed"]
+    },
+    "readonly_analytics_useful": {
+      "status": "pass_with_notes",
+      "notes": ["Read-only analytics commands exist; live timing/usefulness needs staged run"]
+    },
+    "no_runtime_influence": {
+      "status": "pass",
+      "notes": ["No direct graph-read decision coupling detected in capability runtime path"]
+    },
+    "latency_acceptable": {
+      "status": "pass_with_notes",
+      "notes": ["Async non-fatal design present; p50/p95 latency benchmark pending"]
+    }
+  },
+  "blockers": ["dual_write_stability_not_executed_under_100_event_integrated_load", "ingest_no_data_loss_not_verified_against_primary_storage_window"],
+  "remediation_items": ["Run controlled integrated 100-event load through real runtime path with primary+shadow counters", "Add deterministic counter reconciliation job for last-24h mature contours", "Capture latency p50/p95 for dual-write-enabled capability path in staging"],
+  "live_check_notes": ["neo4j_live_checks_skipped"],
+  "recommendation": "no_go_to_phase33_until_blockers_resolved"
+}
