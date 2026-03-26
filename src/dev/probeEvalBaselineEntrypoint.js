@@ -37,6 +37,12 @@ import {
   formatPortScanAuditBaselineCompactSummary,
   runPortScanAuditBaselinePackV1,
 } from '../api/portScanAuditBaselinePack';
+
+import {
+  DEFAULT_SPIDER_BASELINE_CASES_V1,
+  formatSpiderBaselineCompactSummaryV1,
+  runSpiderBaselinePackV1,
+} from '../api/spiderBaselinePack';
 import {
   auditHostPortsNormalized,
   scanHostPortsNormalized,
@@ -277,6 +283,19 @@ export function registerProbeEvalBaselineEntrypoint() {
     console.log(result.evidenceReport);
     return result;
   };
+  window.__runSpiderBaselinePackV1 = async ({
+    cases = DEFAULT_SPIDER_BASELINE_CASES_V1,
+    includeContinuity = true,
+  } = {}) => {
+    const result = await runSpiderBaselinePackV1({ cases, includeContinuity });
+    const compact = formatSpiderBaselineCompactSummaryV1(result);
+    console.log('[SPIDER_BASELINE_PACK_V1]\n' + compact);
+    console.table(result.caseReports);
+    return {
+      compact,
+      ...result,
+    };
+  };
   window.__runPortScanNormalizationV1 = async ({
     host = '127.0.0.1',
   } = {}) => {
@@ -317,6 +336,7 @@ export function registerProbeEvalBaselineEntrypoint() {
   console.info('[DEV] __runSpiderFingerprintEnrichmentV1 is ready');
   console.info('[DEV] __runSpiderAuthBoundaryHintsV1 is ready');
   console.info('[DEV] __runSpiderEvidenceReportV1 is ready');
+  console.info('[DEV] __runSpiderBaselinePackV1 is ready');
   console.info('[DEV] __runPortScanNormalizationV1 is ready');
   console.info('[DEV] __runPortAuditNormalizationV1 is ready');
   console.info('[DEV] __runPortScanAuditBaselinePackV1 is ready');
