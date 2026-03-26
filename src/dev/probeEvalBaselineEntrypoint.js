@@ -33,6 +33,11 @@ import {
   runCredentialHygieneBaselinePackV1,
 } from '../api/credentialHygieneBaselinePack';
 import {
+  DEFAULT_PORT_SCAN_AUDIT_BASELINE_CASES_V1,
+  formatPortScanAuditBaselineCompactSummary,
+  runPortScanAuditBaselinePackV1,
+} from '../api/portScanAuditBaselinePack';
+import {
   auditHostPortsNormalized,
   scanHostPortsNormalized,
   spiderFullScanNormalized,
@@ -202,6 +207,18 @@ export function registerProbeEvalBaselineEntrypoint() {
     console.log(result.portAuditResult);
     return result;
   };
+  window.__runPortScanAuditBaselinePackV1 = async ({
+    cases = DEFAULT_PORT_SCAN_AUDIT_BASELINE_CASES_V1,
+  } = {}) => {
+    const result = await runPortScanAuditBaselinePackV1({ cases });
+    const compact = formatPortScanAuditBaselineCompactSummary(result);
+    console.log('[PORT_SCAN_AUDIT_BASELINE_PACK_V1]\n' + compact);
+    console.table(result.caseReports);
+    return {
+      compact,
+      ...result,
+    };
+  };
   console.info('[DEV] __runProbeEvalBaseline is ready');
   console.info('[DEV] __runSessionLifecycleKnownBadPackV1 is ready');
   console.info('[DEV] __runArchiveBaselinePackV1 is ready');
@@ -212,4 +229,5 @@ export function registerProbeEvalBaselineEntrypoint() {
   console.info('[DEV] __runSurfaceScanNormalizationV1 is ready');
   console.info('[DEV] __runPortScanNormalizationV1 is ready');
   console.info('[DEV] __runPortAuditNormalizationV1 is ready');
+  console.info('[DEV] __runPortScanAuditBaselinePackV1 is ready');
 }
