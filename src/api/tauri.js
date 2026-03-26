@@ -12,6 +12,10 @@ import {
   formatSpiderAuthBoundaryHintsV1Marker,
 } from './spiderAuthBoundaryHints';
 import {
+  buildSpiderEvidenceReportV1,
+  formatSpiderEvidenceCompactSummaryV1,
+} from './spiderEvidenceReport';
+import {
   formatPortScanResultV1Marker,
   normalizeScanHostPortsResultV1,
 } from './portScanResultContract';
@@ -88,6 +92,10 @@ export const spiderFullScanNormalized = async (params = {}) => {
   });
   const fingerprintEnrichment = deriveSpiderFingerprintEnrichmentV1(normalized, raw);
   const authBoundaryHints = deriveSpiderAuthBoundaryHintsV1(normalized, raw);
+  const evidenceReport = buildSpiderEvidenceReportV1({
+    surfaceScanResult: normalized,
+    raw,
+  });
   return {
     raw,
     surfaceScanResult: normalized,
@@ -100,6 +108,8 @@ export const spiderFullScanNormalized = async (params = {}) => {
       authBoundaryHints,
       normalized?.target_id || normalized?.host || params?.targetUrl || 'n/a',
     ),
+    evidenceReport,
+    evidenceMarker: formatSpiderEvidenceCompactSummaryV1(evidenceReport),
   };
 };
 export const fuzzCctvApi = (params) => invoke('fuzz_cctv_api', params);

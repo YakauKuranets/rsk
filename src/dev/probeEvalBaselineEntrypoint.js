@@ -193,6 +193,9 @@ export function registerProbeEvalBaselineEntrypoint() {
     if (result.authBoundaryMarker) {
       console.log(`[SPIDER_AUTH_BOUNDARY_HINTS_V1]\\n${result.authBoundaryMarker}`);
     }
+    if (result.evidenceMarker) {
+      console.log(`[SPIDER_EVIDENCE_REPORT_V1]\\n${result.evidenceMarker}`);
+    }
     console.log(result.surfaceScanResult);
     return result;
   };
@@ -248,6 +251,32 @@ export function registerProbeEvalBaselineEntrypoint() {
     console.log(result.surfaceScanResult);
     return result;
   };
+  window.__runSpiderEvidenceReportV1 = async ({
+    targetUrl = 'http://localhost',
+    maxDepth = 1,
+    maxPages = 10,
+  } = {}) => {
+    const result = await spiderFullScanNormalized({
+      targetUrl,
+      maxDepth,
+      maxPages,
+      dirBruteforce: false,
+      enableVulnVerification: false,
+      enableOsintImport: false,
+      enableTopologyDiscovery: false,
+      enableSnapshotRefresh: false,
+      enableVideoStreamAnalyzer: false,
+      enableCredentialDepthAudit: false,
+      enablePassiveArpDiscovery: false,
+      enableUptimeMonitoring: false,
+      enableNeighborDiscovery: false,
+      enableThreatIntel: false,
+      enableScheduledAudits: false,
+    });
+    console.log(`[SPIDER_EVIDENCE_REPORT_V1]\\n${result.evidenceMarker || 'n/a'}`);
+    console.log(result.evidenceReport);
+    return result;
+  };
   window.__runPortScanNormalizationV1 = async ({
     host = '127.0.0.1',
   } = {}) => {
@@ -287,6 +316,7 @@ export function registerProbeEvalBaselineEntrypoint() {
   console.info('[DEV] __runSurfaceScanNormalizationV1 is ready');
   console.info('[DEV] __runSpiderFingerprintEnrichmentV1 is ready');
   console.info('[DEV] __runSpiderAuthBoundaryHintsV1 is ready');
+  console.info('[DEV] __runSpiderEvidenceReportV1 is ready');
   console.info('[DEV] __runPortScanNormalizationV1 is ready');
   console.info('[DEV] __runPortAuditNormalizationV1 is ready');
   console.info('[DEV] __runPortScanAuditBaselinePackV1 is ready');
