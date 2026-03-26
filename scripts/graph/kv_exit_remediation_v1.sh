@@ -5,13 +5,29 @@ REPORT_JSON="${ROOT_DIR}/docs/phase32_exit_remediation_report_v1.json"
 REPORT_MD="${ROOT_DIR}/docs/phase32_exit_remediation_report_v1.md"
 NOW_UTC="$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
 
-LOAD_MARKER="$("${ROOT_DIR}/scripts/graph/kv_integrated_100_event_load.sh" 100)"
-RECON_MARKER="$("${ROOT_DIR}/scripts/graph/kv_reconciliation_check_v1.sh")"
-LAT_MARKER="$("${ROOT_DIR}/scripts/graph/kv_latency_benchmark_v1.sh" 100)"
+READINESS_MARKER="$(${ROOT_DIR}/scripts/graph/kv_graph_env_readiness_v1.sh)"
+LOAD_MARKER="$(${ROOT_DIR}/scripts/graph/kv_integrated_100_event_load.sh 100)"
+RECON_MARKER="$(${ROOT_DIR}/scripts/graph/kv_reconciliation_check_v1.sh)"
+LAT_MARKER="$(${ROOT_DIR}/scripts/graph/kv_latency_benchmark_v1.sh 100)"
 
+readiness_status=$(python - <<PY
+import json
+print(json.load(open('${ROOT_DIR}/docs/phase32_graph_env_readiness_v1.json'))['status'])
+PY
+)
+readiness_reason=$(python - <<PY
+import json
+print(json.load(open('${ROOT_DIR}/docs/phase32_graph_env_readiness_v1.json'))['reason'])
+PY
+)
 load_status=$(python - <<PY
 import json
-print(json.load(open('${ROOT_DIR}/docs/phase32_remediation_integrated_load_v1.json'))['marker'].split('status=')[1].split('|')[0])
+print(json.load(open('${ROOT_DIR}/docs/phase32_remediation_integrated_load_v1.json'))['status'])
+PY
+)
+load_reason=$(python - <<PY
+import json
+print(json.load(open('${ROOT_DIR}/docs/phase32_remediation_integrated_load_v1.json'))['reason'])
 PY
 )
 recon_status=$(python - <<PY
@@ -19,16 +35,27 @@ import json
 print(json.load(open('${ROOT_DIR}/docs/phase32_remediation_reconciliation_v1.json'))['status'])
 PY
 )
+recon_reason=$(python - <<PY
+import json
+print(json.load(open('${ROOT_DIR}/docs/phase32_remediation_reconciliation_v1.json'))['reason'])
+PY
+)
 lat_status=$(python - <<PY
 import json
 print(json.load(open('${ROOT_DIR}/docs/phase32_remediation_latency_v1.json'))['status'])
 PY
 )
+lat_reason=$(python - <<PY
+import json
+print(json.load(open('${ROOT_DIR}/docs/phase32_remediation_latency_v1.json'))['reason'])
+PY
+)
 
 blockers=()
-[[ "${load_status}" == "blocked" ]] && blockers+=("integrated_100_event_load_blocked")
-[[ "${recon_status}" == "blocked" ]] && blockers+=("reconciliation_blocked")
-[[ "${lat_status}" == "blocked" || "${lat_status}" == "problematic" ]] && blockers+=("latency_blocked_or_problematic")
+[[ "${readiness_status}" == "blocked" ]] && blockers+=("graph_env_not_ready:${readiness_reason}")
+[[ "${load_status}" == "blocked" ]] && blockers+=("integrated_100_event_load_blocked:${load_reason}")
+[[ "${recon_status}" == "blocked" ]] && blockers+=("reconciliation_blocked:${recon_reason}")
+[[ "${lat_status}" == "blocked" || "${lat_status}" == "problematic" || "${lat_status}" == "borderline" ]] && blockers+=("latency_blocked_or_problematic:${lat_reason}")
 
 overall="pass_with_notes"
 recommendation="go_to_phase33"
@@ -46,9 +73,22 @@ cat > "${REPORT_JSON}" <<JSON
   "generated_at": "${NOW_UTC}",
   "overall_status": "${overall}",
   "marker": "${marker}",
-  "integrated_100_event_load": "${load_status}",
-  "reconciliation_check": "${recon_status}",
-  "latency_benchmark": "${lat_status}",
+  "graph_env_readiness": {
+    "status": "${readiness_status}",
+    "reason": "${readiness_reason}"
+  },
+  "integrated_100_event_load": {
+    "status": "${load_status}",
+    "reason": "${load_reason}"
+  },
+  "reconciliation_check": {
+    "status": "${recon_status}",
+    "reason": "${recon_reason}"
+  },
+  "latency_benchmark": {
+    "status": "${lat_status}",
+    "reason": "${lat_reason}"
+  },
   "blockers_resolved": $([[ ${#blockers[@]} -eq 0 ]] && echo true || echo false),
   "remaining_blockers": ${blockers_json},
   "recommendation": "${recommendation}"
@@ -63,9 +103,10 @@ Generated at: ${NOW_UTC}
 Marker: \
 \`${marker}\`
 
-- integrated_100_event_load: **${load_status}**
-- reconciliation_check: **${recon_status}**
-- latency_benchmark: **${lat_status}**
+- graph_env_readiness: **${readiness_status}** (${readiness_reason})
+- integrated_100_event_load: **${load_status}** (${load_reason})
+- reconciliation_check: **${recon_status}** (${recon_reason})
+- latency_benchmark: **${lat_status}** (${lat_reason})
 - blockers_resolved: **$([[ ${#blockers[@]} -eq 0 ]] && echo true || echo false)**
 - recommendation: **${recommendation}**
 
@@ -74,6 +115,7 @@ $(printf '%s
 ' "${blockers[@]}" | sed 's/^/- /')
 
 ## Stage markers
+- ${READINESS_MARKER}
 - ${LOAD_MARKER}
 - ${RECON_MARKER}
 - ${LAT_MARKER}

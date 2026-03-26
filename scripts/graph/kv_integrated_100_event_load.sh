@@ -12,19 +12,29 @@ queued=0
 written=0
 skipped=0
 errored=0
+status="blocked"
+reason="not_executed"
 
 categories=(capability_runs stream_findings session_cookie_findings archive_search_findings device_service_metadata)
 declare -A primary_counts
 for c in "${categories[@]}"; do primary_counts["$c"]=0; done
 
-if [[ ! -f "${ENV_FILE}" ]] || ! command -v cypher-shell >/dev/null 2>&1; then
+if [[ ! -f "${ENV_FILE}" ]]; then
   skipped="${TOTAL_EVENTS}"
+  reason="missing_env_file"
   for ((i=0;i<TOTAL_EVENTS;i++)); do
     cat_idx=$((i % ${#categories[@]}))
     cat="${categories[$cat_idx]}"
     primary_counts["$cat"]=$((primary_counts["$cat"] + 1))
   done
-  marker="KV_EXIT_REMEDIATION_V1|stage=integrated_load|status=blocked|reason=missing_env_or_cypher_shell|events=${TOTAL_EVENTS}"
+elif ! command -v cypher-shell >/dev/null 2>&1; then
+  skipped="${TOTAL_EVENTS}"
+  reason="missing_cypher_shell"
+  for ((i=0;i<TOTAL_EVENTS;i++)); do
+    cat_idx=$((i % ${#categories[@]}))
+    cat="${categories[$cat_idx]}"
+    primary_counts["$cat"]=$((primary_counts["$cat"] + 1))
+  done
 else
   # shellcheck disable=SC1090
   source "${ENV_FILE}"
@@ -49,11 +59,16 @@ else
   done
 
   status="pass_with_notes"
+  reason="writes_completed"
   if [[ "${written}" -eq 0 ]]; then
     status="blocked"
+    reason="shadow_writes_failed"
+  elif [[ "${errored}" -gt 0 ]]; then
+    reason="partial_shadow_write_errors"
   fi
-  marker="KV_EXIT_REMEDIATION_V1|stage=integrated_load|status=${status}|events=${TOTAL_EVENTS}|written=${written}|errored=${errored}"
 fi
+
+marker="KV_EXIT_REMEDIATION_V1|stage=integrated_load|status=${status}|reason=${reason}|events=${TOTAL_EVENTS}|written=${written}|errored=${errored}"
 
 cat > "${PRIMARY_LEDGER_JSON}" <<JSON
 {
@@ -74,6 +89,8 @@ cat > "${OUT_JSON}" <<JSON
 {
   "version": "phase32_remediation_integrated_load_v1",
   "generated_at": "${NOW_UTC}",
+  "status": "${status}",
+  "reason": "${reason}",
   "total_events": ${TOTAL_EVENTS},
   "queued": ${queued},
   "written": ${written},

@@ -22,7 +22,9 @@ PY
 )
 
 shadow_ms=-1
-status="pass_with_notes"
+status="blocked"
+reason="missing_env_or_cypher_shell"
+overhead=-1
 if [[ -f "${ENV_FILE}" ]] && command -v cypher-shell >/dev/null 2>&1; then
   # shellcheck disable=SC1090
   source "${ENV_FILE}"
@@ -31,8 +33,11 @@ if [[ -f "${ENV_FILE}" ]] && command -v cypher-shell >/dev/null 2>&1; then
 import time; print(time.time())
 PY
 )
+  success=0
   for ((i=0;i<N;i++)); do
-    cypher-shell -a "${BOLT_URL}" -u "${NEO4J_USER:-neo4j}" -p "${NEO4J_PASSWORD:-}" -d "${NEO4J_DATABASE:-neo4j}" "RETURN 1" >/dev/null 2>&1 || true
+    if cypher-shell -a "${BOLT_URL}" -u "${NEO4J_USER:-neo4j}" -p "${NEO4J_PASSWORD:-}" -d "${NEO4J_DATABASE:-neo4j}" "RETURN 1" >/dev/null 2>&1; then
+      success=$((success + 1))
+    fi
   done
   end_shadow=$(python - <<PY
 import time; print(time.time())
@@ -46,29 +51,33 @@ PY
 print(round(${shadow_ms}-${baseline_ms},2))
 PY
 )
-  if python - <<PY
+
+  if [[ "${success}" -eq 0 ]]; then
+    status="blocked"
+    reason="shadow_query_unreachable"
+  elif python - <<PY
 import sys
 sys.exit(0 if ${overhead} < 5000 else 1)
 PY
   then
     status="acceptable"
+    reason="overhead_within_threshold"
   else
     status="borderline"
+    reason="overhead_exceeds_threshold"
   fi
-else
-  status="blocked"
-  overhead=-1
 fi
 
-marker="KV_EXIT_REMEDIATION_V1|stage=latency|status=${status}|baselineMs=${baseline_ms}|shadowMs=${shadow_ms}"
+marker="KV_EXIT_REMEDIATION_V1|stage=latency|status=${status}|reason=${reason}|baselineMs=${baseline_ms}|shadowMs=${shadow_ms}"
 cat > "${OUT_JSON}" <<JSON
 {
   "version": "phase32_remediation_latency_v1",
   "generated_at": "${NOW_UTC}",
   "status": "${status}",
+  "reason": "${reason}",
   "baseline_ms": ${baseline_ms},
   "shadow_ms": ${shadow_ms},
-  "overhead_ms": ${overhead:- -1},
+  "overhead_ms": ${overhead},
   "marker": "${marker}"
 }
 JSON

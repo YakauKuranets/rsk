@@ -1,8 +1,9 @@
 {
   "version": "phase32_remediation_reconciliation_v1",
-  "generated_at": "2026-03-26T06:45:10Z",
+  "generated_at": "2026-03-26T06:57:05Z",
   "status": "blocked",
-  "marker": "KV_EXIT_REMEDIATION_V1|stage=reconciliation|status=blocked",
+  "reason": "missing_env_or_cypher_shell",
+  "marker": "KV_EXIT_REMEDIATION_V1|stage=reconciliation|status=blocked|reason=missing_env_or_cypher_shell",
   "counts": {
     "capability_runs": {"primary": 20, "graph": 0, "diff": -20},
     "stream_findings": {"primary": 20, "graph": 0, "diff": -20},

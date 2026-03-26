@@ -6,8 +6,21 @@ LEDGER_JSON="${ROOT_DIR}/docs/phase32_remediation_primary_ledger_v1.json"
 OUT_JSON="${ROOT_DIR}/docs/phase32_remediation_reconciliation_v1.json"
 NOW_UTC="$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
 
+reason="within_tolerance"
+
 if [[ ! -f "${LEDGER_JSON}" ]]; then
-  echo "KV_EXIT_REMEDIATION_V1|stage=reconciliation|status=blocked|reason=missing_primary_ledger"
+  marker="KV_EXIT_REMEDIATION_V1|stage=reconciliation|status=blocked|reason=missing_primary_ledger"
+  cat > "${OUT_JSON}" <<JSON
+{
+  "version": "phase32_remediation_reconciliation_v1",
+  "generated_at": "${NOW_UTC}",
+  "status": "blocked",
+  "reason": "missing_primary_ledger",
+  "marker": "${marker}",
+  "counts": {}
+}
+JSON
+  echo "${marker}"
   exit 0
 fi
 
@@ -42,25 +55,30 @@ if [[ -f "${ENV_FILE}" ]] && command -v cypher-shell >/dev/null 2>&1; then
   done
 else
   status="blocked"
+  reason="missing_env_or_cypher_shell"
   for c in capability_runs stream_findings session_cookie_findings archive_search_findings device_service_metadata; do
     graph[$c]=0
     diff[$c]=$((0 - ${primary[$c]}))
   done
 fi
 
-for c in capability_runs stream_findings session_cookie_findings archive_search_findings device_service_metadata; do
-  d=${diff[$c]}
-  if (( d < -5 || d > 5 )); then
-    status="blocked"
-  fi
-done
+if [[ "${reason}" == "within_tolerance" ]]; then
+  for c in capability_runs stream_findings session_cookie_findings archive_search_findings device_service_metadata; do
+    d=${diff[$c]}
+    if (( d < -5 || d > 5 )); then
+      status="blocked"
+      reason="count_drift_out_of_tolerance"
+    fi
+  done
+fi
 
-marker="KV_EXIT_REMEDIATION_V1|stage=reconciliation|status=${status}"
+marker="KV_EXIT_REMEDIATION_V1|stage=reconciliation|status=${status}|reason=${reason}"
 cat > "${OUT_JSON}" <<JSON
 {
   "version": "phase32_remediation_reconciliation_v1",
   "generated_at": "${NOW_UTC}",
   "status": "${status}",
+  "reason": "${reason}",
   "marker": "${marker}",
   "counts": {
     "capability_runs": {"primary": ${primary[capability_runs]}, "graph": ${graph[capability_runs]}, "diff": ${diff[capability_runs]}},
