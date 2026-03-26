@@ -1,3 +1,5 @@
+import { applySpiderFingerprintEnrichmentV1 } from './spiderFingerprintEnrichment';
+
 export const SURFACE_SCAN_RESULT_CONTRACT_VERSION = 'surface_scan_result_v1';
 
 const DEFAULT_SURFACE_SCAN_RESULT = {
@@ -183,7 +185,9 @@ export function normalizeSurfaceScanResultV1(input = {}) {
 export function normalizeSpiderFullScanResultV1(raw = {}, options = {}) {
   const targetIdHint = String(options?.targetId || raw?.targetCard?.host || '').trim() || null;
   const inferred = inferSurfaceFromSpiderRaw(raw, targetIdHint);
-  return normalizeSurfaceScanResultV1(inferred);
+  const normalized = normalizeSurfaceScanResultV1(inferred);
+  const enriched = applySpiderFingerprintEnrichmentV1(normalized, raw);
+  return normalizeSurfaceScanResultV1(enriched.surfaceResult);
 }
 
 export function validateSurfaceScanResultV1Shape(input = {}) {

@@ -4,6 +4,10 @@ import {
   normalizeSpiderFullScanResultV1,
 } from './surfaceScanResultContract';
 import {
+  deriveSpiderFingerprintEnrichmentV1,
+  formatSpiderFingerprintEnrichmentV1Marker,
+} from './spiderFingerprintEnrichment';
+import {
   formatPortScanResultV1Marker,
   normalizeScanHostPortsResultV1,
 } from './portScanResultContract';
@@ -78,10 +82,15 @@ export const spiderFullScanNormalized = async (params = {}) => {
   const normalized = normalizeSpiderFullScanResultV1(raw, {
     targetId: params?.targetUrl || params?.targetId || null,
   });
+  const fingerprintEnrichment = deriveSpiderFingerprintEnrichmentV1(normalized, raw);
   return {
     raw,
     surfaceScanResult: normalized,
     marker: formatSurfaceScanResultV1Marker(normalized),
+    fingerprintMarker: formatSpiderFingerprintEnrichmentV1Marker(
+      fingerprintEnrichment,
+      normalized?.target_id || normalized?.host || params?.targetUrl || 'n/a',
+    ),
   };
 };
 export const fuzzCctvApi = (params) => invoke('fuzz_cctv_api', params);

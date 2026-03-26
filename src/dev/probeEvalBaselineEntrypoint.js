@@ -187,6 +187,35 @@ export function registerProbeEvalBaselineEntrypoint() {
       enableScheduledAudits: false,
     });
     console.log(`[SURFACE_SCAN_NORMALIZATION_V1]\\n${result.marker}`);
+    if (result.fingerprintMarker) {
+      console.log(`[SPIDER_FINGERPRINT_ENRICHMENT_V1]\\n${result.fingerprintMarker}`);
+    }
+    console.log(result.surfaceScanResult);
+    return result;
+  };
+  window.__runSpiderFingerprintEnrichmentV1 = async ({
+    targetUrl = 'http://localhost',
+    maxDepth = 1,
+    maxPages = 10,
+  } = {}) => {
+    const result = await spiderFullScanNormalized({
+      targetUrl,
+      maxDepth,
+      maxPages,
+      dirBruteforce: false,
+      enableVulnVerification: false,
+      enableOsintImport: false,
+      enableTopologyDiscovery: false,
+      enableSnapshotRefresh: false,
+      enableVideoStreamAnalyzer: false,
+      enableCredentialDepthAudit: false,
+      enablePassiveArpDiscovery: false,
+      enableUptimeMonitoring: false,
+      enableNeighborDiscovery: false,
+      enableThreatIntel: false,
+      enableScheduledAudits: false,
+    });
+    console.log(`[SPIDER_FINGERPRINT_ENRICHMENT_V1]\\n${result.fingerprintMarker || 'n/a'}`);
     console.log(result.surfaceScanResult);
     return result;
   };
@@ -227,6 +256,7 @@ export function registerProbeEvalBaselineEntrypoint() {
   console.info('[DEV] __runCredentialHygieneAuditorV1 is ready');
   console.info('[DEV] __runCredentialHygieneBaselinePackV1 is ready');
   console.info('[DEV] __runSurfaceScanNormalizationV1 is ready');
+  console.info('[DEV] __runSpiderFingerprintEnrichmentV1 is ready');
   console.info('[DEV] __runPortScanNormalizationV1 is ready');
   console.info('[DEV] __runPortAuditNormalizationV1 is ready');
   console.info('[DEV] __runPortScanAuditBaselinePackV1 is ready');
