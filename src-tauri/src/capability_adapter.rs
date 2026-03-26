@@ -164,7 +164,7 @@ pub async fn execute_capability(
 
     match req.capability.clone() {
         CapabilityName::ProbeStream => {
-            let Some(input) = req.probe_stream else {
+            let Some(input) = req.probe_stream.as_ref() else {
                 return Ok(fail(
                     req.capability,
                     req.mode,
@@ -201,7 +201,7 @@ pub async fn execute_capability(
             Ok(response)
         }
         CapabilityName::SearchArchiveRecords => {
-            let Some(input) = req.search_archive_records else {
+            let Some(input) = req.search_archive_records.as_ref() else {
                 return Ok(fail(
                     req.capability,
                     req.mode,
@@ -228,7 +228,7 @@ pub async fn execute_capability(
                 input.date_from.clone(),
                 input.date_to.clone(),
                 input.channel,
-                log_state,
+                log_state.clone(),
             )
             .await
             .map_err(|e| format!("search_archive_records failed: {}", e))?;
@@ -257,7 +257,7 @@ pub async fn execute_capability(
             Ok(response)
         }
         CapabilityName::VerifySessionCookieFlags => {
-            let Some(input) = req.verify_session_cookie_flags else {
+            let Some(input) = req.verify_session_cookie_flags.as_ref() else {
                 return Ok(fail(
                     req.capability,
                     req.mode,
