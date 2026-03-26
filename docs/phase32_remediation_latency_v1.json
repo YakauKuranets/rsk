@@ -1,0 +1,9 @@
+{
+  "version": "phase32_remediation_latency_v1",
+  "generated_at": "2026-03-26T06:45:12Z",
+  "status": "blocked",
+  "baseline_ms": 585.86,
+  "shadow_ms": -1,
+  "overhead_ms": -1,
+  "marker": "KV_EXIT_REMEDIATION_V1|stage=latency|status=blocked|baselineMs=585.86|shadowMs=-1"
+}

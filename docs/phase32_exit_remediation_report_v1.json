@@ -1,0 +1,12 @@
+{
+  "version": "phase32_exit_remediation_report_v1",
+  "generated_at": "2026-03-26T06:45:09Z",
+  "overall_status": "blocked",
+  "marker": "KV_EXIT_REMEDIATION_V1|status=blocked|blockers=3|ts=2026-03-26T06:45:09Z",
+  "integrated_100_event_load": "blocked",
+  "reconciliation_check": "blocked",
+  "latency_benchmark": "blocked",
+  "blockers_resolved": false,
+  "remaining_blockers": ["integrated_100_event_load_blocked", "reconciliation_blocked", "latency_blocked_or_problematic"],
+  "recommendation": "stay_in_phase32"
+}

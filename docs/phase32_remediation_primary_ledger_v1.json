@@ -1,0 +1,12 @@
+{
+  "version": "phase32_remediation_primary_ledger_v1",
+  "generated_at": "2026-03-26T06:45:09Z",
+  "total_events": 100,
+  "counts": {
+    "capability_runs": 20,
+    "stream_findings": 20,
+    "session_cookie_findings": 20,
+    "archive_search_findings": 20,
+    "device_service_metadata": 20
+  }
+}
