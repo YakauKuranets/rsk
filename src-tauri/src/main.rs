@@ -7606,6 +7606,7 @@ fn main() {
             capability_adapter::execute_capability,
             agent_minimal::run_agent_minimal,
             graph_writer::kv_dual_write_diagnostic,
+            graph_writer::kv_shadow_ingest_projection_v2,
             graph_read_analytics::kv_read_analytics_v1,
             meta_agent::run_meta_campaign,
             meta_agent::get_meta_recommendations,

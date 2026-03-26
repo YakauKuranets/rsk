@@ -57,6 +57,7 @@ import {
   runPassiveTrafficAnalyzerV1,
   runKvDualWriteDiagnostic,
   runKvReadAnalyticsV1,
+  kvShadowIngestProjectionV2,
 } from '../api/tauri';
 
 async function runFromDevConsole({
@@ -351,6 +352,25 @@ export function registerProbeEvalBaselineEntrypoint() {
     console.log(report);
     return report;
   };
+  window.__runKvShadowIngestProjectionV2Diagnostic = async () => {
+    const marker = await kvShadowIngestProjectionV2({
+      projectionType: 'diagnostic_projection_v2',
+      targetId: 'kv_diag_target_v2',
+      capabilityKey: 'diagnostic_capability_v2',
+      validationPath: 'diagnostic_path_v2',
+      environmentKey: 'shadow_default',
+      summary: 'diagnostic broadened ingest projection',
+      severity: 'info',
+      vendorHint: 'unknown',
+      serviceKeys: ['service:diagnostic'],
+      evidenceRefs: ['diag:projection_v2'],
+      reviewDecision: 'manual_review_pending',
+      profilePackId: 'diagnostic_pack_v2',
+      caseRefs: ['case_1'],
+    });
+    console.log(`[KV_DUAL_WRITE_V2]\n${marker}`);
+    return marker;
+  };
   window.__runPortScanNormalizationV1 = async ({
     host = '127.0.0.1',
   } = {}) => {
@@ -396,6 +416,7 @@ export function registerProbeEvalBaselineEntrypoint() {
   console.info('[DEV] __runPassiveTrafficBaselinePackV1 is ready');
   console.info('[DEV] __runKvDualWriteDiagnostic is ready');
   console.info('[DEV] __runKvReadAnalyticsV1 is ready');
+  console.info('[DEV] __runKvShadowIngestProjectionV2Diagnostic is ready');
   console.info('[DEV] __runPortScanNormalizationV1 is ready');
   console.info('[DEV] __runPortAuditNormalizationV1 is ready');
   console.info('[DEV] __runPortScanAuditBaselinePackV1 is ready');

@@ -3,7 +3,7 @@ use crate::capability_adapter::{
 };
 use crate::core_types::WorkflowMode;
 use crate::{push_runtime_log, LogState};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::env;
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -31,6 +31,25 @@ struct DualWriteProjection {
     evidence_refs_hashed: Vec<String>,
     observed_profile_key: Option<String>,
     service_key: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ShadowIngestProjectionV2 {
+    pub projection_type: String,
+    pub target_id: String,
+    pub run_id: Option<String>,
+    pub capability_key: Option<String>,
+    pub validation_path: Option<String>,
+    pub environment_key: Option<String>,
+    pub summary: Option<String>,
+    pub severity: Option<String>,
+    pub vendor_hint: Option<String>,
+    pub service_keys: Option<Vec<String>>,
+    pub evidence_refs: Option<Vec<String>>,
+    pub review_decision: Option<String>,
+    pub profile_pack_id: Option<String>,
+    pub case_refs: Option<Vec<String>>,
 }
 
 fn now_millis() -> u128 {
@@ -371,4 +390,197 @@ pub async fn kv_dual_write_diagnostic(log_state: State<'_, LogState>) -> Result<
 
     enqueue_capability_dual_write(&req, &result, &log_state);
     Ok("KV_DUAL_WRITE_V1|status=queued|diagnostic=true".to_string())
+}
+
+fn normalize_list(items: Option<Vec<String>>) -> Vec<String> {
+    items
+        .unwrap_or_default()
+        .into_iter()
+        .map(|x| x.trim().to_string())
+        .filter(|x| !x.is_empty())
+        .collect()
+}
+
+fn projection_v2_run_id(input: &ShadowIngestProjectionV2) -> String {
+    input
+        .run_id
+        .as_ref()
+        .map(|x| x.trim().to_string())
+        .filter(|x| !x.is_empty())
+        .unwrap_or_else(|| format!("kvv2_run_{}", now_millis()))
+}
+
+async fn write_projection_v2(
+    config: &GraphShadowConfig,
+    input: &ShadowIngestProjectionV2,
+) -> Result<String, String> {
+    let run_id = escape_cypher(&projection_v2_run_id(input));
+    let target_id = escape_cypher(&input.target_id);
+    let projection_type = escape_cypher(input.projection_type.trim());
+    let capability_key = escape_cypher(
+        input
+            .capability_key
+            .as_ref()
+            .map(|x| x.trim())
+            .filter(|x| !x.is_empty())
+            .unwrap_or("unknown_capability"),
+    );
+    let validation_path = escape_cypher(
+        input
+            .validation_path
+            .as_ref()
+            .map(|x| x.trim())
+            .filter(|x| !x.is_empty())
+            .unwrap_or("unknown_path"),
+    );
+    let environment_key = escape_cypher(
+        input
+            .environment_key
+            .as_ref()
+            .map(|x| x.trim())
+            .filter(|x| !x.is_empty())
+            .unwrap_or("shadow_default"),
+    );
+    let vendor_name = escape_cypher(
+        input
+            .vendor_hint
+            .as_ref()
+            .map(|x| x.trim())
+            .filter(|x| !x.is_empty())
+            .unwrap_or("unknown"),
+    );
+    let severity = escape_cypher(
+        input
+            .severity
+            .as_ref()
+            .map(|x| x.trim())
+            .filter(|x| !x.is_empty())
+            .unwrap_or("info"),
+    );
+    let summary = escape_cypher(
+        input
+            .summary
+            .as_ref()
+            .map(|x| x.trim())
+            .filter(|x| !x.is_empty())
+            .unwrap_or("shadow_ingest_v2"),
+    );
+    let finding_id = escape_cypher(&format!("finding_{}_{}", projection_type, now_millis()));
+
+    let base = format!(
+        "MERGE (d:Device {{device_id:'{target_id}'}}) \
+         MERGE (r:Run {{run_id:'{run_id}'}}) \
+         SET r.created_at=timestamp(), r.shadow_mode=true, r.projection_type='{projection_type}' \
+         MERGE (c:Capability {{capability_key:'{capability_key}'}}) \
+         MERGE (vp:ValidationPath {{path_key:'{validation_path}'}}) \
+         MERGE (env:Environment {{environment_key:'{environment_key}'}}) \
+         MERGE (v:Vendor {{name:'{vendor_name}'}}) \
+         MERGE (f:Finding {{finding_id:'{finding_id}'}}) \
+         SET f.severity='{severity}', f.summary='{summary}', f.shadow_mode=true \
+         MERGE (d)-[:FROM_VENDOR]->(v) \
+         MERGE (r)-[:TARGET_DEVICE]->(d) \
+         MERGE (r)-[:USED_CAPABILITY]->(c) \
+         MERGE (r)-[:USED_PATH]->(vp) \
+         MERGE (r)-[:IN_ENVIRONMENT]->(env) \
+         MERGE (r)-[:PRODUCED_FINDING]->(f)"
+    );
+    run_cypher(config, &base).await?;
+
+    for service_key in normalize_list(input.service_keys.clone()) {
+        let q = format!(
+            "MERGE (d:Device {{device_id:'{}'}}) MERGE (s:Service {{service_key:'{}'}}) MERGE (d)-[:HAS_SERVICE]->(s)",
+            target_id,
+            escape_cypher(&service_key)
+        );
+        run_cypher(config, &q).await?;
+    }
+
+    for (idx, ev) in normalize_list(input.evidence_refs.clone())
+        .iter()
+        .enumerate()
+    {
+        let ev_ref = escape_cypher(&format!("{}:{}:{}", run_id, projection_type, idx));
+        let ev_hash = escape_cypher(&format!("sha256:{}", sha256_hex(ev)));
+        let q = format!(
+            "MERGE (f:Finding {{finding_id:'{}'}}) \
+             MERGE (e:Evidence {{evidence_ref:'{}'}}) \
+             SET e.source='projection_v2', e.hash='{}' \
+             MERGE (f)-[:SUPPORTED_BY]->(e)",
+            finding_id, ev_ref, ev_hash
+        );
+        run_cypher(config, &q).await?;
+    }
+
+    if let Some(decision) = input
+        .review_decision
+        .as_ref()
+        .map(|x| x.trim())
+        .filter(|x| !x.is_empty())
+    {
+        let decision_id = escape_cypher(&format!("review_{}_{}", projection_type, now_millis()));
+        let q = format!(
+            "MERGE (f:Finding {{finding_id:'{}'}}) MERGE (rd:ReviewDecision {{decision_id:'{}'}}) SET rd.value='{}' MERGE (f)-[:REVIEW_DECISION]->(rd)",
+            finding_id,
+            decision_id,
+            escape_cypher(decision)
+        );
+        run_cypher(config, &q).await?;
+    }
+
+    if let Some(pack_id) = input
+        .profile_pack_id
+        .as_ref()
+        .map(|x| x.trim())
+        .filter(|x| !x.is_empty())
+    {
+        let q = format!(
+            "MERGE (p:ProfilePack {{pack_id:'{}'}}) MERGE (f:Finding {{finding_id:'{}'}}) MERGE (p)-[:CONTAINS_CASE]->(f)",
+            escape_cypher(pack_id),
+            finding_id
+        );
+        run_cypher(config, &q).await?;
+        for case_ref in normalize_list(input.case_refs.clone()) {
+            let case_finding = escape_cypher(&format!("fixture_{}", case_ref));
+            let cq = format!(
+                "MERGE (p:ProfilePack {{pack_id:'{}'}}) MERGE (fx:Finding {{finding_id:'{}'}}) SET fx.summary='fixture_case_ref' MERGE (p)-[:CONTAINS_CASE]->(fx)",
+                escape_cypher(pack_id),
+                case_finding
+            );
+            run_cypher(config, &cq).await?;
+        }
+    }
+
+    Ok(format!(
+        "KV_DUAL_WRITE_V2|status=ok|projectionType={}|target={}",
+        projection_type, target_id
+    ))
+}
+
+#[tauri::command]
+pub async fn kv_shadow_ingest_projection_v2(
+    projection: ShadowIngestProjectionV2,
+    log_state: State<'_, LogState>,
+) -> Result<String, String> {
+    let cfg = graph_shadow_config();
+    if !cfg.enabled {
+        let marker = "KV_DUAL_WRITE_V2|status=skipped|reason=disabled".to_string();
+        push_runtime_log(&log_state, marker.clone());
+        return Ok(marker);
+    }
+    if cfg.password.trim().is_empty() {
+        let marker = "KV_DUAL_WRITE_V2|status=skipped|reason=missing_password".to_string();
+        push_runtime_log(&log_state, marker.clone());
+        return Ok(marker);
+    }
+
+    let marker = match write_projection_v2(&cfg, &projection).await {
+        Ok(ok_marker) => ok_marker,
+        Err(err) => format!(
+            "KV_DUAL_WRITE_V2|status=error|projectionType={}|reason={}",
+            projection.projection_type,
+            err.replace('|', "/")
+        ),
+    };
+    push_runtime_log(&log_state, marker.clone());
+    Ok(marker)
 }

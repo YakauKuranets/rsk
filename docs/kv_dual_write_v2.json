@@ -1,0 +1,37 @@
+{
+  "version": "kv_dual_write_v2",
+  "mode": "shadow_only",
+  "primary_storage": "sled",
+  "non_fatal_on_graph_error": true,
+  "runtime_decision_integration": false,
+  "marker_prefix": "KV_DUAL_WRITE_V2",
+  "expanded_ingest_set": {
+    "capability_runs": true,
+    "archive_findings_broadened": true,
+    "auth_hygiene_summaries": true,
+    "surface_spider_normalized_outputs": true,
+    "scanner_audit_normalized_outputs": true,
+    "passive_observation_summaries": true,
+    "profile_pack_case_refs": true,
+    "review_decision_links": true,
+    "environment_links": true
+  },
+  "sanitization_policy": {
+    "raw_passwords": false,
+    "raw_tokens": false,
+    "raw_cookies": false,
+    "raw_evidence_content": false,
+    "evidence_refs": "hashed_sha256_only"
+  },
+  "deferred": [
+    "graph_based_ranking",
+    "validation_agent_integration",
+    "runtime_decision_coupling",
+    "storage_migration"
+  ],
+  "diagnostic": {
+    "tauri_command": "kv_shadow_ingest_projection_v2",
+    "dev_trigger": "window.__runKvShadowIngestProjectionV2Diagnostic()"
+  },
+  "next_phase": "phase32_5_graph_quality_exit_criteria"
+}
