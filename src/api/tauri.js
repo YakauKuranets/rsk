@@ -168,6 +168,7 @@ export const startFuzzerJob = (target) => invoke('start_fuzzer_job', { target })
 // ═══ Logs ═══
 export const getRuntimeLogs = (limit = 200) => invoke('get_runtime_logs', { limit });
 export const pushRuntimeLogEntry = (message) => invoke('push_runtime_log_entry', { message });
+export const runKvDualWriteDiagnostic = () => invoke('kv_dual_write_diagnostic');
 
 // ═══ Minimal agent (stable consumer contract) ═══
 const AGENT_MINIMAL_FINAL_STATUS = {

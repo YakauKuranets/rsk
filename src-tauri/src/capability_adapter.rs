@@ -102,7 +102,9 @@ pub struct CapabilityResult {
 
 fn allowed_modes(capability: &CapabilityName) -> Vec<WorkflowMode> {
     match capability {
-        CapabilityName::ProbeStream => vec![WorkflowMode::DiscoveryMode, WorkflowMode::VerifiedMode],
+        CapabilityName::ProbeStream => {
+            vec![WorkflowMode::DiscoveryMode, WorkflowMode::VerifiedMode]
+        }
         CapabilityName::SearchArchiveRecords => {
             vec![WorkflowMode::VerifiedMode, WorkflowMode::AnalysisMode]
         }
@@ -126,7 +128,12 @@ fn validate_mode(capability: &CapabilityName, mode: &WorkflowMode) -> Result<(),
     }
 }
 
-fn fail(capability: CapabilityName, mode: WorkflowMode, code: &str, message: String) -> CapabilityResult {
+fn fail(
+    capability: CapabilityName,
+    mode: WorkflowMode,
+    code: &str,
+    message: String,
+) -> CapabilityResult {
     CapabilityResult {
         ok: false,
         capability,
@@ -183,13 +190,15 @@ pub async fn execute_capability(
                 evidence_refs: vec![format!("stream_state:{}", input.target_id)],
             };
 
-            Ok(CapabilityResult {
+            let response = CapabilityResult {
                 ok: true,
-                capability: req.capability,
-                mode: req.mode,
+                capability: req.capability.clone(),
+                mode: req.mode.clone(),
                 data: Some(CapabilityResultData::ProbeStream(out)),
                 error: None,
-            })
+            };
+            crate::graph_writer::enqueue_capability_dual_write(&req, &response, &log_state);
+            Ok(response)
         }
         CapabilityName::SearchArchiveRecords => {
             let Some(input) = req.search_archive_records else {
@@ -237,13 +246,15 @@ pub async fn execute_capability(
                 ],
             };
 
-            Ok(CapabilityResult {
+            let response = CapabilityResult {
                 ok: true,
-                capability: req.capability,
-                mode: req.mode,
+                capability: req.capability.clone(),
+                mode: req.mode.clone(),
                 data: Some(CapabilityResultData::SearchArchiveRecords(out)),
                 error: None,
-            })
+            };
+            crate::graph_writer::enqueue_capability_dual_write(&req, &response, &log_state);
+            Ok(response)
         }
         CapabilityName::VerifySessionCookieFlags => {
             let Some(input) = req.verify_session_cookie_flags else {
@@ -270,7 +281,8 @@ pub async fn execute_capability(
             let issues = if audit.contains("выглядят безопасно") {
                 Vec::new()
             } else {
-                audit.replace("[SESSION_AUDIT] ", "")
+                audit
+                    .replace("[SESSION_AUDIT] ", "")
                     .split(" | ")
                     .map(|s| s.to_string())
                     .collect()
@@ -284,13 +296,15 @@ pub async fn execute_capability(
                 evidence_refs: vec![format!("session_audit:{}", input.ip_or_url)],
             };
 
-            Ok(CapabilityResult {
+            let response = CapabilityResult {
                 ok: true,
-                capability: req.capability,
-                mode: req.mode,
+                capability: req.capability.clone(),
+                mode: req.mode.clone(),
                 data: Some(CapabilityResultData::VerifySessionCookieFlags(out)),
                 error: None,
-            })
+            };
+            crate::graph_writer::enqueue_capability_dual_write(&req, &response, &log_state);
+            Ok(response)
         }
     }
 }
