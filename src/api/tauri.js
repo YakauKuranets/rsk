@@ -8,6 +8,10 @@ import {
   formatSpiderFingerprintEnrichmentV1Marker,
 } from './spiderFingerprintEnrichment';
 import {
+  deriveSpiderAuthBoundaryHintsV1,
+  formatSpiderAuthBoundaryHintsV1Marker,
+} from './spiderAuthBoundaryHints';
+import {
   formatPortScanResultV1Marker,
   normalizeScanHostPortsResultV1,
 } from './portScanResultContract';
@@ -83,12 +87,17 @@ export const spiderFullScanNormalized = async (params = {}) => {
     targetId: params?.targetUrl || params?.targetId || null,
   });
   const fingerprintEnrichment = deriveSpiderFingerprintEnrichmentV1(normalized, raw);
+  const authBoundaryHints = deriveSpiderAuthBoundaryHintsV1(normalized, raw);
   return {
     raw,
     surfaceScanResult: normalized,
     marker: formatSurfaceScanResultV1Marker(normalized),
     fingerprintMarker: formatSpiderFingerprintEnrichmentV1Marker(
       fingerprintEnrichment,
+      normalized?.target_id || normalized?.host || params?.targetUrl || 'n/a',
+    ),
+    authBoundaryMarker: formatSpiderAuthBoundaryHintsV1Marker(
+      authBoundaryHints,
       normalized?.target_id || normalized?.host || params?.targetUrl || 'n/a',
     ),
   };

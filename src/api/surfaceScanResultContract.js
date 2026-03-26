@@ -1,4 +1,5 @@
 import { applySpiderFingerprintEnrichmentV1 } from './spiderFingerprintEnrichment';
+import { applySpiderAuthBoundaryHintsV1 } from './spiderAuthBoundaryHints';
 
 export const SURFACE_SCAN_RESULT_CONTRACT_VERSION = 'surface_scan_result_v1';
 
@@ -187,7 +188,8 @@ export function normalizeSpiderFullScanResultV1(raw = {}, options = {}) {
   const inferred = inferSurfaceFromSpiderRaw(raw, targetIdHint);
   const normalized = normalizeSurfaceScanResultV1(inferred);
   const enriched = applySpiderFingerprintEnrichmentV1(normalized, raw);
-  return normalizeSurfaceScanResultV1(enriched.surfaceResult);
+  const authHinted = applySpiderAuthBoundaryHintsV1(enriched.surfaceResult, raw);
+  return normalizeSurfaceScanResultV1(authHinted.surfaceResult);
 }
 
 export function validateSurfaceScanResultV1Shape(input = {}) {
