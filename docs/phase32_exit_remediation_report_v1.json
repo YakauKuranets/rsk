@@ -1,29 +1,29 @@
 {
   "version": "phase32_exit_remediation_report_v1",
-  "generated_at": "2026-03-27T04:51:01Z",
+  "generated_at": "2026-03-27T05:00:48Z",
   "overall_status": "blocked",
-  "marker": "KV_EXIT_REMEDIATION_V1|status=blocked|blockers=4|ts=2026-03-27T04:51:01Z",
+  "marker": "KV_EXIT_REMEDIATION_V1|status=blocked|blockers=4|ts=2026-03-27T05:00:48Z",
   "graph_env_readiness": {
     "status": "blocked",
-    "reason": "missing_env_file",
-    "marker": "KV_GRAPH_ENV_READY_V1|status=blocked|reason=missing_env_file|neo4j_reachable=false|cypher_shell_present=false|env_complete=false|shadow_write_enabled=false|ts=2026-03-27T04:51:01Z"
+    "reason": "missing_cypher_shell",
+    "marker": "KV_GRAPH_ENV_READY_V1|status=blocked|reason=missing_cypher_shell|neo4j_reachable=false|cypher_shell_present=false|env_complete=true|shadow_write_enabled=true|ts=2026-03-27T05:00:48Z"
   },
   "integrated_100_event_load": {
     "status": "blocked",
-    "reason": "missing_env_file",
-    "marker": "KV_EXIT_REMEDIATION_V1|stage=integrated_load|status=blocked|reason=missing_env_file|events=100|written=0|errored=0"
+    "reason": "missing_cypher_shell",
+    "marker": "KV_EXIT_REMEDIATION_V1|stage=integrated_load|status=blocked|reason=missing_cypher_shell|events=100|written=0|errored=0"
   },
   "reconciliation_check": {
     "status": "blocked",
-    "reason": "missing_env_file",
-    "marker": "KV_EXIT_REMEDIATION_V1|stage=reconciliation|status=blocked|reason=missing_env_file"
+    "reason": "missing_cypher_shell",
+    "marker": "KV_EXIT_REMEDIATION_V1|stage=reconciliation|status=blocked|reason=missing_cypher_shell"
   },
   "latency_benchmark": {
     "status": "blocked",
-    "reason": "missing_env_file",
-    "marker": "KV_EXIT_REMEDIATION_V1|stage=latency|status=blocked|reason=missing_env_file|baselineMs=494.51|shadowMs=-1"
+    "reason": "missing_cypher_shell",
+    "marker": "KV_EXIT_REMEDIATION_V1|stage=latency|status=blocked|reason=missing_cypher_shell|baselineMs=477.64|shadowMs=-1"
   },
   "blockers_resolved": false,
-  "remaining_blockers": ["graph_env_not_ready:missing_env_file", "integrated_100_event_load_blocked:missing_env_file", "reconciliation_blocked:missing_env_file", "latency_blocked_or_problematic:missing_env_file"],
+  "remaining_blockers": ["graph_env_not_ready:missing_cypher_shell", "integrated_100_event_load_blocked:missing_cypher_shell", "reconciliation_blocked:missing_cypher_shell", "latency_blocked_or_problematic:missing_cypher_shell"],
   "recommendation": "stay_in_phase32"
 }

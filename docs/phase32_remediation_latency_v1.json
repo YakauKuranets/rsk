@@ -1,10 +1,10 @@
 {
   "version": "phase32_remediation_latency_v1",
-  "generated_at": "2026-03-27T04:51:04Z",
+  "generated_at": "2026-03-27T05:00:52Z",
   "status": "blocked",
-  "reason": "missing_env_file",
-  "baseline_ms": 494.51,
+  "reason": "missing_cypher_shell",
+  "baseline_ms": 477.64,
   "shadow_ms": -1,
   "overhead_ms": -1,
-  "marker": "KV_EXIT_REMEDIATION_V1|stage=latency|status=blocked|reason=missing_env_file|baselineMs=494.51|shadowMs=-1"
+  "marker": "KV_EXIT_REMEDIATION_V1|stage=latency|status=blocked|reason=missing_cypher_shell|baselineMs=477.64|shadowMs=-1"
 }
