@@ -6,6 +6,7 @@ OUT_JSON="${ROOT_DIR}/docs/phase32_remediation_integrated_load_v1.json"
 PRIMARY_LEDGER_JSON="${ROOT_DIR}/docs/phase32_remediation_primary_ledger_v1.json"
 NOW_UTC="$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
 TOTAL_EVENTS="${1:-100}"
+BATCH_ID="rem_batch_${NOW_UTC//[:TZ-]/}"
 
 # shellcheck source=scripts/graph/_kv_cypher.sh
 source "${ROOT_DIR}/scripts/graph/_kv_cypher.sh"
@@ -39,9 +40,9 @@ else
     primary_counts["$cat"]=$((primary_counts["$cat"] + 1))
     queued=$((queued + 1))
 
-    run_id="rem_load_${NOW_UTC//[:TZ-]/}_${i}"
+    run_id="${BATCH_ID}_${i}"
     finding_id="rem_finding_${cat}_${i}"
-    query="MERGE (r:Run {run_id:'${run_id}'}) SET r.created_at=timestamp(), r.shadow_mode=true, r.projection_type='${cat}' MERGE (c:Capability {capability_key:'remediation_loader'}) MERGE (r)-[:USED_CAPABILITY]->(c) MERGE (f:Finding {finding_id:'${finding_id}'}) SET f.summary='remediation synthetic event', f.severity='info' MERGE (r)-[:PRODUCED_FINDING]->(f)"
+    query="MERGE (r:Run {run_id:'${run_id}'}) SET r.created_at=timestamp(), r.shadow_mode=true, r.projection_type='${cat}', r.run_batch_id='${BATCH_ID}' MERGE (c:Capability {capability_key:'remediation_loader'}) MERGE (r)-[:USED_CAPABILITY]->(c) MERGE (f:Finding {finding_id:'${finding_id}'}) SET f.summary='remediation synthetic event', f.severity='info' MERGE (r)-[:PRODUCED_FINDING]->(f)"
 
     if kv_run_cypher "${query}" >/dev/null 2>&1; then
       written=$((written + 1))
@@ -60,12 +61,13 @@ else
   fi
 fi
 
-marker="KV_EXIT_REMEDIATION_V1|stage=integrated_load|status=${status}|reason=${reason}|events=${TOTAL_EVENTS}|written=${written}|errored=${errored}"
+marker="KV_EXIT_REMEDIATION_V1|stage=integrated_load|status=${status}|reason=${reason}|batchId=${BATCH_ID}|events=${TOTAL_EVENTS}|written=${written}|errored=${errored}"
 
 cat > "${PRIMARY_LEDGER_JSON}" <<JSON
 {
   "version": "phase32_remediation_primary_ledger_v1",
   "generated_at": "${NOW_UTC}",
+  "batch_id": "${BATCH_ID}",
   "total_events": ${TOTAL_EVENTS},
   "counts": {
     "capability_runs": ${primary_counts[capability_runs]},
@@ -83,6 +85,7 @@ cat > "${OUT_JSON}" <<JSON
   "generated_at": "${NOW_UTC}",
   "status": "${status}",
   "reason": "${reason}",
+  "batch_id": "${BATCH_ID}",
   "total_events": ${TOTAL_EVENTS},
   "queued": ${queued},
   "written": ${written},

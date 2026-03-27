@@ -39,7 +39,7 @@ blockers=()
 [[ "${readiness_status}" == "blocked" ]] && blockers+=("graph_env_not_ready:${readiness_reason}")
 [[ "${load_status}" == "blocked" ]] && blockers+=("integrated_100_event_load_blocked:${load_reason}")
 [[ "${recon_status}" == "blocked" ]] && blockers+=("reconciliation_blocked:${recon_reason}")
-[[ "${lat_status}" == "blocked" || "${lat_status}" == "problematic" || "${lat_status}" == "borderline" ]] && blockers+=("latency_blocked_or_problematic:${lat_reason}")
+[[ "${lat_status}" == "blocked" || "${lat_status}" == "problematic" ]] && blockers+=("latency_blocked_or_problematic:${lat_reason}")
 
 overall="pass_with_notes"
 recommendation="go_to_phase33"

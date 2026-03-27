@@ -1,13 +1,13 @@
 {
   "version": "phase32_graph_env_readiness_v1",
-  "generated_at": "2026-03-27T05:00:48Z",
+  "generated_at": "2026-03-27T16:01:46Z",
   "status": "blocked",
-  "reason": "missing_cypher_shell",
+  "reason": "missing_env_file",
   "neo4j_reachable": false,
   "cypher_shell_present": false,
-  "env_present": true,
-  "env_complete": true,
+  "env_present": false,
+  "env_complete": false,
   "missing_env_keys": [],
-  "shadow_write_enabled": true,
-  "marker": "KV_GRAPH_ENV_READY_V1|status=blocked|reason=missing_cypher_shell|neo4j_reachable=false|cypher_shell_present=false|env_complete=true|shadow_write_enabled=true|ts=2026-03-27T05:00:48Z"
+  "shadow_write_enabled": false,
+  "marker": "KV_GRAPH_ENV_READY_V1|status=blocked|reason=missing_env_file|neo4j_reachable=false|cypher_shell_present=false|env_complete=false|shadow_write_enabled=false|ts=2026-03-27T16:01:46Z"
 }

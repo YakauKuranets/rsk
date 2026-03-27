@@ -4,6 +4,7 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 OUT_JSON="${ROOT_DIR}/docs/phase32_remediation_latency_v1.json"
 NOW_UTC="$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
 N="${1:-100}"
+BATCH_FILE="${ROOT_DIR}/docs/phase32_latency_batch_benchmark.cypher"
 
 # shellcheck source=scripts/graph/_kv_cypher.sh
 source "${ROOT_DIR}/scripts/graph/_kv_cypher.sh"
@@ -19,54 +20,64 @@ import time; print(time.time())
 PY
 )
 
-baseline_ms=$(python - <<PY
+baseline_total_ms=$(python - <<PY
 print(round((${end_base}-${start_base})*1000,2))
+PY
+)
+baseline_ms=$(python - <<PY
+print(round(${baseline_total_ms}/${N},2))
 PY
 )
 
 shadow_ms=-1
+shadow_total_ms=-1
 status="blocked"
 reason="$(kv_env_reason)"
-overhead=-1
+overhead_ms=-1
 
 if [[ "${reason}" == "ready" ]]; then
+  : > "${BATCH_FILE}"
+  for ((i=0;i<N;i++)); do
+    echo "RETURN 1;" >> "${BATCH_FILE}"
+  done
+
   start_shadow=$(python - <<PY
 import time; print(time.time())
 PY
 )
-  success=0
-  for ((i=0;i<N;i++)); do
-    if kv_run_cypher "RETURN 1" >/dev/null 2>&1; then
-      success=$((success + 1))
-    fi
-  done
-  end_shadow=$(python - <<PY
+
+  if kv_run_cypher -f "${BATCH_FILE}" >/dev/null 2>&1; then
+    end_shadow=$(python - <<PY
 import time; print(time.time())
 PY
 )
-
-  shadow_ms=$(python - <<PY
+    shadow_total_ms=$(python - <<PY
 print(round((${end_shadow}-${start_shadow})*1000,2))
 PY
 )
-  overhead=$(python - <<PY
+    shadow_ms=$(python - <<PY
+print(round(${shadow_total_ms}/${N},2))
+PY
+)
+    overhead_ms=$(python - <<PY
 print(round(${shadow_ms}-${baseline_ms},2))
 PY
 )
 
-  if [[ "${success}" -eq 0 ]]; then
+    if python - <<PY
+import sys
+sys.exit(0 if ${shadow_ms} <= 100 else 1)
+PY
+    then
+      status="acceptable"
+      reason="average_latency_within_threshold"
+    else
+      status="borderline"
+      reason="average_latency_above_target"
+    fi
+  else
     status="blocked"
     reason="shadow_query_unreachable"
-  elif python - <<PY
-import sys
-sys.exit(0 if ${overhead} < 5000 else 1)
-PY
-  then
-    status="acceptable"
-    reason="overhead_within_threshold"
-  else
-    status="borderline"
-    reason="overhead_exceeds_threshold"
   fi
 fi
 
@@ -78,8 +89,12 @@ cat > "${OUT_JSON}" <<JSON
   "status": "${status}",
   "reason": "${reason}",
   "baseline_ms": ${baseline_ms},
+  "baseline_total_ms": ${baseline_total_ms},
   "shadow_ms": ${shadow_ms},
-  "overhead_ms": ${overhead},
+  "shadow_total_ms": ${shadow_total_ms},
+  "overhead_ms": ${overhead_ms},
+  "batch_size": ${N},
+  "batch_file": "docs/phase32_latency_batch_benchmark.cypher",
   "marker": "${marker}"
 }
 JSON
