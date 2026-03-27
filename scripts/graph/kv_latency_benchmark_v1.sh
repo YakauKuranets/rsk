@@ -1,10 +1,13 @@
 #!/usr/bin/env bash
 set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-ENV_FILE="${ROOT_DIR}/infra/neo4j-shadow/.env"
 OUT_JSON="${ROOT_DIR}/docs/phase32_remediation_latency_v1.json"
 NOW_UTC="$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
 N="${1:-100}"
+
+# shellcheck source=scripts/graph/_kv_cypher.sh
+source "${ROOT_DIR}/scripts/graph/_kv_cypher.sh"
+kv_load_env
 
 start_base=$(python - <<PY
 import time; print(time.time())
@@ -23,19 +26,17 @@ PY
 
 shadow_ms=-1
 status="blocked"
-reason="missing_env_or_cypher_shell"
+reason="$(kv_env_reason)"
 overhead=-1
-if [[ -f "${ENV_FILE}" ]] && command -v cypher-shell >/dev/null 2>&1; then
-  # shellcheck disable=SC1090
-  source "${ENV_FILE}"
-  BOLT_URL="bolt://localhost:${NEO4J_BOLT_PORT:-7687}"
+
+if [[ "${reason}" == "ready" ]]; then
   start_shadow=$(python - <<PY
 import time; print(time.time())
 PY
 )
   success=0
   for ((i=0;i<N;i++)); do
-    if cypher-shell -a "${BOLT_URL}" -u "${NEO4J_USER:-neo4j}" -p "${NEO4J_PASSWORD:-}" -d "${NEO4J_DATABASE:-neo4j}" "RETURN 1" >/dev/null 2>&1; then
+    if kv_run_cypher "RETURN 1" >/dev/null 2>&1; then
       success=$((success + 1))
     fi
   done
@@ -43,6 +44,7 @@ PY
 import time; print(time.time())
 PY
 )
+
   shadow_ms=$(python - <<PY
 print(round((${end_shadow}-${start_shadow})*1000,2))
 PY

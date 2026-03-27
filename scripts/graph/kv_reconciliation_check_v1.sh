@@ -1,10 +1,13 @@
 #!/usr/bin/env bash
 set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-ENV_FILE="${ROOT_DIR}/infra/neo4j-shadow/.env"
 LEDGER_JSON="${ROOT_DIR}/docs/phase32_remediation_primary_ledger_v1.json"
 OUT_JSON="${ROOT_DIR}/docs/phase32_remediation_reconciliation_v1.json"
 NOW_UTC="$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
+
+# shellcheck source=scripts/graph/_kv_cypher.sh
+source "${ROOT_DIR}/scripts/graph/_kv_cypher.sh"
+kv_load_env
 
 reason="within_tolerance"
 
@@ -33,31 +36,29 @@ PY
 }
 
 declare -A primary
-for c in capability_runs stream_findings session_cookie_findings archive_search_findings device_service_metadata; do
-  primary[$c]="$(read_primary "$c")"
-done
-
 declare -A graph
 declare -A diff
+for c in capability_runs stream_findings session_cookie_findings archive_search_findings device_service_metadata; do
+  primary[$c]="$(read_primary "$c")"
+  graph[$c]=0
+  diff[$c]=0
+done
+
 status="pass_with_notes"
+base_reason="$(kv_env_reason)"
 
-if [[ -f "${ENV_FILE}" ]] && command -v cypher-shell >/dev/null 2>&1; then
-  # shellcheck disable=SC1090
-  source "${ENV_FILE}"
-  BOLT_URL="bolt://localhost:${NEO4J_BOLT_PORT:-7687}"
-
+if [[ "${base_reason}" == "ready" ]]; then
   for c in capability_runs stream_findings session_cookie_findings archive_search_findings device_service_metadata; do
     q="MATCH (r:Run {projection_type:'${c}'}) RETURN count(r)"
-    v="$(cypher-shell -a "${BOLT_URL}" -u "${NEO4J_USER:-neo4j}" -p "${NEO4J_PASSWORD:-}" -d "${NEO4J_DATABASE:-neo4j}" --format plain "${q}" 2>/dev/null | tail -n1 | tr -d '\r' || echo 0)"
+    v="$(kv_run_cypher --format plain "${q}" 2>/dev/null | tail -n1 | tr -d '\r' || echo 0)"
     [[ -z "${v}" ]] && v=0
     graph[$c]="${v}"
     diff[$c]=$(( ${graph[$c]} - ${primary[$c]} ))
   done
 else
   status="blocked"
-  reason="missing_env_or_cypher_shell"
+  reason="${base_reason}"
   for c in capability_runs stream_findings session_cookie_findings archive_search_findings device_service_metadata; do
-    graph[$c]=0
     diff[$c]=$((0 - ${primary[$c]}))
   done
 fi

@@ -2,11 +2,15 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-ENV_FILE="${ROOT_DIR}/infra/neo4j-shadow/.env"
 OUT_JSON="${ROOT_DIR}/docs/phase32_remediation_integrated_load_v1.json"
 PRIMARY_LEDGER_JSON="${ROOT_DIR}/docs/phase32_remediation_primary_ledger_v1.json"
 NOW_UTC="$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
 TOTAL_EVENTS="${1:-100}"
+
+# shellcheck source=scripts/graph/_kv_cypher.sh
+source "${ROOT_DIR}/scripts/graph/_kv_cypher.sh"
+
+kv_load_env
 
 queued=0
 written=0
@@ -19,27 +23,16 @@ categories=(capability_runs stream_findings session_cookie_findings archive_sear
 declare -A primary_counts
 for c in "${categories[@]}"; do primary_counts["$c"]=0; done
 
-if [[ ! -f "${ENV_FILE}" ]]; then
+base_reason="$(kv_env_reason)"
+if [[ "${base_reason}" != "ready" ]]; then
   skipped="${TOTAL_EVENTS}"
-  reason="missing_env_file"
-  for ((i=0;i<TOTAL_EVENTS;i++)); do
-    cat_idx=$((i % ${#categories[@]}))
-    cat="${categories[$cat_idx]}"
-    primary_counts["$cat"]=$((primary_counts["$cat"] + 1))
-  done
-elif ! command -v cypher-shell >/dev/null 2>&1; then
-  skipped="${TOTAL_EVENTS}"
-  reason="missing_cypher_shell"
+  reason="${base_reason}"
   for ((i=0;i<TOTAL_EVENTS;i++)); do
     cat_idx=$((i % ${#categories[@]}))
     cat="${categories[$cat_idx]}"
     primary_counts["$cat"]=$((primary_counts["$cat"] + 1))
   done
 else
-  # shellcheck disable=SC1090
-  source "${ENV_FILE}"
-  BOLT_URL="bolt://localhost:${NEO4J_BOLT_PORT:-7687}"
-
   for ((i=0;i<TOTAL_EVENTS;i++)); do
     cat_idx=$((i % ${#categories[@]}))
     cat="${categories[$cat_idx]}"
@@ -48,10 +41,9 @@ else
 
     run_id="rem_load_${NOW_UTC//[:TZ-]/}_${i}"
     finding_id="rem_finding_${cat}_${i}"
-
     query="MERGE (r:Run {run_id:'${run_id}'}) SET r.created_at=timestamp(), r.shadow_mode=true, r.projection_type='${cat}' MERGE (c:Capability {capability_key:'remediation_loader'}) MERGE (r)-[:USED_CAPABILITY]->(c) MERGE (f:Finding {finding_id:'${finding_id}'}) SET f.summary='remediation synthetic event', f.severity='info' MERGE (r)-[:PRODUCED_FINDING]->(f)"
 
-    if cypher-shell -a "${BOLT_URL}" -u "${NEO4J_USER:-neo4j}" -p "${NEO4J_PASSWORD:-}" -d "${NEO4J_DATABASE:-neo4j}" "${query}" >/dev/null 2>&1; then
+    if kv_run_cypher "${query}" >/dev/null 2>&1; then
       written=$((written + 1))
     else
       errored=$((errored + 1))

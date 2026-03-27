@@ -1,6 +1,6 @@
 {
   "version": "phase32_remediation_primary_ledger_v1",
-  "generated_at": "2026-03-26T18:33:04Z",
+  "generated_at": "2026-03-27T04:51:01Z",
   "total_events": 100,
   "counts": {
     "capability_runs": 20,

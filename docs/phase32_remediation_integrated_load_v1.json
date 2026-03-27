@@ -1,12 +1,12 @@
 {
   "version": "phase32_remediation_integrated_load_v1",
-  "generated_at": "2026-03-26T18:33:04Z",
+  "generated_at": "2026-03-27T04:51:01Z",
   "status": "blocked",
-  "reason": "shadow_writes_failed",
+  "reason": "missing_env_file",
   "total_events": 100,
-  "queued": 100,
+  "queued": 0,
   "written": 0,
-  "skipped": 0,
-  "errored": 100,
-  "marker": "KV_EXIT_REMEDIATION_V1|stage=integrated_load|status=blocked|reason=shadow_writes_failed|events=100|written=0|errored=100"
+  "skipped": 100,
+  "errored": 0,
+  "marker": "KV_EXIT_REMEDIATION_V1|stage=integrated_load|status=blocked|reason=missing_env_file|events=100|written=0|errored=0"
 }

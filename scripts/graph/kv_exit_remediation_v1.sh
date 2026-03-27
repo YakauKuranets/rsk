@@ -5,51 +5,35 @@ REPORT_JSON="${ROOT_DIR}/docs/phase32_exit_remediation_report_v1.json"
 REPORT_MD="${ROOT_DIR}/docs/phase32_exit_remediation_report_v1.md"
 NOW_UTC="$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
 
-READINESS_MARKER="$(${ROOT_DIR}/scripts/graph/kv_graph_env_readiness_v1.sh)"
-LOAD_MARKER="$(${ROOT_DIR}/scripts/graph/kv_integrated_100_event_load.sh 100)"
-RECON_MARKER="$(${ROOT_DIR}/scripts/graph/kv_reconciliation_check_v1.sh)"
-LAT_MARKER="$(${ROOT_DIR}/scripts/graph/kv_latency_benchmark_v1.sh 100)"
+"${ROOT_DIR}/scripts/graph/kv_graph_env_readiness_v1.sh" >/dev/null
+"${ROOT_DIR}/scripts/graph/kv_integrated_100_event_load.sh" 100 >/dev/null
+"${ROOT_DIR}/scripts/graph/kv_reconciliation_check_v1.sh" >/dev/null
+"${ROOT_DIR}/scripts/graph/kv_latency_benchmark_v1.sh" 100 >/dev/null
 
-readiness_status=$(python - <<PY
+read_json_field() {
+  local file="$1"
+  local key="$2"
+  python - <<PY
 import json
-print(json.load(open('${ROOT_DIR}/docs/phase32_graph_env_readiness_v1.json'))['status'])
+print(json.load(open('${file}'))${key})
 PY
-)
-readiness_reason=$(python - <<PY
-import json
-print(json.load(open('${ROOT_DIR}/docs/phase32_graph_env_readiness_v1.json'))['reason'])
-PY
-)
-load_status=$(python - <<PY
-import json
-print(json.load(open('${ROOT_DIR}/docs/phase32_remediation_integrated_load_v1.json'))['status'])
-PY
-)
-load_reason=$(python - <<PY
-import json
-print(json.load(open('${ROOT_DIR}/docs/phase32_remediation_integrated_load_v1.json'))['reason'])
-PY
-)
-recon_status=$(python - <<PY
-import json
-print(json.load(open('${ROOT_DIR}/docs/phase32_remediation_reconciliation_v1.json'))['status'])
-PY
-)
-recon_reason=$(python - <<PY
-import json
-print(json.load(open('${ROOT_DIR}/docs/phase32_remediation_reconciliation_v1.json'))['reason'])
-PY
-)
-lat_status=$(python - <<PY
-import json
-print(json.load(open('${ROOT_DIR}/docs/phase32_remediation_latency_v1.json'))['status'])
-PY
-)
-lat_reason=$(python - <<PY
-import json
-print(json.load(open('${ROOT_DIR}/docs/phase32_remediation_latency_v1.json'))['reason'])
-PY
-)
+}
+
+readiness_status="$(read_json_field "${ROOT_DIR}/docs/phase32_graph_env_readiness_v1.json" "['status']")"
+readiness_reason="$(read_json_field "${ROOT_DIR}/docs/phase32_graph_env_readiness_v1.json" "['reason']")"
+readiness_marker="$(read_json_field "${ROOT_DIR}/docs/phase32_graph_env_readiness_v1.json" "['marker']")"
+
+load_status="$(read_json_field "${ROOT_DIR}/docs/phase32_remediation_integrated_load_v1.json" "['status']")"
+load_reason="$(read_json_field "${ROOT_DIR}/docs/phase32_remediation_integrated_load_v1.json" "['reason']")"
+load_marker="$(read_json_field "${ROOT_DIR}/docs/phase32_remediation_integrated_load_v1.json" "['marker']")"
+
+recon_status="$(read_json_field "${ROOT_DIR}/docs/phase32_remediation_reconciliation_v1.json" "['status']")"
+recon_reason="$(read_json_field "${ROOT_DIR}/docs/phase32_remediation_reconciliation_v1.json" "['reason']")"
+recon_marker="$(read_json_field "${ROOT_DIR}/docs/phase32_remediation_reconciliation_v1.json" "['marker']")"
+
+lat_status="$(read_json_field "${ROOT_DIR}/docs/phase32_remediation_latency_v1.json" "['status']")"
+lat_reason="$(read_json_field "${ROOT_DIR}/docs/phase32_remediation_latency_v1.json" "['reason']")"
+lat_marker="$(read_json_field "${ROOT_DIR}/docs/phase32_remediation_latency_v1.json" "['marker']")"
 
 blockers=()
 [[ "${readiness_status}" == "blocked" ]] && blockers+=("graph_env_not_ready:${readiness_reason}")
@@ -75,19 +59,23 @@ cat > "${REPORT_JSON}" <<JSON
   "marker": "${marker}",
   "graph_env_readiness": {
     "status": "${readiness_status}",
-    "reason": "${readiness_reason}"
+    "reason": "${readiness_reason}",
+    "marker": "${readiness_marker}"
   },
   "integrated_100_event_load": {
     "status": "${load_status}",
-    "reason": "${load_reason}"
+    "reason": "${load_reason}",
+    "marker": "${load_marker}"
   },
   "reconciliation_check": {
     "status": "${recon_status}",
-    "reason": "${recon_reason}"
+    "reason": "${recon_reason}",
+    "marker": "${recon_marker}"
   },
   "latency_benchmark": {
     "status": "${lat_status}",
-    "reason": "${lat_reason}"
+    "reason": "${lat_reason}",
+    "marker": "${lat_marker}"
   },
   "blockers_resolved": $([[ ${#blockers[@]} -eq 0 ]] && echo true || echo false),
   "remaining_blockers": ${blockers_json},
@@ -115,10 +103,10 @@ $(printf '%s
 ' "${blockers[@]}" | sed 's/^/- /')
 
 ## Stage markers
-- ${READINESS_MARKER}
-- ${LOAD_MARKER}
-- ${RECON_MARKER}
-- ${LAT_MARKER}
+- ${readiness_marker}
+- ${load_marker}
+- ${recon_marker}
+- ${lat_marker}
 MD
 
 echo "${marker}"
