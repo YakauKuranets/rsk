@@ -4,8 +4,6 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}" )/../.." && pwd)"
 LEDGER_JSON="${ROOT_DIR}/docs/phase32_remediation_primary_ledger_v1.json"
 OUT_JSON="${ROOT_DIR}/docs/phase32_remediation_reconciliation_v1.json"
 NOW_UTC="$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
-WINDOW_MINUTES="${KV_RECON_WINDOW_MINUTES:-10}"
-WINDOW_MS=$(( WINDOW_MINUTES * 60 * 1000 ))
 
 # shellcheck source=scripts/graph/_kv_cypher.sh
 source "${ROOT_DIR}/scripts/graph/_kv_cypher.sh"
@@ -65,8 +63,8 @@ fi
 
 if [[ "${status}" != "blocked" && "${base_reason}" == "ready" ]]; then
   for c in capability_runs stream_findings session_cookie_findings archive_search_findings device_service_metadata; do
-    scoped_q="MATCH (r:Run {projection_type:'${c}', run_batch_id:'${batch_id}'}) RETURN count(r)"
-    scoped_v="$(kv_run_cypher --format plain "${scoped_q}" 2>/dev/null | tail -n1 | tr -d '\r' || echo 0)"
+    scoped_q="MATCH (r:Run {projection_type:'${c}', batch_id:'${batch_id}'}) RETURN count(r)"
+    scoped_v="$(kv_run_cypher "${scoped_q}" 2>/dev/null | tail -n1 | tr -d '\r' || echo 0)"
     [[ -z "${scoped_v}" ]] && scoped_v=0
 
     graph[$c]="${scoped_v}"
@@ -109,7 +107,6 @@ cat > "${OUT_JSON}" <<JSON
 {
   "version": "phase32_remediation_reconciliation_v1",
   "generated_at": "${NOW_UTC}",
-  "window_minutes": ${WINDOW_MINUTES},
   "batch_id": "${batch_id}",
   "status": "${status}",
   "reason": "${reason}",
