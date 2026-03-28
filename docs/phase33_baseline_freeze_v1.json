@@ -1,0 +1,44 @@
+{
+  "version": "phase33_baseline_freeze_v1",
+  "generated_at": "2026-03-28T14:38:55Z",
+  "baseline_status": "baseline_freeze_blocked",
+  "reason": "baseline_artifact_missing",
+  "marker": "KV_SHADOW_BASELINE_FREEZE_V1|status=baseline_freeze_blocked|reason=baseline_artifact_missing",
+  "source_artifacts": {
+    "phase32_exit_remediation": {"path": "docs/phase32_exit_remediation_report_v1.json", "present": true},
+    "phase33_shadow_validation": {"path": "docs/phase33_shadow_validation_v1.json", "present": false},
+    "phase33_shadow_batch_field_audit": {"path": "docs/phase33_shadow_batch_field_audit_v1.json", "present": false},
+    "phase33_legacy_drift_governance": {"path": "docs/phase33_legacy_drift_governance_v1.json", "present": true},
+    "phase33_operator_readiness": {"path": "docs/phase33_operator_readiness_v1.json", "present": true},
+    "phase33_operator_policy": {"path": "docs/phase33_operator_policy_v1.json", "present": true},
+    "phase33_handoff_pack": {"path": "docs/phase33_handoff_pack_v1.json", "present": true}
+  },
+  "frozen_verdicts": {
+    "phase32_status": "blocked",
+    "shadow_validation_status": "",
+    "shadow_batch_field_audit_status": "",
+    "legacy_governance_status": "blocked",
+    "operator_readiness_status": "blocked",
+    "operator_policy_status": "blocked",
+    "operator_policy_reason": "validation_artifact_missing",
+    "handoff_status": "blocked",
+    "handoff_reason": "handoff_blocked_missing_artifacts"
+  },
+  "notes_to_carry_forward": [
+    "Source verdicts are frozen snapshot values and must be re-frozen only after explicit operational update.",
+    "Operator policy remains the primary gate decision artifact for go/no-go calls.",
+    "Any unresolved notes from readiness/governance/handoff remain active until explicitly cleared."
+  ],
+  "accepted_limitations": [
+    "no graph writes",
+    "no backfill",
+    "no reruns",
+    "no UI/runtime/ValidationAgent changes"
+  ],
+  "next_phase_entry_conditions": [
+    "All required source artifacts must exist and be current for the target session.",
+    "operator_readiness and operator_policy must not be blocked.",
+    "handoff pack must be present and consistent with frozen verdicts.",
+    "No accepted limitation may be violated before next major phase entry."
+  ]
+}
