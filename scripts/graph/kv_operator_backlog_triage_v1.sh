@@ -30,21 +30,28 @@ required = [
     ("phase34_next_phase_planning", planning_path),
 ]
 presence = {name: path.exists() for name, path in required}
+input_errors = []
+missing_inputs = [name for name, ok in presence.items() if not ok]
 
-if not all(presence.values()):
+
+def safe_load_json(path: Path, label: str):
+    if not path.exists():
+        return {}
+    try:
+        return json.loads(path.read_text())
+    except json.JSONDecodeError as exc:
+        input_errors.append(f"{label}:invalid_json:{exc.msg}")
+        missing_inputs.append(label)
+        return {}
+
+backlog_payload = safe_load_json(backlog_path, "phase34_operator_note_closure_backlog")
+baseline = safe_load_json(baseline_path, "phase33_baseline_freeze")
+policy = safe_load_json(policy_path, "phase33_operator_policy")
+planning = safe_load_json(planning_path, "phase34_next_phase_planning")
+
+if missing_inputs:
     status = "triage_blocked"
-    reason = "unresolved_true_blockers_remain"
-    backlog_payload = {}
-    baseline = {}
-    policy = {}
-    planning = {}
-    missing_inputs = [name for name, ok in presence.items() if not ok]
-else:
-    backlog_payload = json.loads(backlog_path.read_text())
-    baseline = json.loads(baseline_path.read_text())
-    policy = json.loads(policy_path.read_text())
-    planning = json.loads(planning_path.read_text())
-    missing_inputs = []
+    reason = "required_inputs_missing_or_invalid"
 
 baseline_status = baseline.get("baseline_status", "")
 policy_status = policy.get("status", "")
@@ -181,10 +188,11 @@ triage_summary = {
     "baseline_status": baseline_status,
     "operator_policy_status": policy_status,
     "planning_status": planning_status,
-    "missing_inputs": missing_inputs,
+    "missing_inputs": sorted(set(missing_inputs)),
+    "input_errors": input_errors,
 }
 
-if all(presence.values()):
+if not missing_inputs:
     if true_blockers:
         status = "triage_blocked"
         reason = "unresolved_true_blockers_remain"
