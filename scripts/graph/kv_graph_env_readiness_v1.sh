@@ -9,6 +9,10 @@ NOW_UTC="$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
 source "${ROOT_DIR}/scripts/graph/_kv_cypher.sh"
 
 kv_load_env
+KV_CYPHER_SHELL_PRESENT=false
+if command -v cypher-shell >/dev/null 2>&1; then
+  KV_CYPHER_SHELL_PRESENT=true
+fi
 
 neo4j_reachable=false
 status="blocked"
@@ -25,7 +29,7 @@ if [[ "${reason}" == "ready" ]]; then
 fi
 
 missing_vars_json="$(printf '%s\n' "${KV_ENV_MISSING_VARS[@]:-}" | python -c 'import json,sys; print(json.dumps([x.strip() for x in sys.stdin if x.strip()]))')"
-marker="KV_GRAPH_ENV_READY_V1|status=${status}|reason=${reason}|neo4j_reachable=${neo4j_reachable}|cypher_shell_present=${KV_CYPHER_SHELL_PRESENT}|env_complete=${KV_ENV_COMPLETE}|shadow_write_enabled=${KV_SHADOW_WRITE_ENABLED}|ts=${NOW_UTC}"
+marker="KV_GRAPH_ENV_READY_V1|status=${status}|reason=${reason}|neo4j_reachable=${neo4j_reachable}|cypher_shell_present=${KV_CYPHER_SHELL_PRESENT:-false}|env_complete=${KV_ENV_COMPLETE:-false}|shadow_write_enabled=${KV_SHADOW_WRITE_ENABLED:-false}|ts=${NOW_UTC}"
 
 cat > "${OUT_JSON}" <<JSON
 {
@@ -34,11 +38,11 @@ cat > "${OUT_JSON}" <<JSON
   "status": "${status}",
   "reason": "${reason}",
   "neo4j_reachable": ${neo4j_reachable},
-  "cypher_shell_present": ${KV_CYPHER_SHELL_PRESENT},
-  "env_present": ${KV_ENV_PRESENT},
-  "env_complete": ${KV_ENV_COMPLETE},
+  "cypher_shell_present": ${KV_CYPHER_SHELL_PRESENT:-false},
+  "env_present": ${KV_ENV_PRESENT:-false},
+  "env_complete": ${KV_ENV_COMPLETE:-false},
   "missing_env_keys": ${missing_vars_json},
-  "shadow_write_enabled": ${KV_SHADOW_WRITE_ENABLED},
+  "shadow_write_enabled": ${KV_SHADOW_WRITE_ENABLED:-false},
   "marker": "${marker}"
 }
 JSON
