@@ -37,6 +37,14 @@ print(d['counts'].get('${1}',0))
 PY
 }
 
+read_batch_id() { python - <<PY
+import json
+with open('${LEDGER_JSON}') as f:
+    d=json.load(f)
+print(d.get('batch_id',''))
+PY
+}
+
 declare -A primary
 declare -A graph
 declare -A diff
@@ -48,31 +56,24 @@ done
 
 status="pass"
 base_reason="$(kv_env_reason)"
-used_unscoped_counts=false
+batch_id="$(read_batch_id)"
 
-if [[ "${base_reason}" == "ready" ]]; then
+if [[ -z "${batch_id}" ]]; then
+  status="blocked"
+  reason="missing_batch_id"
+fi
+
+if [[ "${status}" != "blocked" && "${base_reason}" == "ready" ]]; then
   for c in capability_runs stream_findings session_cookie_findings archive_search_findings device_service_metadata; do
-    scoped_q="MATCH (r:Run {projection_type:'${c}'}) WHERE r.created_at >= timestamp() - ${WINDOW_MS} RETURN count(r)"
+    scoped_q="MATCH (r:Run {projection_type:'${c}', run_batch_id:'${batch_id}'}) RETURN count(r)"
     scoped_v="$(kv_run_cypher --format plain "${scoped_q}" 2>/dev/null | tail -n1 | tr -d '\r' || echo 0)"
     [[ -z "${scoped_v}" ]] && scoped_v=0
 
-    if [[ "${scoped_v}" == "0" ]]; then
-      total_q="MATCH (r:Run {projection_type:'${c}'}) RETURN count(r)"
-      total_v="$(kv_run_cypher --format plain "${total_q}" 2>/dev/null | tail -n1 | tr -d '\r' || echo 0)"
-      [[ -z "${total_v}" ]] && total_v=0
-      if (( total_v > 0 )); then
-        graph[$c]="${total_v}"
-        used_unscoped_counts=true
-      else
-        graph[$c]=0
-      fi
-    else
-      graph[$c]="${scoped_v}"
-    fi
+    graph[$c]="${scoped_v}"
 
     diff[$c]=$(( ${graph[$c]} - ${primary[$c]} ))
   done
-else
+elif [[ "${status}" != "blocked" ]]; then
   status="blocked"
   reason="${base_reason}"
 fi
@@ -94,15 +95,12 @@ if [[ "${status}" != "blocked" ]]; then
   if [[ "${tolerance_exceeded}" == "true" ]]; then
     status="blocked"
     reason="count_drift_out_of_tolerance"
-  elif [[ "${used_unscoped_counts}" == "true" ]]; then
-    status="pass_with_notes"
-    reason="unscoped_graph_counts"
   elif [[ "${exact_match}" == "true" ]]; then
     status="pass"
-    reason="scoped_counts_match"
+    reason="batch_counts_match"
   else
     status="pass_with_notes"
-    reason="minor_scoped_drift_within_tolerance"
+    reason="minor_batch_drift_within_tolerance"
   fi
 fi
 
@@ -111,6 +109,8 @@ cat > "${OUT_JSON}" <<JSON
 {
   "version": "phase32_remediation_reconciliation_v1",
   "generated_at": "${NOW_UTC}",
+  "window_minutes": ${WINDOW_MINUTES},
+  "batch_id": "${batch_id}",
   "status": "${status}",
   "reason": "${reason}",
   "marker": "${marker}",
