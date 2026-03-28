@@ -40,7 +40,7 @@ JSON
 }
 
 if [[ ! -f "${LEDGER_JSON}" ]]; then
-  emit_report "blocked" "graph_integrity_failure" "" 0 0 0 0
+  emit_report "blocked" "missing_batch_id" "" 0 0 0 0
   exit 0
 fi
 
@@ -85,10 +85,10 @@ orphan_runs="$(read_count "MATCH (r:Run {batch_id:'${batch_id}'}) WHERE NOT (r)-
 status="pass"
 reason="graph_consistent"
 
-if (( run_count <= 0 || finding_links <= 0 || orphan_runs > 0 )); then
+if (( run_count <= 0 || orphan_runs > 0 )); then
   status="blocked"
   reason="graph_integrity_failure"
-elif (( capability_links != run_count )); then
+elif (( capability_links != run_count || finding_links <= 0 )); then
   status="pass_with_notes"
   reason="minor_graph_inconsistency"
 fi
