@@ -42,7 +42,7 @@ else
 
     run_id="${BATCH_ID}_${i}"
     finding_id="rem_finding_${cat}_${i}"
-    query="MERGE (r:Run {run_id:'${run_id}'}) SET r.created_at=timestamp(), r.shadow_mode=true, r.projection_type='${cat}', r.batch_id='${BATCH_ID}', r.run_batch_id='${BATCH_ID}' MERGE (c:Capability {capability_key:'remediation_loader'}) MERGE (r)-[:USED_CAPABILITY]->(c) MERGE (f:Finding {finding_id:'${finding_id}'}) SET f.summary='remediation synthetic event', f.severity='info' MERGE (r)-[:PRODUCED_FINDING]->(f)"
+    query="MERGE (r:Run {run_id:'${run_id}'}) SET r.created_at=timestamp(), r.shadow_mode=true, r.projection_type='${cat}', r.run_batch_id='${BATCH_ID}', r.batch_id='${BATCH_ID}' MERGE (c:Capability {capability_key:'remediation_loader'}) MERGE (r)-[:USED_CAPABILITY]->(c) MERGE (f:Finding {finding_id:'${finding_id}'}) SET f.summary='remediation synthetic event', f.severity='info' MERGE (r)-[:PRODUCED_FINDING]->(f)"
 
     if kv_run_cypher "${query}" >/dev/null 2>&1; then
       written=$((written + 1))
