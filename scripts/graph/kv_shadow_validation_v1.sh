@@ -5,10 +5,7 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 LEDGER_JSON="${ROOT_DIR}/docs/phase32_remediation_primary_ledger_v1.json"
 OUT_JSON="${ROOT_DIR}/docs/phase33_shadow_validation_v1.json"
 NOW_UTC="$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
-
-# shellcheck source=scripts/graph/_kv_cypher.sh
-source "${ROOT_DIR}/scripts/graph/_kv_cypher.sh"
-kv_load_env
+HELPER_ENV_FILE="${ROOT_DIR}/infra/neo4j-shadow/.env"
 
 emit_report() {
   local status="$1"
@@ -19,7 +16,8 @@ emit_report() {
   local finding_links="$6"
   local orphan_runs="$7"
 
-  local marker="KV_SHADOW_VALIDATION_V1|status=${status}|reason=${reason}|batch_id=${batch_id}"
+  local marker_json="KV_SHADOW_VALIDATION_V1|status=${status}|reason=${reason}"
+  local marker_stdout="KV_SHADOW_VALIDATION_V1|status=${status}|reason=${reason}|batch_id=${batch_id}"
 
   cat > "${OUT_JSON}" <<JSON
 {
@@ -34,15 +32,15 @@ emit_report() {
     "finding_links": ${finding_links},
     "orphan_runs": ${orphan_runs}
   },
-  "marker": "${marker}"
+  "marker": "${marker_json}"
 }
 JSON
 
-  echo "${marker}"
+  echo "${marker_stdout}"
 }
 
 if [[ ! -f "${LEDGER_JSON}" ]]; then
-  emit_report "blocked" "missing_primary_ledger" "" 0 0 0 0
+  emit_report "blocked" "graph_integrity_failure" "" 0 0 0 0
   exit 0
 fi
 
@@ -58,6 +56,15 @@ if [[ -z "${batch_id}" ]]; then
   emit_report "blocked" "missing_batch_id" "" 0 0 0 0
   exit 0
 fi
+
+if [[ ! -f "${HELPER_ENV_FILE}" ]] || ! command -v cypher-shell >/dev/null 2>&1; then
+  emit_report "blocked" "graph_integrity_failure" "${batch_id}" 0 0 0 0
+  exit 0
+fi
+
+# shellcheck source=scripts/graph/_kv_cypher.sh
+source "${ROOT_DIR}/scripts/graph/_kv_cypher.sh"
+kv_load_env
 
 read_count() {
   local query="$1"
