@@ -1,6 +1,6 @@
 # Phase 34 ValidationAgent Approval Contract v1
 
-Generated at: 2026-03-28T16:46:53Z
+Generated at: 2026-03-28T16:56:50Z
 
 Marker: `KV_VALIDATION_AGENT_APPROVAL_CONTRACT_V1|status=approval_contract_ready_with_notes|reason=safe_approval_reference_ready_with_notes`
 
@@ -32,6 +32,8 @@ Marker: `KV_VALIDATION_AGENT_APPROVAL_CONTRACT_V1|status=approval_contract_ready
 - graph_write_still_forbidden: True
 - remediation_still_forbidden: True
 - approval_is_not_auto_execution: True
+- approval_has_no_silent_execution_fallback: True
+- approval_unlocks_eligibility_not_execution: True
 - future_transition_rule: Any future transition from dry_run to manual_approval_required requires explicit operator approval records and preserved policy/handoff/baseline gates.
 
 ## required_approvers
@@ -54,6 +56,7 @@ Marker: `KV_VALIDATION_AGENT_APPROVAL_CONTRACT_V1|status=approval_contract_ready
 - graph mutation
 - hidden state changes
 - auto-approval
+- implicit approval
 - policy bypass
 - baseline bypass
 - autonomous runtime actions
@@ -62,6 +65,7 @@ Marker: `KV_VALIDATION_AGENT_APPROVAL_CONTRACT_V1|status=approval_contract_ready
 - Reference markers for dry-run/planning/policy/baseline artifacts.
 - Operator approval decision with timestamp and rationale.
 - Explicit confirmation that execution/graph writes/remediation remain disabled.
+- Explicit confirmation that approval does not silently fallback to execution.
 - Gate-by-gate checklist result for policy, handoff, and baseline continuity.
 
 ## approval_record_format
@@ -78,6 +82,7 @@ Marker: `KV_VALIDATION_AGENT_APPROVAL_CONTRACT_V1|status=approval_contract_ready
   - execution_authorized must remain false in this scaffold phase
   - requested_action_class must be in eligible_action_classes
   - all mandatory_gates must be explicitly present in gate_results
+  - approval decision must not imply implicit or automatic execution
 
 ## next_safe_step
 - step: Keep ValidationAgent in dry-run/reporting path and capture manual approval record template usage only.

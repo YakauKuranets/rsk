@@ -55,6 +55,8 @@ approval_scope = {
     "graph_write_still_forbidden": True,
     "remediation_still_forbidden": True,
     "approval_is_not_auto_execution": True,
+    "approval_has_no_silent_execution_fallback": True,
+    "approval_unlocks_eligibility_not_execution": True,
     "future_transition_rule": "Any future transition from dry_run to manual_approval_required requires explicit operator approval records and preserved policy/handoff/baseline gates.",
 }
 
@@ -81,6 +83,7 @@ forbidden_action_classes = [
     "graph mutation",
     "hidden state changes",
     "auto-approval",
+    "implicit approval",
     "policy bypass",
     "baseline bypass",
     "autonomous runtime actions",
@@ -90,6 +93,7 @@ evidence_requirements = [
     "Reference markers for dry-run/planning/policy/baseline artifacts.",
     "Operator approval decision with timestamp and rationale.",
     "Explicit confirmation that execution/graph writes/remediation remain disabled.",
+    "Explicit confirmation that approval does not silently fallback to execution.",
     "Gate-by-gate checklist result for policy, handoff, and baseline continuity.",
 ]
 
@@ -108,6 +112,7 @@ approval_record_format = {
         "execution_authorized must remain false in this scaffold phase",
         "requested_action_class must be in eligible_action_classes",
         "all mandatory_gates must be explicitly present in gate_results",
+        "approval decision must not imply implicit or automatic execution",
     ],
 }
 
