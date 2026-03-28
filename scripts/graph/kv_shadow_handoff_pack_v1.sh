@@ -20,22 +20,22 @@ read_json_field() {
   python - <<PY
 import json
 from pathlib import Path
-p=Path('${file}')
+p = Path(${file@Q})
 if not p.exists():
-    print('')
+    print("")
     raise SystemExit(0)
-obj=json.loads(p.read_text())
-cur=obj
-for k in '${path}'.split('.'):
+obj = json.loads(p.read_text())
+cur = obj
+for k in ${path@Q}.split('.'):
     if isinstance(cur, dict) and k in cur:
-        cur=cur[k]
+        cur = cur[k]
     else:
-        print('')
+        print("")
         raise SystemExit(0)
 if isinstance(cur, bool):
-    print('true' if cur else 'false')
+    print("true" if cur else "false")
 elif cur is None:
-    print('')
+    print("")
 else:
     print(str(cur))
 PY
@@ -50,6 +50,7 @@ op_policy_present="$(artifact_present "${OP_POLICY_JSON}")"
 
 phase32_status="$(read_json_field "${PHASE32_JSON}" "overall_status")"
 shadow_validation_status="$(read_json_field "${SHADOW_VALIDATION_JSON}" "status")"
+batch_audit_status="$(read_json_field "${BATCH_AUDIT_JSON}" "status")"
 legacy_gov_status="$(read_json_field "${LEGACY_GOV_JSON}" "status")"
 op_readiness_status="$(read_json_field "${OP_READINESS_JSON}" "status")"
 op_policy_status="$(read_json_field "${OP_POLICY_JSON}" "status")"
@@ -58,10 +59,10 @@ op_policy_reason="$(read_json_field "${OP_POLICY_JSON}" "reason")"
 status="pass"
 reason="handoff_ready"
 
-if [[ "${op_readiness_present}" != "true" || "${op_policy_present}" != "true" || "${phase32_present}" != "true" ]]; then
+if [[ "${phase32_present}" != "true" || "${op_readiness_present}" != "true" || "${op_policy_present}" != "true" ]]; then
   status="blocked"
   reason="handoff_blocked_missing_artifacts"
-elif [[ "${op_policy_status}" == "blocked" || "${op_readiness_status}" == "blocked" ]]; then
+elif [[ "${op_readiness_status}" == "blocked" || "${op_policy_status}" == "blocked" ]]; then
   status="blocked"
   reason="handoff_blocked_missing_artifacts"
 elif [[ "${shadow_validation_present}" != "true" || "${batch_audit_present}" != "true" || "${legacy_gov_present}" != "true" ]]; then
@@ -71,21 +72,27 @@ fi
 
 marker="KV_SHADOW_HANDOFF_PACK_V1|status=${status}|reason=${reason}"
 
-recommended_next="Run operator policy script and resolve blockers before proceeding."
-if [[ "${status}" == "pass" ]]; then
-  recommended_next="Proceed with next phase gate; keep routine monitoring and periodic governance reruns."
+recommended_next="Proceed with next phase gate handoff."
+if [[ "${status}" == "blocked" ]]; then
+  recommended_next="Generate missing required artifacts and clear operator policy/readiness blockers before any next gate."
 elif [[ "${status}" == "pass_with_notes" ]]; then
-  recommended_next="Proceed cautiously with notes; close missing/non-blocking artifacts and rerun readiness/policy."
+  recommended_next="Proceed with operator handoff, but regenerate missing non-blocking artifacts for full continuity."
 fi
 
-key_cmd_1="bash scripts/graph/kv_shadow_operator_readiness_v1.sh"
-key_cmd_2="bash scripts/graph/kv_shadow_operator_policy_v1.sh"
-key_cmd_3="bash scripts/graph/kv_shadow_handoff_pack_v1.sh"
+key_cmd_1="bash scripts/graph/kv_shadow_validation_v1.sh"
+key_cmd_2="bash scripts/graph/kv_shadow_batch_field_audit_v1.sh"
+key_cmd_3="bash scripts/graph/kv_shadow_legacy_drift_governance_v1.sh"
+key_cmd_4="bash scripts/graph/kv_shadow_operator_readiness_v1.sh"
+key_cmd_5="bash scripts/graph/kv_shadow_operator_policy_v1.sh"
+key_cmd_6="bash scripts/graph/kv_shadow_handoff_pack_v1.sh"
 
-known_limitations="Artifacts may remain blocked/partial when upstream validation outputs are missing or stale."
-if [[ "${op_policy_reason}" == "validation_artifact_missing" ]]; then
-  known_limitations="Upstream validation artifacts missing; handoff remains informational until regenerated."
-fi
+known_lim_1="read-only only"
+known_lim_2="no graph writes"
+known_lim_3="no backfill"
+known_lim_4="no remediation reruns"
+known_lim_5="no UI/runtime changes"
+known_lim_6="no ValidationAgent changes"
+known_lim_7="artifacts may be stale or absent if upstream scripts were not rerun in current session"
 
 cat > "${OUT_JSON}" <<JSON
 {
@@ -93,10 +100,12 @@ cat > "${OUT_JSON}" <<JSON
   "generated_at": "${NOW_UTC}",
   "status": "${status}",
   "reason": "${reason}",
+  "marker": "${marker}",
   "current_status": {
     "phase32": "${phase32_status}",
+    "graph_readiness": "${phase32_status}",
     "operator_readiness": "${op_readiness_status}",
-    "operator_policy": "${op_policy_status}"
+    "policy_status": "${op_policy_status}"
   },
   "required_artifacts": {
     "phase32_exit_remediation": {"path": "docs/phase32_exit_remediation_report_v1.json", "present": ${phase32_present}},
@@ -109,6 +118,7 @@ cat > "${OUT_JSON}" <<JSON
   "latest_verdicts": {
     "phase32_status": "${phase32_status}",
     "shadow_validation_status": "${shadow_validation_status}",
+    "shadow_batch_field_audit_status": "${batch_audit_status}",
     "legacy_governance_status": "${legacy_gov_status}",
     "operator_readiness_status": "${op_readiness_status}",
     "operator_policy_status": "${op_policy_status}",
@@ -117,12 +127,25 @@ cat > "${OUT_JSON}" <<JSON
   "key_commands": [
     "${key_cmd_1}",
     "${key_cmd_2}",
-    "${key_cmd_3}"
+    "${key_cmd_3}",
+    "${key_cmd_4}",
+    "${key_cmd_5}",
+    "${key_cmd_6}"
   ],
-  "operator_notes": "Use operator policy as the primary decision artifact; this handoff pack is continuity-focused.",
-  "known_limitations": "${known_limitations}",
-  "recommended_next_step": "${recommended_next}",
-  "marker": "${marker}"
+  "operator_notes": [
+    "Compact handoff pack for next operator/session.",
+    "Use operator policy as gate decision source; use this pack as continuity summary."
+  ],
+  "known_limitations": [
+    "${known_lim_1}",
+    "${known_lim_2}",
+    "${known_lim_3}",
+    "${known_lim_4}",
+    "${known_lim_5}",
+    "${known_lim_6}",
+    "${known_lim_7}"
+  ],
+  "recommended_next_step": "${recommended_next}"
 }
 JSON
 
@@ -131,17 +154,19 @@ cat > "${OUT_MD}" <<MD
 
 Generated at: ${NOW_UTC}
 
-Marker: \`${marker}\`
+Marker: \
+\`${marker}\`
 
 - status: **${status}**
 - reason: **${reason}**
 
-## Current status
+## current_status
 - phase32: ${phase32_status}
+- graph_readiness: ${phase32_status}
 - operator_readiness: ${op_readiness_status}
-- operator_policy: ${op_policy_status}
+- policy_status: ${op_policy_status}
 
-## Required artifacts
+## required_artifacts
 - phase32_exit_remediation: ${phase32_present}
 - phase33_shadow_validation: ${shadow_validation_present}
 - phase33_shadow_batch_field_audit: ${batch_audit_present}
@@ -149,23 +174,37 @@ Marker: \`${marker}\`
 - phase33_operator_readiness: ${op_readiness_present}
 - phase33_operator_policy: ${op_policy_present}
 
-## Latest verdicts
+## latest_verdicts
+- phase32_status: ${phase32_status}
 - shadow_validation_status: ${shadow_validation_status}
+- shadow_batch_field_audit_status: ${batch_audit_status}
 - legacy_governance_status: ${legacy_gov_status}
+- operator_readiness_status: ${op_readiness_status}
+- operator_policy_status: ${op_policy_status}
 - operator_policy_reason: ${op_policy_reason}
 
-## Key commands
+## key_commands
 1. ${key_cmd_1}
 2. ${key_cmd_2}
 3. ${key_cmd_3}
+4. ${key_cmd_4}
+5. ${key_cmd_5}
+6. ${key_cmd_6}
 
-## Operator notes
-Use operator policy as the primary decision artifact; this handoff pack is continuity-focused.
+## operator_notes
+- Compact handoff pack for next operator/session.
+- Use operator policy as gate decision source; use this pack as continuity summary.
 
-## Known limitations
-${known_limitations}
+## known_limitations
+- ${known_lim_1}
+- ${known_lim_2}
+- ${known_lim_3}
+- ${known_lim_4}
+- ${known_lim_5}
+- ${known_lim_6}
+- ${known_lim_7}
 
-## Recommended next step
+## recommended_next_step
 ${recommended_next}
 MD
 
