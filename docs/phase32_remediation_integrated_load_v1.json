@@ -1,13 +1,13 @@
 {
   "version": "phase32_remediation_integrated_load_v1",
-  "generated_at": "2026-03-27T16:01:47Z",
+  "generated_at": "2026-03-28T05:44:15Z",
   "status": "blocked",
-  "reason": "missing_env_file",
-  "batch_id": "rem_batch_20260327160147",
+  "reason": "missing_cypher_shell",
+  "batch_id": "rem_batch_20260328054415",
   "total_events": 100,
   "queued": 0,
   "written": 0,
   "skipped": 100,
   "errored": 0,
-  "marker": "KV_EXIT_REMEDIATION_V1|stage=integrated_load|status=blocked|reason=missing_env_file|batchId=rem_batch_20260327160147|events=100|written=0|errored=0"
+  "marker": "KV_EXIT_REMEDIATION_V1|stage=integrated_load|status=blocked|reason=missing_cypher_shell|batchId=rem_batch_20260328054415|events=100|written=0|errored=0"
 }

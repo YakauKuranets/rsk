@@ -1,7 +1,7 @@
 {
   "version": "phase32_remediation_primary_ledger_v1",
-  "generated_at": "2026-03-27T16:01:47Z",
-  "batch_id": "rem_batch_20260327160147",
+  "generated_at": "2026-03-28T05:44:15Z",
+  "batch_id": "rem_batch_20260328054415",
   "total_events": 100,
   "counts": {
     "capability_runs": 20,

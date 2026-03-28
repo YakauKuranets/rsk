@@ -1,14 +1,10 @@
 {
   "version": "phase32_remediation_latency_v1",
-  "generated_at": "2026-03-27T16:01:54Z",
+  "generated_at": "2026-03-28T05:44:23Z",
   "status": "blocked",
-  "reason": "missing_env_file",
-  "baseline_ms": 10.49,
-  "baseline_total_ms": 1048.93,
+  "reason": "missing_cypher_shell",
+  "baseline_ms": 1352.05,
   "shadow_ms": -1,
-  "shadow_total_ms": -1,
   "overhead_ms": -1,
-  "batch_size": 100,
-  "batch_file": "docs/phase32_latency_batch_benchmark.cypher",
-  "marker": "KV_EXIT_REMEDIATION_V1|stage=latency|status=blocked|reason=missing_env_file|baselineMs=10.49|shadowMs=-1"
+  "marker": "KV_EXIT_REMEDIATION_V1|stage=latency|status=blocked|reason=missing_cypher_shell|baselineMs=1352.05|shadowMs=-1"
 }

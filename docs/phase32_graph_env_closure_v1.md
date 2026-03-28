@@ -1,6 +1,6 @@
 # Phase 32.5r.1 Graph Environment Closure
 
-Generated at: 2026-03-27T05:00:48Z
+Generated at: 2026-03-28T05:44:12Z
 
 ## Notes
 - env_bootstrapped_from_example
@@ -9,5 +9,5 @@ Generated at: 2026-03-27T05:00:48Z
 
 ## Markers
 - KV_SHADOW_HEALTH_V1|status=error|reason=missing_cypher_shell
-- KV_GRAPH_ENV_READY_V1|status=blocked|reason=missing_cypher_shell|neo4j_reachable=false|cypher_shell_present=false|env_complete=true|shadow_write_enabled=true|ts=2026-03-27T05:00:48Z
-- KV_EXIT_REMEDIATION_V1|status=blocked|blockers=4|ts=2026-03-27T05:00:48Z
+- KV_GRAPH_ENV_READY_V1|status=blocked|reason=missing_cypher_shell|neo4j_reachable=false|cypher_shell_present=false|env_complete=true|shadow_write_enabled=true|ts=2026-03-28T05:44:12Z
+- KV_EXIT_REMEDIATION_V1|status=blocked|blockers=4|ts=2026-03-28T05:44:14Z
