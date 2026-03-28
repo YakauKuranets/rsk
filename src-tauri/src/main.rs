@@ -93,6 +93,8 @@ mod llm_orchestrator;
 pub mod core_types;
 mod capability_adapter;
 mod agent_minimal;
+mod graph_writer;
+mod graph_read_analytics;
 use scout_agent::ScoutState;
 use suppaftp::FtpStream;
 use tauri::State;
@@ -7603,6 +7605,9 @@ fn main() {
             tool_executor::check_tools_available,
             capability_adapter::execute_capability,
             agent_minimal::run_agent_minimal,
+            graph_writer::kv_dual_write_diagnostic,
+            graph_writer::kv_shadow_ingest_projection_v2,
+            graph_read_analytics::kv_read_analytics_v1,
             meta_agent::run_meta_campaign,
             meta_agent::get_meta_recommendations,
             scout_agent::start_scout_agent,

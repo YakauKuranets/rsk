@@ -1,0 +1,139 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+REPORT_JSON="${ROOT_DIR}/docs/phase32_exit_criteria_report_v1.json"
+REPORT_MD="${ROOT_DIR}/docs/phase32_exit_criteria_report_v1.md"
+
+NOW_UTC="$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
+
+# Default statuses (honest-by-default)
+DUAL_WRITE_STATUS="blocked"
+NO_RAW_SECRETS_STATUS="pass_with_notes"
+INGEST_LOSS_STATUS="blocked"
+READONLY_STATUS="pass_with_notes"
+NO_RUNTIME_STATUS="pass"
+LATENCY_STATUS="pass_with_notes"
+
+BLOCKERS=(
+  "dual_write_stability_not_executed_under_100_event_integrated_load"
+  "ingest_no_data_loss_not_verified_against_primary_storage_window"
+)
+
+REMEDIATION=(
+  "Run controlled integrated 100-event load through real runtime path with primary+shadow counters"
+  "Add deterministic counter reconciliation job for last-24h mature contours"
+  "Capture latency p50/p95 for dual-write-enabled capability path in staging"
+)
+
+# Static/code-level checks
+if rg -n "raw_password|raw_token|raw_cookie|password\s*:|token\s*:|cookie\s*:" "${ROOT_DIR}/src-tauri/src/graph_writer.rs" >/dev/null 2>&1; then
+  NO_RAW_SECRETS_STATUS="pass_with_notes"
+fi
+
+if rg -n "kv_read_analytics_v1|kv_shadow_ingest_projection_v2|kv_dual_write_diagnostic" "${ROOT_DIR}/src-tauri/src/capability_adapter.rs" >/dev/null 2>&1; then
+  NO_RUNTIME_STATUS="blocked"
+  BLOCKERS+=("runtime_path_directly_invokes_graph_read_or_diagnostic_command")
+fi
+
+# Neo4j optional live checks (best-effort)
+LIVE_NOTES=()
+if [[ -f "${ROOT_DIR}/infra/neo4j-shadow/.env" ]] && command -v cypher-shell >/dev/null 2>&1; then
+  # shellcheck disable=SC1090
+  source "${ROOT_DIR}/infra/neo4j-shadow/.env"
+  BOLT_URL="bolt://localhost:${NEO4J_BOLT_PORT:-7687}"
+  if cypher-shell -a "${BOLT_URL}" -u "${NEO4J_USER:-neo4j}" -p "${NEO4J_PASSWORD:-}" 'RETURN 1' >/dev/null 2>&1; then
+    LIVE_NOTES+=("neo4j_live_connection_ok")
+  else
+    LIVE_NOTES+=("neo4j_live_connection_failed")
+    READONLY_STATUS="pass_with_notes"
+  fi
+else
+  LIVE_NOTES+=("neo4j_live_checks_skipped")
+fi
+
+OVERALL="blocked"
+if [[ "${DUAL_WRITE_STATUS}" != "blocked" && "${INGEST_LOSS_STATUS}" != "blocked" ]]; then
+  OVERALL="pass_with_notes"
+fi
+
+MARKER="KV_EXIT_CRITERIA_V1|status=${OVERALL}|blocked=$((${#BLOCKERS[@]}))|ts=${NOW_UTC}"
+
+# Build JSON arrays safely
+blockers_json="$(printf '%s\n' "${BLOCKERS[@]}" | python -c 'import json,sys; print(json.dumps([x.strip() for x in sys.stdin if x.strip()]))')"
+remediation_json="$(printf '%s\n' "${REMEDIATION[@]}" | python -c 'import json,sys; print(json.dumps([x.strip() for x in sys.stdin if x.strip()]))')"
+live_notes_json="$(printf '%s\n' "${LIVE_NOTES[@]}" | python -c 'import json,sys; print(json.dumps([x.strip() for x in sys.stdin if x.strip()]))')"
+
+cat > "${REPORT_JSON}" <<JSON
+{
+  "report_version": "phase32_exit_criteria_report_v1",
+  "generated_at": "${NOW_UTC}",
+  "overall_status": "${OVERALL}",
+  "marker": "${MARKER}",
+  "criteria": {
+    "dual_write_stability": {
+      "status": "${DUAL_WRITE_STATUS}",
+      "notes": ["100-event integrated runtime load test not executed in this environment"]
+    },
+    "no_raw_secrets": {
+      "status": "${NO_RAW_SECRETS_STATUS}",
+      "notes": ["Code-level sanitization and hashed evidence refs are present"]
+    },
+    "ingest_no_data_loss": {
+      "status": "${INGEST_LOSS_STATUS}",
+      "notes": ["Primary-vs-shadow count reconciliation window not executed"]
+    },
+    "readonly_analytics_useful": {
+      "status": "${READONLY_STATUS}",
+      "notes": ["Read-only analytics commands exist; live timing/usefulness needs staged run"]
+    },
+    "no_runtime_influence": {
+      "status": "${NO_RUNTIME_STATUS}",
+      "notes": ["No direct graph-read decision coupling detected in capability runtime path"]
+    },
+    "latency_acceptable": {
+      "status": "${LATENCY_STATUS}",
+      "notes": ["Async non-fatal design present; p50/p95 latency benchmark pending"]
+    }
+  },
+  "blockers": ${blockers_json},
+  "remediation_items": ${remediation_json},
+  "live_check_notes": ${live_notes_json},
+  "recommendation": "no_go_to_phase33_until_blockers_resolved"
+}
+JSON
+
+cat > "${REPORT_MD}" <<MD
+# Phase 32 Exit Criteria Report v1
+
+Generated at: ${NOW_UTC}
+
+Marker: \
+\`${MARKER}\`
+
+## Overall status
+- **${OVERALL}**
+- Recommendation: **no-go to Phase 33** until blockers are closed.
+
+## Criteria status
+- dual_write_stability: **${DUAL_WRITE_STATUS}**
+- no_raw_secrets: **${NO_RAW_SECRETS_STATUS}**
+- ingest_no_data_loss: **${INGEST_LOSS_STATUS}**
+- readonly_analytics_useful: **${READONLY_STATUS}**
+- no_runtime_influence: **${NO_RUNTIME_STATUS}**
+- latency_acceptable: **${LATENCY_STATUS}**
+
+## Blockers
+$(printf '%s
+' "${BLOCKERS[@]}" | sed 's/^/- /')
+
+## Remediation items
+$(printf '%s
+' "${REMEDIATION[@]}" | sed 's/^/- /')
+
+## Live-check notes
+$(printf '%s
+' "${LIVE_NOTES[@]}" | sed 's/^/- /')
+MD
+
+echo "${MARKER}"

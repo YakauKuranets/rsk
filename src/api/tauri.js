@@ -1,4 +1,33 @@
 import { invoke } from '@tauri-apps/api/core';
+import {
+  formatSurfaceScanResultV1Marker,
+  normalizeSpiderFullScanResultV1,
+} from './surfaceScanResultContract';
+import {
+  deriveSpiderFingerprintEnrichmentV1,
+  formatSpiderFingerprintEnrichmentV1Marker,
+} from './spiderFingerprintEnrichment';
+import {
+  deriveSpiderAuthBoundaryHintsV1,
+  formatSpiderAuthBoundaryHintsV1Marker,
+} from './spiderAuthBoundaryHints';
+import {
+  buildSpiderEvidenceReportV1,
+  formatSpiderEvidenceCompactSummaryV1,
+} from './spiderEvidenceReport';
+import {
+  formatPortScanResultV1Marker,
+  normalizeScanHostPortsResultV1,
+} from './portScanResultContract';
+import {
+  formatPortAuditResultV1Marker,
+  normalizePortAuditFromScanResultV1,
+} from './portAuditResultContract';
+
+import {
+  formatPassiveObservationCompactSummaryV1,
+  normalizePassiveObservationResultV1,
+} from './passiveObservationResultContract';
 
 // ═══ Targets ═══
 export const saveTarget = (data) => invoke('save_target', { data: JSON.stringify(data) });
@@ -26,7 +55,103 @@ export const externalSearch = (country, city) => invoke('external_search', { cou
 export const searchGlobalHub = (query, cookie) => invoke('search_global_hub', { query, cookie });
 export const geocodeAddress = (address) => invoke('geocode_address', { address });
 export const scanHostPorts = (host) => invoke('scan_host_ports', { host });
+export const scanHostPortsNormalized = async (host) => {
+  const raw = await invoke('scan_host_ports', { host });
+  const portScanResult = normalizeScanHostPortsResultV1(raw, { host });
+  bestEffortKvShadowIngestV2({
+    projectionType: 'port_scan_result_v1',
+    targetId: String(host || '').trim() || 'unknown_target',
+    capabilityKey: 'scan_host_ports_normalized',
+    validationPath: 'port_scan_result_v1',
+    environmentKey: 'shadow_default',
+    summary: `open_ports=${Array.isArray(portScanResult?.open_ports) ? portScanResult.open_ports.length : 0}`,
+    severity: 'info',
+    vendorHint: 'unknown',
+    serviceKeys: Array.isArray(portScanResult?.services)
+      ? portScanResult.services.map((x) => `service:${x}`)
+      : [],
+    evidenceRefs: Array.isArray(portScanResult?.evidenceRefs) ? portScanResult.evidenceRefs : [],
+  });
+  return {
+    raw,
+    portScanResult,
+    marker: formatPortScanResultV1Marker(portScanResult),
+  };
+};
+export const auditHostPortsNormalized = async (host, options = {}) => {
+  const { portScanResult, raw } = await scanHostPortsNormalized(host);
+  const portAuditResult = normalizePortAuditFromScanResultV1(portScanResult, options);
+  bestEffortKvShadowIngestV2({
+    projectionType: 'port_audit_result_v1',
+    targetId: String(host || '').trim() || 'unknown_target',
+    capabilityKey: 'audit_host_ports_normalized',
+    validationPath: 'port_audit_result_v1',
+    environmentKey: 'shadow_default',
+    summary: `risk_level=${portAuditResult?.risk_level || 'unknown'} issues=${Number(portAuditResult?.issuesCount || 0)}`,
+    severity:
+      portAuditResult?.risk_level === 'critical' || portAuditResult?.risk_level === 'high'
+        ? 'high'
+        : 'medium',
+    vendorHint: 'unknown',
+    serviceKeys: Array.isArray(portScanResult?.services)
+      ? portScanResult.services.map((x) => `service:${x}`)
+      : [],
+    evidenceRefs: Array.isArray(portAuditResult?.evidenceRefs) ? portAuditResult.evidenceRefs : [],
+  });
+  return {
+    raw,
+    portScanResult,
+    portAuditResult,
+    marker: formatPortAuditResultV1Marker(portAuditResult),
+  };
+};
 export const analyzeSecurityHeaders = (targetUrl) => invoke('analyze_security_headers', { targetUrl });
+
+
+export const runPassiveTrafficAnalyzerV1 = async ({
+  interfaceName,
+  durationSecs = 30,
+  targetId = null,
+  host = null,
+  surfaceScanResult = null,
+} = {}) => {
+  const iface = String(interfaceName || '').trim() || 'any';
+  const raw = await invoke('analyze_traffic', {
+    interface: iface,
+    durationSecs,
+  });
+
+  const passiveObservation = normalizePassiveObservationResultV1(raw, {
+    targetId,
+    host,
+    surfaceScanResult,
+    observationWindowSec: durationSecs,
+    interface: iface,
+  });
+  bestEffortKvShadowIngestV2({
+    projectionType: 'passive_observation_result_v1',
+    targetId: String(targetId || host || passiveObservation?.target_id || 'unknown_target'),
+    capabilityKey: 'passive_traffic_analyzer_v1',
+    validationPath: 'passive_observation_result_v1',
+    environmentKey: 'shadow_default',
+    summary: `class=${passiveObservation?.resultClass || 'inconclusive'} confidence=${passiveObservation?.confidence || 'low'}`,
+    severity: passiveObservation?.resultClass === 'failed' ? 'high' : 'medium',
+    vendorHint: 'unknown',
+    serviceKeys: Array.isArray(passiveObservation?.observed_services)
+      ? passiveObservation.observed_services.map(
+          (x) => `service:${Number(x?.port || 0)}/${String(x?.protocol || 'tcp')}`,
+        )
+      : [],
+    evidenceRefs: Array.isArray(passiveObservation?.evidence) ? passiveObservation.evidence : [],
+  });
+
+  return {
+    raw,
+    passiveObservation,
+    marker: formatPassiveObservationCompactSummaryV1(passiveObservation),
+  };
+};
+
 
 // ═══ NVR/Archive ═══
 export const generateNvrChannels = (host, login, password, channelCount) =>
@@ -42,6 +167,49 @@ export const searchOnvifRecordings = (host, login, pass) =>
 
 // ═══ Spider ═══
 export const spiderFullScan = (params) => invoke('spider_full_scan', params);
+export const spiderFullScanNormalized = async (params = {}) => {
+  const raw = await invoke('spider_full_scan', params);
+  const normalized = normalizeSpiderFullScanResultV1(raw, {
+    targetId: params?.targetUrl || params?.targetId || null,
+  });
+  const fingerprintEnrichment = deriveSpiderFingerprintEnrichmentV1(normalized, raw);
+  const authBoundaryHints = deriveSpiderAuthBoundaryHintsV1(normalized, raw);
+  const evidenceReport = buildSpiderEvidenceReportV1({
+    surfaceScanResult: normalized,
+    raw,
+  });
+  bestEffortKvShadowIngestV2({
+    projectionType: 'surface_spider_result_v1',
+    targetId: String(normalized?.target_id || normalized?.host || params?.targetUrl || 'unknown_target'),
+    capabilityKey: 'spider_full_scan_normalized',
+    validationPath: 'surface_scan_result_v1',
+    environmentKey: 'shadow_default',
+    summary: `class=${normalized?.resultClass || 'inconclusive'} confidence=${Number(normalized?.confidence || 0).toFixed(4)}`,
+    severity: normalized?.resultClass === 'failed' ? 'high' : 'medium',
+    vendorHint: Array.isArray(normalized?.vendor_hints) && normalized.vendor_hints.length > 0
+      ? normalized.vendor_hints[0]
+      : 'unknown',
+    serviceKeys: Array.isArray(normalized?.services)
+      ? normalized.services.map((s) => `service:${Number(s?.port || 0)}/${String(s?.service || 'unknown')}`)
+      : [],
+    evidenceRefs: Array.isArray(normalized?.evidenceRefs) ? normalized.evidenceRefs : [],
+  });
+  return {
+    raw,
+    surfaceScanResult: normalized,
+    marker: formatSurfaceScanResultV1Marker(normalized),
+    fingerprintMarker: formatSpiderFingerprintEnrichmentV1Marker(
+      fingerprintEnrichment,
+      normalized?.target_id || normalized?.host || params?.targetUrl || 'n/a',
+    ),
+    authBoundaryMarker: formatSpiderAuthBoundaryHintsV1Marker(
+      authBoundaryHints,
+      normalized?.target_id || normalized?.host || params?.targetUrl || 'n/a',
+    ),
+    evidenceReport,
+    evidenceMarker: formatSpiderEvidenceCompactSummaryV1(evidenceReport),
+  };
+};
 export const fuzzCctvApi = (params) => invoke('fuzz_cctv_api', params);
 
 // ═══ Audit ═══
@@ -63,6 +231,18 @@ export const startFuzzerJob = (target) => invoke('start_fuzzer_job', { target })
 // ═══ Logs ═══
 export const getRuntimeLogs = (limit = 200) => invoke('get_runtime_logs', { limit });
 export const pushRuntimeLogEntry = (message) => invoke('push_runtime_log_entry', { message });
+export const runKvDualWriteDiagnostic = () => invoke('kv_dual_write_diagnostic');
+export const runKvReadAnalyticsV1 = () => invoke('kv_read_analytics_v1');
+export const kvShadowIngestProjectionV2 = (projection) =>
+  invoke('kv_shadow_ingest_projection_v2', { projection });
+
+async function bestEffortKvShadowIngestV2(projection) {
+  try {
+    await kvShadowIngestProjectionV2(projection);
+  } catch (_) {
+    // Shadow ingest is non-fatal by design.
+  }
+}
 
 // ═══ Minimal agent (stable consumer contract) ═══
 const AGENT_MINIMAL_FINAL_STATUS = {

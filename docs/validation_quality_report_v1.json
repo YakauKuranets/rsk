@@ -1,0 +1,169 @@
+{
+  "report_version": "validation_quality_report_v1",
+  "created_at": "2026-03-26T00:00:00Z",
+  "scope": {
+    "ui_changes": false,
+    "new_runners_added": false,
+    "contract_rewrites": false,
+    "graph_changes": false,
+    "validation_agent_changes": false
+  },
+  "inputs": {
+    "coverage_matrix": "docs/coverage_matrix_v1.json",
+    "baseline_layers": [
+      "archiveBaselinePack",
+      "archiveEdgeCaseHarness",
+      "archiveSafeFuzzLayer",
+      "spiderBaselinePack",
+      "portScanAuditBaselinePack",
+      "credentialHygieneBaselinePack",
+      "passiveTrafficBaselinePack",
+      "session_lifecycle_known_bad_pack_v1"
+    ],
+    "contract_layers": [
+      "archive_result_v1",
+      "auth_result_v1",
+      "surface_scan_result_v1",
+      "port_scan_result_v1",
+      "port_audit_result_v1",
+      "passive_observation_result_v1"
+    ]
+  },
+  "compact_summary": {
+    "passed_failed_inconclusive_trends": {
+      "status": "mixed",
+      "notes": [
+        "Passed/failed signals are stable in deterministic contract checks",
+        "Inconclusive remains expected for sparse passive/surface evidence",
+        "Trend direction is not asserted globally without centralized telemetry rollup"
+      ]
+    },
+    "strongest_validation_contours": [
+      "port_scan_result_v1 shape consistency",
+      "archive_result_v1 normalization contract checks"
+    ],
+    "weakest_validation_contours": [
+      "passive observation in low-traffic windows",
+      "surface/spider attribution confidence under sparse crawl evidence"
+    ],
+    "false_safety_hotspots": [
+      "auth/session secure-looking outputs under limited fallback evidence",
+      "fingerprint/vendor hints interpreted as definitive attribution",
+      "quiet passive windows interpreted as safe behavior"
+    ],
+    "evidence_quality_hotspots": [
+      "indirect evidence in passive traffic correlation",
+      "assumption-heavy attribution hints in sparse spider outputs"
+    ],
+    "top_next_priorities": [
+      "Phase 32 Knowledge Vault v1 (shadow mode)",
+      "Cross-pack telemetry aggregation for trend confidence",
+      "Confidence-to-action guardrails for inconclusive-heavy contours"
+    ]
+  },
+  "sections": {
+    "contract_health": {
+      "stable_contracts": [
+        {
+          "name": "archive_result_v1",
+          "grade": "runtime-grade",
+          "notes": "Normalization + shape checks are mature"
+        },
+        {
+          "name": "port_scan_result_v1",
+          "grade": "runtime-grade",
+          "notes": "Deterministic shape and marker semantics"
+        },
+        {
+          "name": "port_audit_result_v1",
+          "grade": "baseline-grade",
+          "notes": "Rule consistency is solid but context-limited"
+        }
+      ],
+      "consistency_risks": [
+        {
+          "name": "passive_observation_result_v1",
+          "grade": "partial-only",
+          "risk": "Window-dependent sparsity can inflate inconclusive share"
+        },
+        {
+          "name": "surface_scan_result_v1 + spider evidence layers",
+          "grade": "partial-only",
+          "risk": "Weak crawl signal propagates to downstream explainability"
+        }
+      ]
+    },
+    "baseline_health": {
+      "mature_packs": [
+        "archiveBaselinePack",
+        "portScanAuditBaselinePack",
+        "credentialHygieneBaselinePack"
+      ],
+      "minimal_or_context_bounded": [
+        "passiveTrafficBaselinePack",
+        "spiderBaselinePack",
+        "session_lifecycle_known_bad_pack_v1"
+      ],
+      "notes": [
+        "Baseline maturity varies by signal richness",
+        "Known-bad packs are useful but non-exhaustive"
+      ]
+    },
+    "inconclusive_analysis": {
+      "expected_inconclusive_zones": [
+        "passive traffic with very low packet counts",
+        "surface/spider discovery on low-exposure targets"
+      ],
+      "weakness_signals": [
+        "inconclusive on high-signal targets indicates potential heuristic gaps",
+        "repeated inconclusive in deterministic checks indicates shape/consistency drift"
+      ]
+    },
+    "false_safety_analysis": {
+      "hotspots": [
+        {
+          "contour": "auth/session",
+          "risk_level": "high",
+          "description": "Limited-path success can mask untested lifecycle edges"
+        },
+        {
+          "contour": "spider fingerprint attribution",
+          "risk_level": "high",
+          "description": "Hints may be over-interpreted as hard identification"
+        },
+        {
+          "contour": "passive observation",
+          "risk_level": "high",
+          "description": "Noisy/quiet windows can be mistaken for stable behavior"
+        }
+      ]
+    },
+    "coverage_linkage": {
+      "source": "docs/coverage_matrix_v1.json",
+      "strong_links": [
+        "port scanner coverage_level=strong aligns with runtime-grade contract health"
+      ],
+      "partial_links": [
+        "passive observation coverage_level=partial aligns with partial-only validation grade",
+        "surface/spider partial coverage aligns with inconclusive-heavy edge behavior"
+      ]
+    },
+    "next_priorities": [
+      {
+        "priority": 1,
+        "item": "Knowledge Vault v1 (shadow mode) ingestion of quality artifacts",
+        "reason": "Preserve evidence continuity and reduce context loss"
+      },
+      {
+        "priority": 2,
+        "item": "Cross-pack trend rollup",
+        "reason": "Upgrade mixed trend statements into measurable time-series"
+      },
+      {
+        "priority": 3,
+        "item": "False-safety guardrails",
+        "reason": "Prevent overconfident operator decisions in partial-only zones"
+      }
+    ]
+  }
+}

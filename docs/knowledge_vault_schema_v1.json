@@ -1,0 +1,50 @@
+{
+  "schema_version": "knowledge_vault_schema_v1",
+  "mode": "shadow_only",
+  "runtime_decision_integration": false,
+  "dual_write_enabled": false,
+  "secret_policy": {
+    "store_raw_secrets": false,
+    "store_raw_tokens": false,
+    "store_raw_cookies": false,
+    "allowed": [
+      "credential profiles",
+      "weakness signals",
+      "fingerprints",
+      "evidence refs"
+    ]
+  },
+  "node_labels": [
+    "Device",
+    "Service",
+    "Vendor",
+    "Firmware",
+    "CredentialProfile",
+    "Run",
+    "Capability",
+    "Finding",
+    "Evidence",
+    "ProfilePack",
+    "Environment",
+    "ReviewDecision",
+    "ValidationPath"
+  ],
+  "relationship_types": [
+    "HAS_SERVICE",
+    "FROM_VENDOR",
+    "RUNS_FIRMWARE",
+    "HAS_CREDENTIAL_PROFILE",
+    "USED_CAPABILITY",
+    "PRODUCED_FINDING",
+    "SUPPORTED_BY",
+    "CONTAINS_CASE",
+    "IN_ENVIRONMENT",
+    "REVIEW_DECISION",
+    "USED_PATH",
+    "OBSERVED_CREDENTIAL_PROFILE"
+  ],
+  "phase_alignment": {
+    "current": "phase32_1_shadow_bootstrap",
+    "next": "phase32_2_dual_write_mature_data"
+  }
+}

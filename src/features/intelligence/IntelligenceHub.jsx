@@ -22,6 +22,7 @@ const TABS=[
 ];
 
 const GROUPS={recon:{label:'Разведка',color:'#00aaff'},attack:{label:'Атака',color:'#ff4444'}};
+const MAINLINE_TAB_IDS = new Set(['tools']);
 
 function SharedContextBar(){
   const intelligenceTarget = useAppStore((s)=>s.intelligenceTarget);
@@ -73,7 +74,7 @@ function SharedContextBar(){
     <div style={{margin:'10px 12px 0',padding:'10px',border:'1px solid #1b2535',borderRadius:'6px',background:'#080d15'}}>
       <div style={{color:'#7aa2d8',fontSize:'10px',fontWeight:700,letterSpacing:'.08em',textTransform:'uppercase',marginBottom:'8px'}}>Операционный контекст</div>
       <input value={intelligenceTarget} onChange={(e)=>setIntelligenceTarget(e.target.value)} placeholder='Цель для модулей: IP, домен, URL, CIDR' style={{width:'100%',boxSizing:'border-box',padding:'7px 8px',background:'#09111b',color:'#d7e7ff',border:'1px solid #233247',borderRadius:'4px',marginBottom:'6px'}} />
-      <input value={permitToken} onChange={(e)=>setPermitToken(e.target.value)} type='password' placeholder='Permit token для BAS / tools / payload / meta-agent' style={{width:'100%',boxSizing:'border-box',padding:'7px 8px',background:'#09111b',color:'#d7e7ff',border:'1px solid #233247',borderRadius:'4px',marginBottom:'6px'}} />
+      <input value={permitToken} onChange={(e)=>setPermitToken(e.target.value)} type='password' placeholder='Permit token для инструментов (и LAB-панелей при включённом LAB mode)' style={{width:'100%',boxSizing:'border-box',padding:'7px 8px',background:'#09111b',color:'#d7e7ff',border:'1px solid #233247',borderRadius:'4px',marginBottom:'6px'}} />
       <div style={{display:'flex',gap:'6px',marginBottom:'6px'}}>
         <input value={ollamaUrl} onChange={(e)=>setOllamaUrl(e.target.value)} placeholder='Ollama URL' style={{flex:2,padding:'7px 8px',background:'#09111b',color:'#d7e7ff',border:'1px solid #233247',borderRadius:'4px'}} />
         <select value={ollamaModel} onChange={(e)=>setOllamaModel(e.target.value)} style={{flex:1,padding:'7px 8px',background:'#09111b',color:'#d7e7ff',border:'1px solid #233247',borderRadius:'4px'}}>
@@ -97,9 +98,20 @@ function SharedContextBar(){
   );
 }
 
-export default function IntelligenceHub({ onSessionAuditStatus, selectedTarget }){
-  const [active,setActive]=useState('meta');
-  const tab=useMemo(()=>TABS.find(t=>t.id===active),[active]);
+export default function IntelligenceHub({ onSessionAuditStatus, selectedTarget, labMode = false }){
+  const [active,setActive]=useState('tools');
+  const availableTabs = useMemo(
+    () => (labMode ? TABS : TABS.filter((item) => MAINLINE_TAB_IDS.has(item.id))),
+    [labMode],
+  );
+
+  useEffect(() => {
+    if (!availableTabs.some((item) => item.id === active)) {
+      setActive('tools');
+    }
+  }, [active, availableTabs]);
+
+  const tab=useMemo(()=>availableTabs.find(t=>t.id===active) || null,[active, availableTabs]);
 
   const PANELS={
     meta:<MetaPanel/>,
@@ -116,7 +128,9 @@ export default function IntelligenceHub({ onSessionAuditStatus, selectedTarget }
     <div style={{border:'1px solid #2a2a3a',background:'#0a0a12',borderRadius:'4px',overflow:'hidden',marginBottom:'16px'}}>
       <div style={{padding:'8px 12px',borderBottom:'1px solid #1a1a2a',background:'#0d0d1a'}}>
         <div style={{color:'#ff003c',fontSize:'11px',fontWeight:700,letterSpacing:'.1em',marginBottom:'2px'}}>HYPERION — РАЗВЕДКА И АТАКА</div>
-        <div style={{color:'#444466',fontSize:'10px'}}>Панели используют общий target / permit token / LLM config ↓</div>
+        <div style={{color:'#444466',fontSize:'10px'}}>
+          {labMode ? 'LAB mode: доступны экспериментальные панели.' : 'Mainline mode: только зрелые roadmap-панели.'}
+        </div>
       </div>
 
       <SharedContextBar/>
@@ -126,7 +140,7 @@ export default function IntelligenceHub({ onSessionAuditStatus, selectedTarget }
           <div key={gid} style={{borderBottom:'1px solid #111'}}>
             <div style={{padding:'4px 10px 2px',fontSize:'9px',fontWeight:600,textTransform:'uppercase',letterSpacing:'.08em',color:grp.color+'88'}}>{grp.label}</div>
             <div style={{display:'flex',flexWrap:'wrap',gap:'3px',padding:'3px 8px 6px'}}>
-              {TABS.filter(t=>t.group===gid).map(t=>(
+              {availableTabs.filter(t=>t.group===gid).map(t=>(
                 <button key={t.id} onClick={()=>setActive(t.id)} style={{
                   padding:'5px 10px',fontSize:'11px',fontWeight:active===t.id?700:400,cursor:'pointer',
                   border:'1px solid '+(active===t.id?t.color:'#2a2a3a'),

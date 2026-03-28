@@ -1,0 +1,26 @@
+{
+  "version": "kv_dual_write_v1",
+  "mode": "shadow_only",
+  "primary_storage": "sled",
+  "non_fatal_on_graph_error": true,
+  "runtime_decision_integration": false,
+  "mature_dual_write_set": [
+    "capability_run_metadata",
+    "stream_findings",
+    "session_cookie_findings",
+    "archive_search_findings",
+    "hashed_evidence_refs",
+    "device_service_metadata"
+  ],
+  "secret_policy": {
+    "raw_passwords": false,
+    "raw_tokens": false,
+    "raw_cookies": false,
+    "pii_payloads": false
+  },
+  "diagnostic": {
+    "tauri_command": "kv_dual_write_diagnostic",
+    "marker_prefix": "KV_DUAL_WRITE_V1"
+  },
+  "next_phase": "phase32_3_read_only_analytics_from_graph"
+}

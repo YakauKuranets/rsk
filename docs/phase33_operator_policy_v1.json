@@ -1,0 +1,33 @@
+{
+  "version": "phase33_operator_policy_v1",
+  "generated_at": "2026-03-28T13:36:16Z",
+  "status": "blocked",
+  "reason": "validation_artifact_missing",
+  "readiness_policy": {
+    "mode": "stop",
+    "summary": "Do not proceed. Re-run missing upstream validation artifacts."
+  },
+  "artifact_requirements": {
+    "phase33_operator_readiness_v1": {"path": "docs/phase33_operator_readiness_v1.json", "present": true},
+    "phase32_exit_remediation_report_v1": {"path": "docs/phase32_exit_remediation_report_v1.json", "present": true},
+    "phase33_shadow_validation_v1": {"path": "docs/phase33_shadow_validation_v1.json", "present": false},
+    "phase33_legacy_drift_governance_v1": {"path": "docs/phase33_legacy_drift_governance_v1.json", "present": true}
+  },
+  "operator_actions": {
+    "primary": "Do not proceed. Re-run missing upstream validation artifacts.",
+    "notes": ""
+  },
+  "remediation_triggers": {
+    "trigger": "validation_artifact_missing",
+    "actions": "Run audit/validation/governance scripts and regenerate readiness summary."
+  },
+  "escalation_rules": {
+    "policy": "Escalate if artifacts cannot be generated due environment/runtime issues."
+  },
+  "handoff_summary": {
+    "decision": "stop",
+    "next_owner": "operator",
+    "requires_blocker_clearance": true
+  },
+  "marker": "KV_SHADOW_OPERATOR_POLICY_V1|status=blocked|reason=validation_artifact_missing"
+}

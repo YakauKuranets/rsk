@@ -1,0 +1,21 @@
+{
+  "version": "kv_read_analytics_v1",
+  "mode": "read_only_shadow",
+  "runtime_decision_integration": false,
+  "write_semantics_changed": false,
+  "supported_queries": [
+    "capability_frequency_by_vendor_device",
+    "most_common_finding_types_by_capability",
+    "evidence_linkage_density",
+    "repeated_validation_paths",
+    "inconclusive_or_weak_clusters",
+    "coverage_hints_mature_subset"
+  ],
+  "marker_prefix": "KV_READ_ANALYTICS_V1",
+  "limitations_policy": {
+    "on_empty_graph": "return_limited_not_error",
+    "on_query_failure": "return_partial_with_limitations",
+    "on_neo4j_unavailable": "return_limited_not_fatal"
+  },
+  "next_phase": "phase32_4_broadened_dual_write"
+}
