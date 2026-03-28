@@ -1,0 +1,71 @@
+# Фаза 34 — ValidationAgent Runtime Request Packet v1
+
+Сформировано: 2026-03-28T17:51:43Z
+
+Маркер: `KV_VALIDATION_AGENT_RUNTIME_REQUEST_PACKET_V1|status=runtime_request_packet_ready_with_notes|reason=safe_runtime_request_reference_ready_with_notes`
+
+- status: **runtime_request_packet_ready_with_notes**
+- reason: **safe_runtime_request_reference_ready_with_notes**
+
+## request_packet_status
+- status: runtime_request_packet_ready_with_notes
+- reason: safe_runtime_request_reference_ready_with_notes
+- missing_required_inputs: []
+- missing_evidence: []
+- operator_message_ru: Пакет запроса сформирован только для внешнего gate-review без запуска runtime.
+
+## request_scope
+- design_only_runtime_request_preparation
+- manual_approval_required_precheck
+- external_gate_submission_readiness
+
+## submission_requirements
+- baseline marker current
+- policy marker current
+- dry-run marker current
+- approval contract marker current
+- approval record marker current
+- approval rehearsal marker current
+- operator gate marker current
+- decision memo marker current
+- runtime entry contract marker current
+- handoff marker current
+
+## approver_review_points
+- baseline актуален
+- policy актуален
+- gate chain консистентна
+- non-execution флаги сохранены
+- runtime phase не открыта
+- нет implicit/silent пути к исполнению
+
+## rejection_conditions
+- missing evidence
+- blocked policy/baseline/gate chain
+- stale artifacts
+- implicit approval path
+- silent fallback to execution
+- any runtime authorization flag not false
+
+## evidence_bundle_summary
+- baseline_marker: KV_SHADOW_BASELINE_FREEZE_V1|status=baseline_freeze_blocked|reason=baseline_artifact_missing
+- policy_marker: KV_SHADOW_OPERATOR_POLICY_V1|status=blocked|reason=validation_artifact_missing
+- dry_run_marker: KV_VALIDATION_AGENT_DRY_RUN_V1|status=dry_run_ready_with_notes|reason=safe_dry_run_reference_ready_with_notes
+- approval_contract_marker: KV_VALIDATION_AGENT_APPROVAL_CONTRACT_V1|status=approval_contract_ready_with_notes|reason=safe_approval_reference_ready_with_notes
+- approval_record_marker: KV_VALIDATION_AGENT_APPROVAL_RECORD_V1|status=approval_record_ready_with_notes|reason=safe_approval_record_ready_with_notes
+- approval_rehearsal_marker: KV_VALIDATION_AGENT_APPROVAL_REHEARSAL_V1|status=approval_rehearsal_ready_with_notes|reason=operator_packet_rehearsal_ready_with_notes
+- operator_gate_marker: KV_VALIDATION_AGENT_OPERATOR_GATE_V1|status=operator_gate_ready_with_notes|reason=safe_operator_gate_reference_ready_with_notes
+- decision_memo_marker: KV_VALIDATION_AGENT_GATE_DECISION_MEMO_V1|status=decision_memo_ready_with_notes|reason=safe_decision_memo_reference_ready_with_notes
+- runtime_entry_contract_marker: KV_VALIDATION_AGENT_RUNTIME_ENTRY_CONTRACT_V1|status=runtime_entry_contract_ready_with_notes|reason=safe_runtime_entry_reference_ready_with_notes
+- handoff_marker: KV_SHADOW_HANDOFF_PACK_V1|status=blocked|reason=handoff_blocked_missing_artifacts
+- triage_marker: KV_OPERATOR_BACKLOG_TRIAGE_V1|status=triage_blocked|reason=unresolved_true_blockers_remain
+
+## explicit_non_authorizations
+- execution_authorized: False
+- graph_write_authorized: False
+- remediation_authorized: False
+- runtime_phase_open: False
+
+## next_safe_step
+- step_ru: Передать пакет на внешний review и обновить evidence при необходимости.
+- control_ru: Даже после review исполнение запрещено до отдельной разрешённой runtime-фазы.
