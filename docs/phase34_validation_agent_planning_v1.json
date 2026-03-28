@@ -1,0 +1,111 @@
+{
+  "version": "phase34_validation_agent_planning_v1",
+  "generated_at": "2026-03-28T16:06:18Z",
+  "status": "validation_agent_planning_ready_with_notes",
+  "reason": "safe_planning_reference_ready_with_notes",
+  "marker": "KV_VALIDATION_AGENT_PLANNING_V1|status=validation_agent_planning_ready_with_notes|reason=safe_planning_reference_ready_with_notes",
+  "baseline_reference": {
+    "baseline_artifact": "docs/phase33_baseline_freeze_v1.json",
+    "baseline_present": true,
+    "baseline_status": "baseline_freeze_blocked",
+    "baseline_reason": "baseline_artifact_missing",
+    "baseline_marker": "KV_SHADOW_BASELINE_FREEZE_V1|status=baseline_freeze_blocked|reason=baseline_artifact_missing",
+    "operator_policy_artifact": "docs/phase33_operator_policy_v1.json",
+    "operator_policy_status": "blocked",
+    "operator_policy_reason": "validation_artifact_missing",
+    "operator_policy_marker": "KV_SHADOW_OPERATOR_POLICY_V1|status=blocked|reason=validation_artifact_missing",
+    "planning_artifact": "docs/phase34_next_phase_planning_v1.json",
+    "planning_status": "planning_ready_with_notes",
+    "planning_reason": "baseline_reference_ready_with_notes",
+    "planning_marker": "KV_NEXT_PHASE_PLANNING_V1|status=planning_ready_with_notes|reason=baseline_reference_ready_with_notes",
+    "note_closure_backlog_artifact": "docs/phase34_operator_note_closure_backlog_v1.json",
+    "note_closure_backlog_status": "backlog_ready_with_notes",
+    "note_closure_backlog_reason": "notes_structured_with_deferred_items",
+    "triage_artifact": "docs/phase34_operator_backlog_triage_v1.json",
+    "triage_status": "triage_blocked",
+    "triage_reason": "unresolved_true_blockers_remain"
+  },
+  "safety_constraints": [
+    "read-only only",
+    "no graph writes",
+    "no backfill",
+    "no reruns",
+    "no UI/runtime/ValidationAgent execution",
+    "no feature expansion beyond planning layer",
+    "preserve operator policy and handoff decision chain",
+    "respect frozen baseline as authoritative reference"
+  ],
+  "allowed_capabilities": [
+    "artifact inspection",
+    "readiness evaluation",
+    "policy reasoning",
+    "planning recommendation",
+    "validation summary generation"
+  ],
+  "forbidden_actions": [
+    "autonomous remediation",
+    "direct graph mutation",
+    "bypass of policy/handoff chain",
+    "hidden state changes",
+    "runtime decisions without explicit approval layer",
+    "auto-execution without approval",
+    "graph write without separate gate",
+    "operator policy bypass",
+    "frozen baseline bypass"
+  ],
+  "execution_modes": {
+    "planning_mode": {
+      "enabled": true,
+      "description": "ValidationAgent remains planning-only; no runtime execution is permitted."
+    },
+    "allowed_modes": [
+      "dry_run",
+      "shadow_only",
+      "manual_approval_required"
+    ],
+    "mode_rules": [
+      "dry_run: generate recommendations and summaries only, no side effects.",
+      "shadow_only: evaluate artifacts against policy/baseline without enforcement actions.",
+      "manual_approval_required: every actionable recommendation requires explicit operator approval before any downstream execution."
+    ]
+  },
+  "approval_requirements": {
+    "approval_layer_required": true,
+    "required_approvers": [
+      "operator"
+    ],
+    "mandatory_gates": [
+      "operator policy gate",
+      "handoff chain consistency gate",
+      "frozen baseline adherence gate"
+    ],
+    "approval_rules": [
+      "No automatic remediation or execution may proceed without explicit operator approval.",
+      "Any graph write proposal requires separate gate outside this planning artifact.",
+      "Any deviation from frozen baseline requires new freeze/policy cycle before execution."
+    ]
+  },
+  "entry_conditions": [
+    "Baseline reference artifact must exist and be parseable.",
+    "Operator policy artifact must exist and remain authoritative for go/no-go.",
+    "Planning artifacts must preserve read-only and no-write constraints.",
+    "ValidationAgent stays in planning mode only until explicit approval layer for execution is introduced.",
+    "No forbidden action is allowed under any execution mode in this phase."
+  ],
+  "recommended_first_slice": {
+    "name": "validation_agent_planning_contract",
+    "objective": "Produce deterministic planning-only validation summaries from baseline/policy/backlog artifacts.",
+    "scope": [
+      "artifact inspection checklist",
+      "readiness and policy reasoning template",
+      "manual approval handoff format"
+    ],
+    "non_goals": [
+      "runtime execution",
+      "autonomous remediation",
+      "graph mutation"
+    ]
+  },
+  "planning_mode_only": true,
+  "missing_required_inputs": []
+}
