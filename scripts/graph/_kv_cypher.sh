@@ -14,10 +14,14 @@ fi
 # shellcheck disable=SC1090
 source "${ENV_FILE}"
 
-if ! command -v cypher-shell >/dev/null 2>&1; then
+KV_CYPHER_SHELL_PRESENT=false
+if command -v cypher-shell >/dev/null 2>&1; then
+  KV_CYPHER_SHELL_PRESENT=true
+else
   echo "missing_cypher_shell"
   exit 1
 fi
+export KV_CYPHER_SHELL_PRESENT
 
 BOLT_URL="bolt://localhost:${NEO4J_BOLT_PORT:-7687}"
 
