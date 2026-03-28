@@ -1,0 +1,72 @@
+# Фаза 34 — ValidationAgent Operator Gate v1
+
+Сформировано: 2026-03-28T17:27:34Z
+
+Маркер: `KV_VALIDATION_AGENT_OPERATOR_GATE_V1|status=operator_gate_ready_with_notes|reason=safe_operator_gate_reference_ready_with_notes`
+
+- status: **operator_gate_ready_with_notes**
+- reason: **safe_operator_gate_reference_ready_with_notes**
+
+## gate_status
+- status: operator_gate_ready_with_notes
+- reason: safe_operator_gate_reference_ready_with_notes
+- missing_required_inputs: []
+- missing_evidence: []
+- required_gate_checks_count: 7
+- operator_message_ru: Operator gate сформирован как read-only checklist/evidence слой.
+
+## required_gate_checks
+- baseline reference current
+- operator policy current
+- dry-run current
+- approval contract current
+- approval record current
+- approval rehearsal current
+- handoff consistency confirmed
+
+## operator_checklist
+- Проверить актуальность baseline.
+- Проверить актуальность policy.
+- Проверить completeness evidence bundle.
+- Проверить, что execution_authorized остаётся false.
+- Проверить, что graph_write_authorized остаётся false.
+- Проверить, что remediation_authorized остаётся false.
+
+## gate_failure_conditions
+- missing evidence
+- stale baseline reference
+- blocked operator policy
+- blocked dry-run / approval scaffolds
+- любое implicit или silent разрешение на исполнение
+
+## gate_pass_conditions
+- Все required gate checks подтверждены.
+- Evidence bundle полон и непротиворечив.
+- execution_authorized=false подтверждено.
+- graph_write_authorized=false подтверждено.
+- remediation_authorized=false подтверждено.
+- Operator gate используется только как проверочный слой и не заменяет policy/contract.
+
+## evidence_bundle
+- baseline_marker: KV_SHADOW_BASELINE_FREEZE_V1|status=baseline_freeze_blocked|reason=baseline_artifact_missing
+- policy_marker: KV_SHADOW_OPERATOR_POLICY_V1|status=blocked|reason=validation_artifact_missing
+- dry_run_marker: KV_VALIDATION_AGENT_DRY_RUN_V1|status=dry_run_ready_with_notes|reason=safe_dry_run_reference_ready_with_notes
+- approval_contract_marker: KV_VALIDATION_AGENT_APPROVAL_CONTRACT_V1|status=approval_contract_ready_with_notes|reason=safe_approval_reference_ready_with_notes
+- approval_record_marker: KV_VALIDATION_AGENT_APPROVAL_RECORD_V1|status=approval_record_ready_with_notes|reason=safe_approval_record_ready_with_notes
+- approval_rehearsal_marker: KV_VALIDATION_AGENT_APPROVAL_REHEARSAL_V1|status=approval_rehearsal_ready_with_notes|reason=operator_packet_rehearsal_ready_with_notes
+- handoff_marker: KV_SHADOW_HANDOFF_PACK_V1|status=blocked|reason=handoff_blocked_missing_artifacts
+- triage_marker: KV_OPERATOR_BACKLOG_TRIAGE_V1|status=triage_blocked|reason=unresolved_true_blockers_remain
+
+## non_execution_confirmation
+- operator_gate_is_read_only: True
+- runtime_execution_permitted: False
+- remediation_permitted: False
+- graph_writes_permitted: False
+- gate_does_not_replace_approval_contract: True
+- gate_does_not_replace_operator_policy: True
+- full_evidence_bundle_still_not_execution_permission: True
+- operator_message_ru: Даже при полном evidence bundle исполнение запрещено до отдельной runtime-фазы.
+
+## next_safe_step
+- step_ru: Пройти operator_checklist и подтвердить gate_pass_conditions без запуска исполнения.
+- control_ru: Любой переход к manual_approval_required runtime возможен только в отдельной разрешённой фазе.
