@@ -1,0 +1,15 @@
+{
+  "version": "phase33_shadow_batch_field_audit_v1",
+  "generated_at": "2026-03-29T19:23:38Z",
+  "canonical_field": "batch_id",
+  "legacy_field": "run_batch_id",
+  "status": "blocked",
+  "reason": "missing_env_file",
+  "counts": {
+    "batch_id_only": 0,
+    "run_batch_id_only": 0,
+    "both": 0,
+    "neither": 0
+  },
+  "marker": "KV_SHADOW_BATCH_FIELD_AUDIT_V1|status=blocked|reason=missing_env_file|runBatchOnly=0|neither=0"
+}

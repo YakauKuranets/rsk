@@ -1,11 +1,11 @@
 # Phase 33 Handoff Pack v1
 
-Generated at: 2026-03-28T14:03:50Z
+Generated at: 2026-03-29T19:23:48Z
 
-Marker: `KV_SHADOW_HANDOFF_PACK_V1|status=blocked|reason=handoff_blocked_missing_artifacts`
+Marker: `KV_SHADOW_HANDOFF_PACK_V1|status=blocked|reason=handoff_blocked_upstream_gate`
 
 - status: **blocked**
-- reason: **handoff_blocked_missing_artifacts**
+- reason: **handoff_blocked_upstream_gate**
 
 ## current_status
 - phase32: blocked
@@ -15,20 +15,20 @@ Marker: `KV_SHADOW_HANDOFF_PACK_V1|status=blocked|reason=handoff_blocked_missing
 
 ## required_artifacts
 - phase32_exit_remediation: true
-- phase33_shadow_validation: false
-- phase33_shadow_batch_field_audit: false
+- phase33_shadow_validation: true
+- phase33_shadow_batch_field_audit: true
 - phase33_legacy_drift_governance: true
 - phase33_operator_readiness: true
 - phase33_operator_policy: true
 
 ## latest_verdicts
 - phase32_status: blocked
-- shadow_validation_status: 
-- shadow_batch_field_audit_status: 
+- shadow_validation_status: blocked
+- shadow_batch_field_audit_status: blocked
 - legacy_governance_status: blocked
 - operator_readiness_status: blocked
 - operator_policy_status: blocked
-- operator_policy_reason: validation_artifact_missing
+- operator_policy_reason: graph_env_blocked_missing_env_file
 
 ## key_commands
 1. bash scripts/graph/kv_shadow_validation_v1.sh

@@ -1,21 +1,21 @@
 # Phase 33 Baseline Freeze v1
 
-Generated at: 2026-03-28T14:38:55Z
+Generated at: 2026-03-29T19:23:53Z
 
-Marker: `KV_SHADOW_BASELINE_FREEZE_V1|status=baseline_freeze_blocked|reason=baseline_artifact_missing`
+Marker: `KV_SHADOW_BASELINE_FREEZE_V1|status=baseline_freeze_blocked|reason=baseline_not_operationally_ready`
 
 - baseline_status: **baseline_freeze_blocked**
-- reason: **baseline_artifact_missing**
+- reason: **baseline_not_operationally_ready**
 
 ## baseline_status
 - official_baseline_frozen: false
 - status: baseline_freeze_blocked
-- reason: baseline_artifact_missing
+- reason: baseline_not_operationally_ready
 
 ## source_artifacts
 - phase32_exit_remediation: true
-- phase33_shadow_validation: false
-- phase33_shadow_batch_field_audit: false
+- phase33_shadow_validation: true
+- phase33_shadow_batch_field_audit: true
 - phase33_legacy_drift_governance: true
 - phase33_operator_readiness: true
 - phase33_operator_policy: true
@@ -23,14 +23,14 @@ Marker: `KV_SHADOW_BASELINE_FREEZE_V1|status=baseline_freeze_blocked|reason=base
 
 ## frozen_verdicts
 - phase32_status: blocked
-- shadow_validation_status: 
-- shadow_batch_field_audit_status: 
+- shadow_validation_status: blocked
+- shadow_batch_field_audit_status: blocked
 - legacy_governance_status: blocked
 - operator_readiness_status: blocked
 - operator_policy_status: blocked
-- operator_policy_reason: validation_artifact_missing
+- operator_policy_reason: graph_env_blocked_missing_env_file
 - handoff_status: blocked
-- handoff_reason: handoff_blocked_missing_artifacts
+- handoff_reason: handoff_blocked_upstream_gate
 
 ## notes_to_carry_forward
 - Source verdicts are frozen snapshot values and must be re-frozen only after explicit operational update.

@@ -1,13 +1,13 @@
 {
   "version": "phase33_baseline_freeze_v1",
-  "generated_at": "2026-03-28T14:38:55Z",
+  "generated_at": "2026-03-29T19:23:53Z",
   "baseline_status": "baseline_freeze_blocked",
-  "reason": "baseline_artifact_missing",
-  "marker": "KV_SHADOW_BASELINE_FREEZE_V1|status=baseline_freeze_blocked|reason=baseline_artifact_missing",
+  "reason": "baseline_not_operationally_ready",
+  "marker": "KV_SHADOW_BASELINE_FREEZE_V1|status=baseline_freeze_blocked|reason=baseline_not_operationally_ready",
   "source_artifacts": {
     "phase32_exit_remediation": {"path": "docs/phase32_exit_remediation_report_v1.json", "present": true},
-    "phase33_shadow_validation": {"path": "docs/phase33_shadow_validation_v1.json", "present": false},
-    "phase33_shadow_batch_field_audit": {"path": "docs/phase33_shadow_batch_field_audit_v1.json", "present": false},
+    "phase33_shadow_validation": {"path": "docs/phase33_shadow_validation_v1.json", "present": true},
+    "phase33_shadow_batch_field_audit": {"path": "docs/phase33_shadow_batch_field_audit_v1.json", "present": true},
     "phase33_legacy_drift_governance": {"path": "docs/phase33_legacy_drift_governance_v1.json", "present": true},
     "phase33_operator_readiness": {"path": "docs/phase33_operator_readiness_v1.json", "present": true},
     "phase33_operator_policy": {"path": "docs/phase33_operator_policy_v1.json", "present": true},
@@ -15,14 +15,14 @@
   },
   "frozen_verdicts": {
     "phase32_status": "blocked",
-    "shadow_validation_status": "",
-    "shadow_batch_field_audit_status": "",
+    "shadow_validation_status": "blocked",
+    "shadow_batch_field_audit_status": "blocked",
     "legacy_governance_status": "blocked",
     "operator_readiness_status": "blocked",
     "operator_policy_status": "blocked",
-    "operator_policy_reason": "validation_artifact_missing",
+    "operator_policy_reason": "graph_env_blocked_missing_env_file",
     "handoff_status": "blocked",
-    "handoff_reason": "handoff_blocked_missing_artifacts"
+    "handoff_reason": "handoff_blocked_upstream_gate"
   },
   "notes_to_carry_forward": [
     "Source verdicts are frozen snapshot values and must be re-frozen only after explicit operational update.",

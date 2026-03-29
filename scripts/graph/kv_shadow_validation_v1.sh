@@ -9,6 +9,7 @@ NOW_UTC="$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
 # shellcheck source=scripts/graph/_kv_cypher.sh
 source "${ROOT_DIR}/scripts/graph/_kv_cypher.sh"
 kv_load_env
+base_reason="$(kv_env_reason)"
 
 if [[ ! -f "${LEDGER_JSON}" ]]; then
   status="blocked"
@@ -51,6 +52,30 @@ if [[ -z "${batch_id}" ]]; then
   "version": "phase33_shadow_validation_v1",
   "generated_at": "${NOW_UTC}",
   "batch_id": "",
+  "status": "${status}",
+  "reason": "${reason}",
+  "checks": {
+    "run_count": 0,
+    "capability_links": 0,
+    "finding_links": 0,
+    "orphan_runs": 0
+  },
+  "marker": "${marker}"
+}
+JSON
+  echo "${marker}"
+  exit 0
+fi
+
+if [[ "${base_reason}" != "ready" ]]; then
+  status="blocked"
+  reason="${base_reason}"
+  marker="KV_SHADOW_VALIDATION_V1|status=${status}|reason=${reason}|batch_id=${batch_id}"
+  cat > "${OUT_JSON}" <<JSON
+{
+  "version": "phase33_shadow_validation_v1",
+  "generated_at": "${NOW_UTC}",
+  "batch_id": "${batch_id}",
   "status": "${status}",
   "reason": "${reason}",
   "checks": {

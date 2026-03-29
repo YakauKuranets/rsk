@@ -9,10 +9,6 @@ NOW_UTC="$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
 source "${ROOT_DIR}/scripts/graph/_kv_cypher.sh"
 
 kv_load_env
-KV_CYPHER_SHELL_PRESENT=false
-if command -v cypher-shell >/dev/null 2>&1; then
-  KV_CYPHER_SHELL_PRESENT=true
-fi
 
 neo4j_reachable=false
 status="blocked"
@@ -28,7 +24,11 @@ if [[ "${reason}" == "ready" ]]; then
   fi
 fi
 
-missing_vars_json="$(printf '%s\n' "${KV_ENV_MISSING_VARS[@]:-}" | python -c 'import json,sys; print(json.dumps([x.strip() for x in sys.stdin if x.strip()]))')"
+if [[ ${#KV_ENV_MISSING_VARS[@]} -gt 0 ]]; then
+  missing_vars_json="$(printf '%s\n' "${KV_ENV_MISSING_VARS[@]}" | python -c 'import json,sys; print(json.dumps([x.strip() for x in sys.stdin if x.strip()]))')"
+else
+  missing_vars_json="[]"
+fi
 marker="KV_GRAPH_ENV_READY_V1|status=${status}|reason=${reason}|neo4j_reachable=${neo4j_reachable}|cypher_shell_present=${KV_CYPHER_SHELL_PRESENT:-false}|env_complete=${KV_ENV_COMPLETE:-false}|shadow_write_enabled=${KV_SHADOW_WRITE_ENABLED:-false}|ts=${NOW_UTC}"
 
 cat > "${OUT_JSON}" <<JSON

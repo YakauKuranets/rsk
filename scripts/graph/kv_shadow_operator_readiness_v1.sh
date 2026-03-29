@@ -70,7 +70,11 @@ if [[ "${phase32_present}" != "true" || "${shadow_validation_present}" != "true"
   reason="validation_artifact_missing"
 elif [[ "${phase32_overall}" == "blocked" ]]; then
   status="blocked"
-  reason="remediation_not_healthy"
+  if [[ "${phase32_graph_reason}" == "missing_env_file" || "${phase32_graph_reason}" == "missing_env_keys" || "${phase32_graph_reason}" == "missing_cypher_shell" || "${phase32_graph_reason}" == "neo4j_unreachable" ]]; then
+    reason="graph_env_blocked_${phase32_graph_reason}"
+  else
+    reason="remediation_not_healthy"
+  fi
 elif [[ "${shadow_validation_status}" == "blocked" ]]; then
   status="blocked"
   reason="graph_validation_blocked"

@@ -1,8 +1,8 @@
 {
   "version": "phase33_legacy_drift_governance_v1",
-  "generated_at": "2026-03-28T12:51:25Z",
+  "generated_at": "2026-03-29T19:23:38Z",
   "status": "blocked",
-  "reason": "missing_audit_artifact",
+  "reason": "upstream_audit_blocked_missing_env_file",
   "thresholds": {
     "run_batch_id_only_warn": 5,
     "run_batch_id_only_block": 20,
@@ -23,5 +23,5 @@
     "updated": null,
     "legacy_only_after": null
   },
-  "marker": "KV_SHADOW_LEGACY_GOVERNANCE_V1|status=blocked|reason=missing_audit_artifact"
+  "marker": "KV_SHADOW_LEGACY_GOVERNANCE_V1|status=blocked|reason=upstream_audit_blocked_missing_env_file"
 }
