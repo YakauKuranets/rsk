@@ -1,0 +1,132 @@
+# Фаза 36.4 — Governance Archive + Change-Control Packet v1
+
+Сформировано: 2026-03-29T08:57:41Z
+
+Маркер: `KV_PHASE36_GOVERNANCE_ARCHIVE_CHANGE_CONTROL_PACKET_V1|status=archive_packet_ready_with_notes|reason=safe_archive_reference_ready_with_notes`
+
+- Статус: **archive_packet_ready_with_notes**
+- Причина: **safe_archive_reference_ready_with_notes**
+- Пакет фиксирует архив governance-цепочки и рамку change-control без открытия runtime.
+
+## archive_packet_status
+- status: archive_packet_ready_with_notes
+- reason: safe_archive_reference_ready_with_notes
+- missing_required_inputs: []
+- missing_required_markers: []
+- parse_errors: []
+- triage_artifact_present: True
+- operator_message_ru: Сформирован governance archive + change-control packet в reference-only режиме.
+
+## archive_scope
+- scope_target: governance_archive_change_control_after_final_operator_signoff
+- governance_artifact_type: archive_and_change_control_reference_packet
+- is_runtime_authorization: False
+- is_execution_permit: False
+- opens_implicit_runtime_transition: False
+- replaces_future_runtime_phase: False
+- scope_ru: Пакет относится только к governance archive + change-control после final operator signoff.
+- governance_reference_only_ru: Пакет является финальным governance/reference артефактом.
+
+## archived_governance_chain
+- phase35_contract_slice_chain_archived: True
+- future_runtime_boundary_governance_bundle_archived: True
+- operator_handoff_governance_pack_archived: True
+- operator_briefing_signoff_prep_pack_archived: True
+- final_operator_signoff_packet_archived: True
+- policy_baseline_handoff_continuity_archived: True
+- runtime_boundary_dependencies_archived: True
+- operator_review_continuity_archived: True
+
+## required_markers
+- phase35_blueprint_marker: KV_PHASE35_VALIDATION_AGENT_DESIGN_BLUEPRINT_V1|status=phase35_blueprint_ready_with_notes|reason=safe_phase35_design_reference_ready_with_notes
+- layer_contracts_marker: KV_PHASE35_VALIDATION_AGENT_LAYER_CONTRACTS_V1|status=layer_contracts_ready_with_notes|reason=safe_layer_contract_reference_ready_with_notes
+- contract_slice_artifact_to_policy_marker: KV_PHASE35_CONTRACT_SLICE_ARTIFACT_TO_POLICY_V1|status=contract_slice_ready_with_notes|reason=safe_contract_slice_reference_ready_with_notes
+- contract_slice_policy_to_dryrun_marker: KV_PHASE35_CONTRACT_SLICE_POLICY_TO_DRYRUN_V1|status=contract_slice_ready_with_notes|reason=safe_contract_slice_reference_ready_with_notes
+- contract_slice_dryrun_to_approval_marker: KV_PHASE35_CONTRACT_SLICE_DRYRUN_TO_APPROVAL_V1|status=contract_slice_ready_with_notes|reason=safe_contract_slice_reference_ready_with_notes
+- contract_slice_approval_to_audit_marker: KV_PHASE35_CONTRACT_SLICE_APPROVAL_TO_AUDIT_V1|status=contract_slice_ready_with_notes|reason=safe_contract_slice_reference_ready_with_notes
+- contract_slice_audit_to_runtime_boundary_marker: KV_PHASE35_CONTRACT_SLICE_AUDIT_TO_RUNTIME_BOUNDARY_V1|status=contract_slice_ready_with_notes|reason=safe_contract_slice_reference_ready_with_notes
+- future_runtime_boundary_governance_bundle_marker: KV_PHASE35_FUTURE_RUNTIME_BOUNDARY_GOVERNANCE_BUNDLE_V1|status=governance_bundle_ready_with_notes|reason=safe_governance_reference_ready_with_notes
+- operator_handoff_governance_pack_marker: KV_PHASE36_OPERATOR_HANDOFF_GOVERNANCE_PACK_V1|status=handoff_pack_ready_with_notes|reason=safe_handoff_reference_ready_with_notes
+- operator_briefing_signoff_prep_pack_marker: KV_PHASE36_OPERATOR_BRIEFING_SIGNOFF_PREP_PACK_V1|status=briefing_pack_ready_with_notes|reason=safe_briefing_reference_ready_with_notes
+- final_operator_signoff_packet_marker: KV_PHASE36_FINAL_OPERATOR_SIGNOFF_PACKET_V1|status=signoff_packet_ready_with_notes|reason=safe_signoff_reference_ready_with_notes
+- approval_contract_marker: KV_VALIDATION_AGENT_APPROVAL_CONTRACT_V1|status=approval_contract_ready_with_notes|reason=safe_approval_reference_ready_with_notes
+- approval_record_marker: KV_VALIDATION_AGENT_APPROVAL_RECORD_V1|status=approval_record_ready_with_notes|reason=safe_approval_record_ready_with_notes
+- operator_gate_marker: KV_VALIDATION_AGENT_OPERATOR_GATE_V1|status=operator_gate_ready_with_notes|reason=safe_operator_gate_reference_ready_with_notes
+- decision_memo_marker: KV_VALIDATION_AGENT_GATE_DECISION_MEMO_V1|status=decision_memo_ready_with_notes|reason=safe_decision_memo_reference_ready_with_notes
+- runtime_entry_contract_marker: KV_VALIDATION_AGENT_RUNTIME_ENTRY_CONTRACT_V1|status=runtime_entry_contract_ready_with_notes|reason=safe_runtime_entry_reference_ready_with_notes
+- runtime_request_packet_marker: KV_VALIDATION_AGENT_RUNTIME_REQUEST_PACKET_V1|status=runtime_request_packet_ready_with_notes|reason=safe_runtime_request_reference_ready_with_notes
+- runtime_review_response_marker: KV_VALIDATION_AGENT_RUNTIME_REVIEW_RESPONSE_V1|status=review_response_ready_with_notes|reason=safe_review_response_reference_ready_with_notes
+- review_cycle_bundle_marker: KV_VALIDATION_AGENT_REVIEW_CYCLE_BUNDLE_V1|status=review_cycle_bundle_ready_with_notes|reason=safe_review_cycle_reference_ready_with_notes
+- policy_marker: KV_SHADOW_OPERATOR_POLICY_V1|status=blocked|reason=validation_artifact_missing
+- baseline_marker: KV_SHADOW_BASELINE_FREEZE_V1|status=baseline_freeze_blocked|reason=baseline_artifact_missing
+- handoff_marker: KV_SHADOW_HANDOFF_PACK_V1|status=blocked|reason=handoff_blocked_missing_artifacts
+- triage_marker: KV_OPERATOR_BACKLOG_TRIAGE_V1|status=triage_blocked|reason=unresolved_true_blockers_remain
+
+## archive_readiness_state
+- governance_chain_archived_completeness: complete_with_notes
+- marker_completeness: complete
+- signoff_packet_availability: available
+- continuity_preservation: preserved
+- change_control_readiness: ready
+- non_execution_confirmation: confirmed
+- runtime_closed_state: closed
+- unresolved_notes_carry_forward_handling_ru: Notes переносятся в archive/change-control контур без открытия runtime.
+
+## recommended_next_phase_step
+- phase: phase36_5_governance_maintenance_window_v1
+- goal_ru: Подготовить регламент поддержания архива и versioned change-control обновлений без открытия runtime.
+- runtime_authorization_change: False
+
+## change_control_rules
+- any future change requires separate review
+- any future runtime-opening change requires separate authorized phase
+- no implicit reuse of signoff as runtime permission
+- no silent modification of archived governance chain
+- no policy/baseline bypass through archive state
+- no approval/audit bypass through archive state
+- versioned update expectation for future change packets
+- operator-visible change traceability requirement
+
+## change_control_invariants
+- archive-only governance flow
+- change-control-only interpretation
+- no runtime activation
+- no runtime execution
+- no graph mutation
+- no remediation
+- no hidden side effects
+- no policy bypass
+- no baseline bypass
+- no approval bypass
+- no audit bypass
+- no signoff-to-runtime shortcut
+- no silent execution fallback
+
+## validation_rules
+- archive_packet_has_required_sections
+- all_required_markers_present
+- archived_governance_chain_is_complete_and_consistent
+- change_control_rules_are_complete_and_consistent
+- archive_readiness_state_is_valid
+- execution_related_flags_absent
+- runtime_open_flags_absent
+- archive_packet_is_compatible_with_design_control_only_state
+
+## rejection_rules
+- missing_required_sections
+- missing_required_markers
+- malformed_archived_governance_chain
+- malformed_change_control_rules
+- malformed_archive_readiness_state
+- stale_governance_signoff_refs
+- execution_related_flags_present
+- runtime_open_fields_detected
+- hidden_action_fields_detected
+- implicit_runtime_activation_fields_detected
+
+## non_execution_confirmation
+- execution_authorized: False
+- graph_write_authorized: False
+- remediation_authorized: False
+- runtime_phase_open: False
+- archive_packet_is_not_runtime_activation_or_execution_permission: True
