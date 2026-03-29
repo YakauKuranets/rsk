@@ -1,6 +1,6 @@
-# Фаза 36.27 — Governance cycle attestation acceptance registry handoff packet (v1)
+# Фаза 36.27 — Пакет передачи реестра acceptance registry governance cycle attestation (v1)
 
-Сформировано: 2026-03-29T12:52:58Z
+Сформировано: 2026-03-29T12:56:37Z
 
 Маркер: `KV_PHASE36_GOVERNANCE_CYCLE_ATTESTATION_ACCEPTANCE_REGISTRY_HANDOFF_PACKET_V1|status=cycle_attestation_acceptance_registry_handoff_ready_with_notes|reason=safe_registry_handoff_reference_ready_with_notes`
 
@@ -8,7 +8,7 @@
 - Причина: **safe_registry_handoff_reference_ready_with_notes**
 - Пакет формализует передачу зарегистрированного accepted handed-over archived attest-нутого steady-state governance cycle как governance/reference-only артефакт без runtime-активации.
 
-## Статус handoff (`cycle_attestation_acceptance_registry_handoff_status`)
+## Статус передачи (`cycle_attestation_acceptance_registry_handoff_status`)
 - `status`: cycle_attestation_acceptance_registry_handoff_ready_with_notes
 - `reason`: safe_registry_handoff_reference_ready_with_notes
 - `missing_required_inputs`: []
@@ -17,7 +17,7 @@
 - `triage_artifact_present`: True
 - `operator_message_ru`: Сформирован governance cycle attestation acceptance registry handoff packet в режиме только чтения.
 
-## Scope handoff (`cycle_attestation_acceptance_registry_handoff_scope`)
+## Область передачи (`cycle_attestation_acceptance_registry_handoff_scope`)
 - `scope_target`: handoff_registered_accepted_handed_over_archived_attested_steady_state_governance_cycle
 - `governance_reference_only`: True
 - `is_runtime_authorization`: False
@@ -91,7 +91,7 @@
 - `remediation_authorized`: False
 - `runtime_phase_open`: False
 
-## Сводка handoff (`cycle_attestation_acceptance_registry_handoff_summary`)
+## Сводка передачи (`cycle_attestation_acceptance_registry_handoff_summary`)
 - `cycle review completed`
 - `cycle closure attestation archived, handed over, accepted, registered and handed over again as registry reference`
 - `handoff preserves registry guardrails`
@@ -99,7 +99,7 @@
 - `operator-visible registry handoff summary required`
 - `no handoff summary may imply runtime readiness`
 
-## Guardrails handoff (`cycle_attestation_acceptance_registry_handoff_guardrails`)
+## Ограничители передачи (`cycle_attestation_acceptance_registry_handoff_guardrails`)
 - `no runtime activation`
 - `no runtime execution`
 - `no graph mutation`
@@ -112,7 +112,7 @@
 - `no audit bypass`
 - `no registry-handoff-to-runtime shortcut`
 
-## Traceability rules handoff (`cycle_attestation_acceptance_registry_handoff_traceability_rules`)
+## Правила трассируемости передачи (`cycle_attestation_acceptance_registry_handoff_traceability_rules`)
 - `handoff linked to cycle attestation acceptance registry packet`
 - `handoff linked to cycle attestation acceptance packet`
 - `handoff linked to cycle attestation handover packet`
@@ -128,7 +128,7 @@
 - `no hidden governance fork via registry handoff`
 - `no implicit runtime meaning through registry handoff outputs`
 
-## Инварианты handoff (`cycle_attestation_acceptance_registry_handoff_invariants`)
+## Инварианты передачи (`cycle_attestation_acceptance_registry_handoff_invariants`)
 - `cycle-attestation-acceptance-registry-handoff-only governance flow`
 - `registry-handoff-only interpretation`
 - `no runtime activation`

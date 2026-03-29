@@ -363,7 +363,7 @@ payload = {
 out_json.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + '\n', encoding='utf-8')
 
 md = [
-    '# Фаза 36.27 — Governance cycle attestation acceptance registry handoff packet (v1)',
+    '# Фаза 36.27 — Пакет передачи реестра acceptance registry governance cycle attestation (v1)',
     '',
     f'Сформировано: {now}',
     '',
@@ -375,8 +375,8 @@ md = [
 ]
 
 sections_obj = [
-    ('Статус handoff (`cycle_attestation_acceptance_registry_handoff_status`)', cycle_attestation_acceptance_registry_handoff_status),
-    ('Scope handoff (`cycle_attestation_acceptance_registry_handoff_scope`)', cycle_attestation_acceptance_registry_handoff_scope),
+    ('Статус передачи (`cycle_attestation_acceptance_registry_handoff_status`)', cycle_attestation_acceptance_registry_handoff_status),
+    ('Область передачи (`cycle_attestation_acceptance_registry_handoff_scope`)', cycle_attestation_acceptance_registry_handoff_scope),
     ('Обязательные маркеры (`required_markers`)', required_markers),
     ('Рекомендуемый следующий шаг (`recommended_next_phase_step`)', recommended_next_phase_step),
     ('Подтверждение non-execution (`non_execution_confirmation`)', non_execution_confirmation),
@@ -387,10 +387,10 @@ for title, obj in sections_obj:
         md.append(f'- `{k}`: {v}')
 
 sections_list = [
-    ('Сводка handoff (`cycle_attestation_acceptance_registry_handoff_summary`)', cycle_attestation_acceptance_registry_handoff_summary),
-    ('Guardrails handoff (`cycle_attestation_acceptance_registry_handoff_guardrails`)', cycle_attestation_acceptance_registry_handoff_guardrails),
-    ('Traceability rules handoff (`cycle_attestation_acceptance_registry_handoff_traceability_rules`)', cycle_attestation_acceptance_registry_handoff_traceability_rules),
-    ('Инварианты handoff (`cycle_attestation_acceptance_registry_handoff_invariants`)', cycle_attestation_acceptance_registry_handoff_invariants),
+    ('Сводка передачи (`cycle_attestation_acceptance_registry_handoff_summary`)', cycle_attestation_acceptance_registry_handoff_summary),
+    ('Ограничители передачи (`cycle_attestation_acceptance_registry_handoff_guardrails`)', cycle_attestation_acceptance_registry_handoff_guardrails),
+    ('Правила трассируемости передачи (`cycle_attestation_acceptance_registry_handoff_traceability_rules`)', cycle_attestation_acceptance_registry_handoff_traceability_rules),
+    ('Инварианты передачи (`cycle_attestation_acceptance_registry_handoff_invariants`)', cycle_attestation_acceptance_registry_handoff_invariants),
     ('Правила валидации (`validation_rules`)', validation_rules),
     ('Правила отклонения (`rejection_rules`)', rejection_rules),
 ]
@@ -401,7 +401,7 @@ for title, values in sections_list:
 
 out_md.write_text('\n'.join(md) + '\n', encoding='utf-8')
 
-print('Готово: сформирован governance cycle attestation acceptance registry handoff packet в режиме read-only/design-only.')
-print('Runtime activation, runtime execution, graph mutation и remediation не открываются.')
+print('Готово: сформирован пакет передачи реестра acceptance registry в режиме только чтения и только дизайна.')
+print('Активация runtime, выполнение runtime, изменение графа и remediation не открываются.')
 print(f'Итоговый маркер: {marker}')
 PY
