@@ -1,0 +1,130 @@
+# Фаза 36.1 — Operator Handoff Governance Pack v1
+
+Сформировано: 2026-03-29T08:37:06Z
+
+Маркер: `KV_PHASE36_OPERATOR_HANDOFF_GOVERNANCE_PACK_V1|status=handoff_pack_ready_with_notes|reason=safe_handoff_reference_ready_with_notes`
+
+- Статус: **handoff_pack_ready_with_notes**
+- Причина: **safe_handoff_reference_ready_with_notes**
+- Документ только для handoff governance/reference подготовки.
+- Runtime activation/execution остаются запрещены.
+
+## handoff_pack_status
+- status: handoff_pack_ready_with_notes
+- reason: safe_handoff_reference_ready_with_notes
+- missing_required_inputs: []
+- missing_required_markers: []
+- parse_errors: []
+- triage_artifact_present: True
+- operator_message_ru: Сформирован финальный operator handoff governance pack без runtime activation.
+
+## handoff_scope
+- scope_target: operator_handoff_after_phase35_close
+- governance_artifact_type: handoff_governance_reference_pack
+- is_runtime_authorization: False
+- is_execution_permit: False
+- opens_implicit_runtime_transition: False
+- scope_ru: Пакет фиксирует handoff readiness и правила интерпретации boundary state.
+
+## boundary_guardrails
+- policy_guardrails: ['policy_marker_required', 'no_policy_bypass']
+- baseline_guardrails: ['baseline_marker_required', 'no_baseline_bypass']
+- approval_guardrails: ['approval_contract_marker_required', 'approval_record_marker_required', 'operator_gate_marker_required', 'decision_memo_marker_required']
+- audit_evidence_guardrails: ['contract_slice_approval_to_audit_marker_required', 'contract_slice_audit_to_runtime_boundary_marker_required', 'evidence_chain_consistency_required']
+- runtime_boundary_guardrails: ['future_runtime_boundary_governance_bundle_marker_required', 'runtime_open_must_remain_false']
+- operator_control_guardrails: ['review_cycle_bundle_marker_required', 'operator_verification_sequence_must_be_followed']
+- no_execution_guardrails: ['execution_authorized_must_be_false', 'no_runtime_execution']
+- no_graph_write_guardrails: ['graph_write_authorized_must_be_false', 'no_graph_mutation']
+- no_remediation_guardrails: ['remediation_authorized_must_be_false', 'no_remediation_actions']
+- no_implicit_activation_guardrails: ['no_implicit_runtime_activation', 'no_silent_execution_fallback']
+
+## required_markers
+- phase35_blueprint_marker: KV_PHASE35_VALIDATION_AGENT_DESIGN_BLUEPRINT_V1|status=phase35_blueprint_ready_with_notes|reason=safe_phase35_design_reference_ready_with_notes
+- layer_contracts_marker: KV_PHASE35_VALIDATION_AGENT_LAYER_CONTRACTS_V1|status=layer_contracts_ready_with_notes|reason=safe_layer_contract_reference_ready_with_notes
+- contract_slice_artifact_to_policy_marker: KV_PHASE35_CONTRACT_SLICE_ARTIFACT_TO_POLICY_V1|status=contract_slice_ready_with_notes|reason=safe_contract_slice_reference_ready_with_notes
+- contract_slice_policy_to_dryrun_marker: KV_PHASE35_CONTRACT_SLICE_POLICY_TO_DRYRUN_V1|status=contract_slice_ready_with_notes|reason=safe_contract_slice_reference_ready_with_notes
+- contract_slice_dryrun_to_approval_marker: KV_PHASE35_CONTRACT_SLICE_DRYRUN_TO_APPROVAL_V1|status=contract_slice_ready_with_notes|reason=safe_contract_slice_reference_ready_with_notes
+- contract_slice_approval_to_audit_marker: KV_PHASE35_CONTRACT_SLICE_APPROVAL_TO_AUDIT_V1|status=contract_slice_ready_with_notes|reason=safe_contract_slice_reference_ready_with_notes
+- contract_slice_audit_to_runtime_boundary_marker: KV_PHASE35_CONTRACT_SLICE_AUDIT_TO_RUNTIME_BOUNDARY_V1|status=contract_slice_ready_with_notes|reason=safe_contract_slice_reference_ready_with_notes
+- future_runtime_boundary_governance_bundle_marker: KV_PHASE35_FUTURE_RUNTIME_BOUNDARY_GOVERNANCE_BUNDLE_V1|status=governance_bundle_ready_with_notes|reason=safe_governance_reference_ready_with_notes
+- approval_contract_marker: KV_VALIDATION_AGENT_APPROVAL_CONTRACT_V1|status=approval_contract_ready_with_notes|reason=safe_approval_reference_ready_with_notes
+- approval_record_marker: KV_VALIDATION_AGENT_APPROVAL_RECORD_V1|status=approval_record_ready_with_notes|reason=safe_approval_record_ready_with_notes
+- operator_gate_marker: KV_VALIDATION_AGENT_OPERATOR_GATE_V1|status=operator_gate_ready_with_notes|reason=safe_operator_gate_reference_ready_with_notes
+- decision_memo_marker: KV_VALIDATION_AGENT_GATE_DECISION_MEMO_V1|status=decision_memo_ready_with_notes|reason=safe_decision_memo_reference_ready_with_notes
+- runtime_entry_contract_marker: KV_VALIDATION_AGENT_RUNTIME_ENTRY_CONTRACT_V1|status=runtime_entry_contract_ready_with_notes|reason=safe_runtime_entry_reference_ready_with_notes
+- runtime_request_packet_marker: KV_VALIDATION_AGENT_RUNTIME_REQUEST_PACKET_V1|status=runtime_request_packet_ready_with_notes|reason=safe_runtime_request_reference_ready_with_notes
+- runtime_review_response_marker: KV_VALIDATION_AGENT_RUNTIME_REVIEW_RESPONSE_V1|status=review_response_ready_with_notes|reason=safe_review_response_reference_ready_with_notes
+- review_cycle_bundle_marker: KV_VALIDATION_AGENT_REVIEW_CYCLE_BUNDLE_V1|status=review_cycle_bundle_ready_with_notes|reason=safe_review_cycle_reference_ready_with_notes
+- policy_marker: KV_SHADOW_OPERATOR_POLICY_V1|status=blocked|reason=validation_artifact_missing
+- baseline_marker: KV_SHADOW_BASELINE_FREEZE_V1|status=baseline_freeze_blocked|reason=baseline_artifact_missing
+- handoff_marker: KV_SHADOW_HANDOFF_PACK_V1|status=blocked|reason=handoff_blocked_missing_artifacts
+- triage_marker_optional: KV_OPERATOR_BACKLOG_TRIAGE_V1|status=triage_blocked|reason=unresolved_true_blockers_remain
+
+## readiness_conditions
+- chain_complete: True
+- markers_complete: True
+- governance_bundle_available: True
+- non_execution_flags_confirmed: True
+- runtime_remains_closed: True
+- operator_handoff_reference_ready: True
+- no_missing_boundary_dependency: True
+
+## recommended_next_phase_step
+- phase: phase36_2_operator_briefing_and_signoff_prep_v1
+- goal_ru: Подготовить операторский briefing/signoff пакет без открытия runtime.
+- runtime_authorization_change: False
+
+## operator_verification_sequence
+- policy/baseline continuity
+- approval chain continuity
+- dry-run to approval continuity
+- approval to audit continuity
+- audit to runtime-boundary continuity
+- governance bundle continuity
+- marker completeness check
+- non-execution flags check
+- handoff readiness summary
+
+## handoff_invariants
+- handoff-only governance flow
+- no runtime activation
+- no runtime execution
+- no graph mutation
+- no remediation
+- no hidden side effects
+- no policy bypass
+- no baseline bypass
+- no approval bypass
+- no audit bypass
+- no governance bypass
+- no silent execution fallback
+
+## validation_rules
+- handoff_pack_has_required_sections
+- all_required_markers_present
+- operator_verification_sequence_is_complete_and_consistent
+- boundary_guardrails_are_complete_and_consistent
+- readiness_conditions_are_valid
+- execution_related_flags_absent
+- runtime_open_flags_absent
+- handoff_pack_is_compatible_with_design_control_only_state
+
+## rejection_rules
+- missing_required_sections
+- missing_required_markers
+- malformed_verification_sequence
+- malformed_boundary_guardrails
+- malformed_readiness_conditions
+- stale_policy_or_baseline_refs
+- stale_approval_audit_or_governance_refs
+- execution_related_flags_present
+- runtime_open_fields_detected
+- hidden_action_fields_detected
+- implicit_runtime_activation_fields_detected
+
+## non_execution_confirmation
+- execution_authorized: False
+- graph_write_authorized: False
+- remediation_authorized: False
+- runtime_phase_open: False
+- handoff_pack_is_not_runtime_activation_or_execution_permission: True
