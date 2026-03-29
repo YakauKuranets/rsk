@@ -1,0 +1,208 @@
+{
+  "version": "phase35_contract_slice_policy_to_dryrun_v1",
+  "generated_at": "2026-03-28T19:58:49Z",
+  "status": "contract_slice_ready_with_notes",
+  "reason": "safe_contract_slice_reference_ready_with_notes",
+  "marker": "KV_PHASE35_CONTRACT_SLICE_POLICY_TO_DRYRUN_V1|status=contract_slice_ready_with_notes|reason=safe_contract_slice_reference_ready_with_notes",
+  "contract_slice_status": {
+    "status": "contract_slice_ready_with_notes",
+    "reason": "safe_contract_slice_reference_ready_with_notes",
+    "missing_required_inputs": [],
+    "missing_required_markers": [],
+    "parse_errors": [],
+    "triage_artifact_present": true,
+    "operator_message_ru": "Сформирован только read-only контракт policy→dry-run без разрешения на execution."
+  },
+  "source_layer_contract": {
+    "layer_id": "policy_reasoning_layer",
+    "role_ru": "Формирует recommendation-only reasoning output без execution directives.",
+    "required_output_fields": [
+      "reasoning_id",
+      "reasoning_status",
+      "policy_ref",
+      "baseline_ref",
+      "artifact_ref",
+      "reasoning_marker",
+      "reasoning_findings",
+      "reasoning_constraints",
+      "recommendation_class",
+      "evidence_refs",
+      "generated_at"
+    ],
+    "required_references": [
+      "policy_ref",
+      "baseline_ref",
+      "artifact_ref"
+    ],
+    "allowed_reasoning_conclusions": [
+      "policy_aligned_with_notes",
+      "policy_blocked",
+      "baseline_attention_required",
+      "carry_forward_recommended",
+      "dry_run_ready_with_notes"
+    ],
+    "forbidden_output_content": [
+      "execution_directives",
+      "runtime_triggers",
+      "graph_write_commands",
+      "remediation_commands"
+    ],
+    "recommendation_only": true
+  },
+  "target_layer_contract": {
+    "layer_id": "dry_run_recommendation_layer",
+    "role_ru": "Принимает reasoning output и производит только dry-run рекомендации/summary без права исполнения.",
+    "accepted_input_fields": [
+      "reasoning_id",
+      "reasoning_status",
+      "policy_ref",
+      "baseline_ref",
+      "artifact_ref",
+      "reasoning_marker",
+      "reasoning_findings",
+      "reasoning_constraints",
+      "recommendation_class",
+      "evidence_refs",
+      "generated_at"
+    ],
+    "allowed_recommendation_payloads": [
+      "dry_run_recommendation_packet",
+      "operator_review_notes",
+      "constraint_summary",
+      "risk_summary"
+    ],
+    "allowed_summary_forms": [
+      "summary_table",
+      "priority_bucket_summary",
+      "recommendation_list"
+    ],
+    "forbidden_actions": [
+      "runtime_execution",
+      "graph_mutation",
+      "remediation_actions",
+      "approval_signal_emission"
+    ],
+    "not_approval_not_execution_signal": true
+  },
+  "reasoning_output_schema": [
+    {
+      "field": "reasoning_id",
+      "required": true,
+      "type": "string",
+      "description_ru": "Уникальный идентификатор reasoning пакета."
+    },
+    {
+      "field": "reasoning_status",
+      "required": true,
+      "type": "string",
+      "description_ru": "Статус reasoning результата."
+    },
+    {
+      "field": "policy_ref",
+      "required": true,
+      "type": "string",
+      "description_ru": "Ссылка на policy marker/ref."
+    },
+    {
+      "field": "baseline_ref",
+      "required": true,
+      "type": "string",
+      "description_ru": "Ссылка на baseline marker/ref."
+    },
+    {
+      "field": "artifact_ref",
+      "required": true,
+      "type": "string",
+      "description_ru": "Ссылка на исходный artifact context."
+    },
+    {
+      "field": "reasoning_marker",
+      "required": true,
+      "type": "string",
+      "description_ru": "Маркер reasoning output цепочки."
+    },
+    {
+      "field": "reasoning_findings",
+      "required": true,
+      "type": "array<object>",
+      "description_ru": "Нормализованные findings reasoning слоя."
+    },
+    {
+      "field": "reasoning_constraints",
+      "required": true,
+      "type": "array<string>",
+      "description_ru": "Ограничения policy/baseline для downstream dry-run."
+    },
+    {
+      "field": "recommendation_class",
+      "required": true,
+      "type": "string",
+      "description_ru": "Класс recommendation для dry-run обработки."
+    },
+    {
+      "field": "evidence_refs",
+      "required": true,
+      "type": "array<string>",
+      "description_ru": "Ссылки на evidence chain."
+    },
+    {
+      "field": "generated_at",
+      "required": true,
+      "type": "string(datetime)",
+      "description_ru": "UTC-время генерации reasoning output."
+    }
+  ],
+  "required_markers": {
+    "policy_marker": "KV_SHADOW_OPERATOR_POLICY_V1|status=blocked|reason=validation_artifact_missing",
+    "baseline_marker": "KV_SHADOW_BASELINE_FREEZE_V1|status=baseline_freeze_blocked|reason=baseline_artifact_missing",
+    "phase35_blueprint_marker": "KV_PHASE35_VALIDATION_AGENT_DESIGN_BLUEPRINT_V1|status=phase35_blueprint_ready_with_notes|reason=safe_phase35_design_reference_ready_with_notes",
+    "layer_contracts_marker": "KV_PHASE35_VALIDATION_AGENT_LAYER_CONTRACTS_V1|status=layer_contracts_ready_with_notes|reason=safe_layer_contract_reference_ready_with_notes",
+    "contract_slice_artifact_to_policy_marker": "KV_PHASE35_CONTRACT_SLICE_ARTIFACT_TO_POLICY_V1|status=contract_slice_ready_with_notes|reason=safe_contract_slice_reference_ready_with_notes",
+    "dry_run_marker": "KV_VALIDATION_AGENT_DRY_RUN_V1|status=dry_run_ready_with_notes|reason=safe_dry_run_reference_ready_with_notes",
+    "handoff_marker": "KV_SHADOW_HANDOFF_PACK_V1|status=blocked|reason=handoff_blocked_missing_artifacts",
+    "triage_marker_optional": "KV_OPERATOR_BACKLOG_TRIAGE_V1|status=triage_blocked|reason=unresolved_true_blockers_remain"
+  },
+  "interface_invariants": [
+    "recommendation-only flow",
+    "no runtime execution",
+    "no graph mutation",
+    "no remediation",
+    "no hidden side effects",
+    "no policy bypass",
+    "no baseline bypass",
+    "no implicit transition from reasoning to action",
+    "no silent execution fallback"
+  ],
+  "validation_rules": [
+    "reasoning_output_has_required_fields",
+    "required_markers_present",
+    "recommendation_class_allowed",
+    "evidence_refs_are_well_formed",
+    "output_is_compatible_with_dry_run_input",
+    "execution_related_flags_absent",
+    "reasoning_constraints_align_with_policy_baseline_chain"
+  ],
+  "rejection_rules": [
+    "missing_required_fields",
+    "missing_required_markers",
+    "stale_policy_or_baseline_refs",
+    "malformed_reasoning_findings",
+    "malformed_evidence_refs",
+    "execution_related_flags_present",
+    "hidden_action_fields_detected",
+    "unsupported_recommendation_class"
+  ],
+  "non_execution_confirmation": {
+    "execution_authorized": false,
+    "graph_write_authorized": false,
+    "remediation_authorized": false,
+    "runtime_phase_open": false,
+    "contract_slice_is_not_runtime_permission": true
+  },
+  "recommended_next_contract_slice": {
+    "slice_id": "dry_run_recommendation_to_approval_interface_v1",
+    "goal_ru": "Зафиксировать границу между dry-run recommendation и approval interface без открытия runtime.",
+    "depends_on_current_slice": true,
+    "runtime_authorization_change": false
+  }
+}

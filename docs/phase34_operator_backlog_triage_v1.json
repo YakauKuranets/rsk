@@ -1,6 +1,6 @@
 {
   "version": "phase34_operator_backlog_triage_v1",
-  "generated_at": "2026-03-28T16:01:22Z",
+  "generated_at": "2026-03-28T19:11:12Z",
   "status": "triage_blocked",
   "reason": "unresolved_true_blockers_remain",
   "marker": "KV_OPERATOR_BACKLOG_TRIAGE_V1|status=triage_blocked|reason=unresolved_true_blockers_remain",
@@ -12,7 +12,8 @@
     "baseline_status": "baseline_freeze_blocked",
     "operator_policy_status": "blocked",
     "planning_status": "planning_ready_with_notes",
-    "missing_inputs": []
+    "missing_inputs": [],
+    "input_errors": []
   },
   "reclassified_items": [
     {
