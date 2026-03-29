@@ -89,16 +89,27 @@ recommended_next_phase_step={'phase':'phase36_13_governance_closure_memo_packet_
 marker=f"KV_PHASE36_GOVERNANCE_RETENTION_AUDIT_LOG_PACKET_V1|status={status}|reason={reason}"
 payload={'version':'phase36_governance_retention_audit_log_packet_v1','generated_at':now,'status':status,'reason':reason,'marker':marker,'retention_audit_log_status':retention_audit_log_status,'retention_audit_log_scope':retention_audit_log_scope,'audit_log_schema':audit_log_schema,'retention_audit_event_rules':retention_audit_event_rules,'required_markers':markers,'audit_log_traceability_rules':audit_log_traceability_rules,'audit_log_invariants':audit_log_invariants,'validation_rules':validation_rules,'rejection_rules':rejection_rules,'non_execution_confirmation':non_execution_confirmation,'recommended_next_phase_step':recommended_next_phase_step}
 outj.write_text(json.dumps(payload,ensure_ascii=False,indent=2)+'\n',encoding='utf-8')
-md=['# Фаза 36.12 — Governance Retention Audit Log Packet v1','',f'Сформировано: {now}','',f'Маркер: `{marker}`','',f'- Статус: **{status}**',f'- Причина: **{reason}**','- Пакет фиксирует формат retention-аудит логов без открытия runtime.','','## retention_audit_log_status']
-for k,v in retention_audit_log_status.items(): md.append(f'- {k}: {v}')
-for n,o in [('retention_audit_log_scope',retention_audit_log_scope),('required_markers',markers),('recommended_next_phase_step',recommended_next_phase_step)]:
-    md.extend(['',f'## {n}'])
-    for k,v in o.items(): md.append(f'- {k}: {v}')
-for n,vals in [('audit_log_schema',audit_log_schema),('retention_audit_event_rules',retention_audit_event_rules),('audit_log_traceability_rules',audit_log_traceability_rules),('audit_log_invariants',audit_log_invariants),('validation_rules',validation_rules),('rejection_rules',rejection_rules)]:
-    md.extend(['',f'## {n}'])
-    for v in vals: md.append(f'- {v}')
-md.extend(['','## non_execution_confirmation'])
-for k,v in non_execution_confirmation.items(): md.append(f'- {k}: {v}')
+md=['# Фаза 36.12 — Пакет governance retention audit log (v1)','',f'Сформировано: {now}','',f'Маркер: `{marker}`','',f'- Статус: **{status}**',f'- Причина: **{reason}**','- Пакет фиксирует канонический формат retention-аудит логов для outcome-record артефактов без открытия runtime.','','## Статус пакета retention-аудит лога (`retention_audit_log_status`)']
+for k,v in retention_audit_log_status.items(): md.append(f'- `{k}`: {v}')
+for n,o,title in [
+    ('retention_audit_log_scope',retention_audit_log_scope,'Область пакета (`retention_audit_log_scope`)'),
+    ('required_markers',markers,'Обязательные маркеры (`required_markers`)'),
+    ('recommended_next_phase_step',recommended_next_phase_step,'Рекомендуемый следующий шаг (`recommended_next_phase_step`)')
+]:
+    md.extend(['',f'## {title}'])
+    for k,v in o.items(): md.append(f'- `{k}`: {v}')
+for n,vals,title in [
+    ('audit_log_schema',audit_log_schema,'Схема audit-log записи (`audit_log_schema`)'),
+    ('retention_audit_event_rules',retention_audit_event_rules,'Правила retention-аудит событий (`retention_audit_event_rules`)'),
+    ('audit_log_traceability_rules',audit_log_traceability_rules,'Правила traceability (`audit_log_traceability_rules`)'),
+    ('audit_log_invariants',audit_log_invariants,'Инварианты (`audit_log_invariants`)'),
+    ('validation_rules',validation_rules,'Правила валидации (`validation_rules`)'),
+    ('rejection_rules',rejection_rules,'Правила отклонения (`rejection_rules`)')
+]:
+    md.extend(['',f'## {title}'])
+    for v in vals: md.append(f'- `{v}`')
+md.extend(['','## Подтверждение non-execution (`non_execution_confirmation`)'])
+for k,v in non_execution_confirmation.items(): md.append(f'- `{k}`: {v}')
 outm.write_text('\n'.join(md)+'\n',encoding='utf-8')
 print('Готово: сформирован governance retention audit log packet в режиме read-only/design-only.')
 print('Runtime activation/execution, graph writes и remediation остаются закрытыми.')
