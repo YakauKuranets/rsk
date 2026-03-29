@@ -1,6 +1,6 @@
 # Phase 34 Operator Backlog Triage v1
 
-Generated at: 2026-03-28T16:01:22Z
+Generated at: 2026-03-28T19:11:12Z
 
 Marker: `KV_OPERATOR_BACKLOG_TRIAGE_V1|status=triage_blocked|reason=unresolved_true_blockers_remain`
 
@@ -16,6 +16,7 @@ Marker: `KV_OPERATOR_BACKLOG_TRIAGE_V1|status=triage_blocked|reason=unresolved_t
 - operator_policy_status: blocked
 - planning_status: planning_ready_with_notes
 - missing_inputs: []
+- input_errors: []
 
 ## reclassified_items
 - BKL-001 | high -> high | blocker=true | accepted_note=false | carry_forward=false
