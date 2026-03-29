@@ -1,0 +1,140 @@
+# Фаза 36.11 — Governance Record Retention Packet v1
+
+Сформировано: 2026-03-29T10:09:31Z
+
+Маркер: `KV_PHASE36_GOVERNANCE_RECORD_RETENTION_PACKET_V1|status=retention_packet_ready_with_notes|reason=safe_retention_reference_ready_with_notes`
+
+- Статус: **retention_packet_ready_with_notes**
+- Причина: **safe_retention_reference_ready_with_notes**
+- Пакет фиксирует политику хранения и аудита outcome-record артефактов без открытия runtime.
+
+## retention_packet_status
+- status: retention_packet_ready_with_notes
+- reason: safe_retention_reference_ready_with_notes
+- missing_required_inputs: []
+- missing_required_markers: []
+- parse_errors: []
+- triage_artifact_present: True
+- operator_message_ru: Сформирован governance record retention packet в reference-only режиме.
+
+## retention_scope
+- scope_target: governance_outcome_record_retention_policy
+- governance_artifact_type: retention_reference_packet
+- is_runtime_authorization: False
+- is_execution_permit: False
+- opens_implicit_runtime_transition: False
+- replaces_future_runtime_phase: False
+- scope_ru: Пакет относится только к политике хранения governance outcome record артефактов.
+- governance_reference_only_ru: Пакет является governance/reference артефактом.
+
+## required_markers
+- phase35_blueprint_marker: KV_PHASE35_VALIDATION_AGENT_DESIGN_BLUEPRINT_V1|status=phase35_blueprint_ready_with_notes|reason=safe_phase35_design_reference_ready_with_notes
+- layer_contracts_marker: KV_PHASE35_VALIDATION_AGENT_LAYER_CONTRACTS_V1|status=layer_contracts_ready_with_notes|reason=safe_layer_contract_reference_ready_with_notes
+- contract_slice_artifact_to_policy_marker: KV_PHASE35_CONTRACT_SLICE_ARTIFACT_TO_POLICY_V1|status=contract_slice_ready_with_notes|reason=safe_contract_slice_reference_ready_with_notes
+- contract_slice_policy_to_dryrun_marker: KV_PHASE35_CONTRACT_SLICE_POLICY_TO_DRYRUN_V1|status=contract_slice_ready_with_notes|reason=safe_contract_slice_reference_ready_with_notes
+- contract_slice_dryrun_to_approval_marker: KV_PHASE35_CONTRACT_SLICE_DRYRUN_TO_APPROVAL_V1|status=contract_slice_ready_with_notes|reason=safe_contract_slice_reference_ready_with_notes
+- contract_slice_approval_to_audit_marker: KV_PHASE35_CONTRACT_SLICE_APPROVAL_TO_AUDIT_V1|status=contract_slice_ready_with_notes|reason=safe_contract_slice_reference_ready_with_notes
+- contract_slice_audit_to_runtime_boundary_marker: KV_PHASE35_CONTRACT_SLICE_AUDIT_TO_RUNTIME_BOUNDARY_V1|status=contract_slice_ready_with_notes|reason=safe_contract_slice_reference_ready_with_notes
+- future_runtime_boundary_governance_bundle_marker: KV_PHASE35_FUTURE_RUNTIME_BOUNDARY_GOVERNANCE_BUNDLE_V1|status=governance_bundle_ready_with_notes|reason=safe_governance_reference_ready_with_notes
+- operator_handoff_governance_pack_marker: KV_PHASE36_OPERATOR_HANDOFF_GOVERNANCE_PACK_V1|status=handoff_pack_ready_with_notes|reason=safe_handoff_reference_ready_with_notes
+- operator_briefing_signoff_prep_pack_marker: KV_PHASE36_OPERATOR_BRIEFING_SIGNOFF_PREP_PACK_V1|status=briefing_pack_ready_with_notes|reason=safe_briefing_reference_ready_with_notes
+- final_operator_signoff_packet_marker: KV_PHASE36_FINAL_OPERATOR_SIGNOFF_PACKET_V1|status=signoff_packet_ready_with_notes|reason=safe_signoff_reference_ready_with_notes
+- governance_archive_change_control_packet_marker: KV_PHASE36_GOVERNANCE_ARCHIVE_CHANGE_CONTROL_PACKET_V1|status=archive_packet_ready_with_notes|reason=safe_archive_reference_ready_with_notes
+- governance_maintenance_window_packet_marker: KV_PHASE36_GOVERNANCE_MAINTENANCE_WINDOW_PACKET_V1|status=maintenance_packet_ready_with_notes|reason=safe_maintenance_reference_ready_with_notes
+- versioned_governance_successor_template_packet_marker: KV_PHASE36_VERSIONED_GOVERNANCE_SUCCESSOR_TEMPLATE_PACKET_V1|status=successor_template_ready_with_notes|reason=safe_successor_reference_ready_with_notes
+- governance_successor_review_packet_marker: KV_PHASE36_GOVERNANCE_SUCCESSOR_REVIEW_PACKET_V1|status=successor_review_ready_with_notes|reason=safe_successor_review_reference_ready_with_notes
+- successor_review_checklist_runbook_packet_marker: KV_PHASE36_SUCCESSOR_REVIEW_CHECKLIST_RUNBOOK_PACKET_V1|status=runbook_ready_with_notes|reason=safe_runbook_reference_ready_with_notes
+- successor_review_outcome_template_packet_marker: KV_PHASE36_SUCCESSOR_REVIEW_OUTCOME_TEMPLATE_PACKET_V1|status=outcome_template_ready_with_notes|reason=safe_outcome_reference_ready_with_notes
+- governance_outcome_record_packet_marker: KV_PHASE36_GOVERNANCE_OUTCOME_RECORD_PACKET_V1|status=outcome_record_ready_with_notes|reason=safe_outcome_record_reference_ready_with_notes
+- approval_contract_marker: KV_VALIDATION_AGENT_APPROVAL_CONTRACT_V1|status=approval_contract_ready_with_notes|reason=safe_approval_reference_ready_with_notes
+- approval_record_marker: KV_VALIDATION_AGENT_APPROVAL_RECORD_V1|status=approval_record_ready_with_notes|reason=safe_approval_record_ready_with_notes
+- operator_gate_marker: KV_VALIDATION_AGENT_OPERATOR_GATE_V1|status=operator_gate_ready_with_notes|reason=safe_operator_gate_reference_ready_with_notes
+- decision_memo_marker: KV_VALIDATION_AGENT_GATE_DECISION_MEMO_V1|status=decision_memo_ready_with_notes|reason=safe_decision_memo_reference_ready_with_notes
+- runtime_entry_contract_marker: KV_VALIDATION_AGENT_RUNTIME_ENTRY_CONTRACT_V1|status=runtime_entry_contract_ready_with_notes|reason=safe_runtime_entry_reference_ready_with_notes
+- runtime_request_packet_marker: KV_VALIDATION_AGENT_RUNTIME_REQUEST_PACKET_V1|status=runtime_request_packet_ready_with_notes|reason=safe_runtime_request_reference_ready_with_notes
+- runtime_review_response_marker: KV_VALIDATION_AGENT_RUNTIME_REVIEW_RESPONSE_V1|status=review_response_ready_with_notes|reason=safe_review_response_reference_ready_with_notes
+- review_cycle_bundle_marker: KV_VALIDATION_AGENT_REVIEW_CYCLE_BUNDLE_V1|status=review_cycle_bundle_ready_with_notes|reason=safe_review_cycle_reference_ready_with_notes
+- policy_marker: KV_SHADOW_OPERATOR_POLICY_V1|status=blocked|reason=validation_artifact_missing
+- baseline_marker: KV_SHADOW_BASELINE_FREEZE_V1|status=baseline_freeze_blocked|reason=baseline_artifact_missing
+- handoff_marker: KV_SHADOW_HANDOFF_PACK_V1|status=blocked|reason=handoff_blocked_missing_artifacts
+- triage_marker: KV_OPERATOR_BACKLOG_TRIAGE_V1|status=triage_blocked|reason=unresolved_true_blockers_remain
+
+## recommended_next_phase_step
+- phase: phase36_12_governance_retention_audit_log_packet_v1
+- goal_ru: Подготовить формат retention-аудит лога без открытия runtime.
+- runtime_authorization_change: False
+
+## retention_policy
+- outcome records must remain preserved as governance history
+- template/review/runbook/outcome linkage must remain preservable
+- retention must preserve marker continuity
+- retention must preserve operator-visible summaries
+- no silent deletion of active governance records
+- no silent rewrite of archived governance records
+- retention updates require separate governed change path
+- retention must not weaken non-execution boundaries
+
+## retention_audit_requirements
+- retained outcome records must remain auditable
+- retained continuity findings must remain reviewable
+- retained traceability findings must remain reviewable
+- retained marker transitions must remain reviewable
+- predecessor linkage must remain auditable
+- review/runbook linkage must remain auditable
+- no hidden governance fork through retention handling
+- operator-visible audit summary required
+
+## retention_traceability_rules
+- outcome record lineage traceable
+- template lineage traceable
+- review lineage traceable
+- runbook lineage traceable
+- archived chain preserved
+- retention events operator-visible
+- no silent record replacement
+- no silent lineage break
+- no implicit transition from retained records to runtime meaning
+
+## retention_invariants
+- retention-only governance flow
+- record-history-only interpretation
+- no runtime activation
+- no runtime execution
+- no graph mutation
+- no remediation
+- no hidden side effects
+- no policy bypass
+- no baseline bypass
+- no approval bypass
+- no audit bypass
+- no retained-record-to-runtime shortcut
+- no silent execution fallback
+
+## validation_rules
+- retention_packet_has_required_sections
+- all_required_markers_present
+- retention_policy_is_complete_and_consistent
+- retention_audit_requirements_are_complete_and_consistent
+- retention_traceability_rules_are_complete_and_consistent
+- execution_related_flags_absent
+- runtime_open_flags_absent
+- retention_packet_is_compatible_with_design_control_only_state
+
+## rejection_rules
+- missing_required_sections
+- missing_required_markers
+- malformed_retention_policy
+- malformed_retention_audit_requirements
+- malformed_retention_traceability_rules
+- stale_governance_outcome_refs
+- execution_related_flags_present
+- runtime_open_fields_detected
+- hidden_action_fields_detected
+- implicit_runtime_activation_fields_detected
+
+## non_execution_confirmation
+- execution_authorized: False
+- graph_write_authorized: False
+- remediation_authorized: False
+- runtime_phase_open: False
+- retention_packet_is_not_runtime_activation_or_execution_permission: True
