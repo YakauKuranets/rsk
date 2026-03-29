@@ -1,6 +1,6 @@
 {
   "version": "phase36_final_operator_signoff_packet_v1",
-  "generated_at": "2026-03-29T08:47:58Z",
+  "generated_at": "2026-03-29T08:52:20Z",
   "status": "signoff_packet_ready_with_notes",
   "reason": "safe_signoff_reference_ready_with_notes",
   "marker": "KV_PHASE36_FINAL_OPERATOR_SIGNOFF_PACKET_V1|status=signoff_packet_ready_with_notes|reason=safe_signoff_reference_ready_with_notes",
@@ -11,7 +11,7 @@
     "missing_required_markers": [],
     "parse_errors": [],
     "triage_artifact_present": true,
-    "operator_message_ru": "Сформирован final operator signoff packet без runtime activation."
+    "operator_message_ru": "Сформирован финальный reference-only signoff packet без runtime activation и execution."
   },
   "signoff_scope": {
     "scope_target": "final_operator_signoff_after_briefing_signoff_prep",
@@ -20,7 +20,11 @@
     "is_execution_permit": false,
     "opens_implicit_runtime_transition": false,
     "replaces_future_runtime_phase": false,
-    "scope_ru": "Финальная фиксация signoff readiness в design/control режиме."
+    "scope_ru": "Пакет относится только к финальному operator signoff после briefing/signoff-prep.",
+    "governance_reference_only_ru": "Пакет является governance/reference артефактом design/control-only контура.",
+    "runtime_denial_ru": "Пакет не является разрешением на runtime authorization или execution permit.",
+    "no_implicit_runtime_transition_ru": "Пакет не открывает неявный переход к runtime.",
+    "future_runtime_phase_required_ru": "Пакет не заменяет отдельную будущую runtime-фазу с отдельной авторизацией."
   },
   "signoff_readiness_state": {
     "chain_completeness_state": "complete_with_notes",
@@ -30,8 +34,8 @@
     "operator_review_completeness_state": "validated",
     "non_execution_confirmation_state": "confirmed",
     "runtime_closed_state": "closed",
-    "unresolved_notes_handling_ru": "Ноты допустимы при сохранении non-execution guardrails и явной документации.",
-    "not_runtime_permission_ru": "signoff readiness не означает runtime permission."
+    "unresolved_notes_handling_ru": "Неразрешённые notes фиксируются как reference-only ограничения без открытия execution.",
+    "not_runtime_permission_ru": "Signoff readiness в рамках этой фазы не означает runtime permission."
   },
   "signoff_review_checklist": [
     "policy/baseline reviewed",
@@ -68,7 +72,7 @@
     "policy_marker": "KV_SHADOW_OPERATOR_POLICY_V1|status=blocked|reason=validation_artifact_missing",
     "baseline_marker": "KV_SHADOW_BASELINE_FREEZE_V1|status=baseline_freeze_blocked|reason=baseline_artifact_missing",
     "handoff_marker": "KV_SHADOW_HANDOFF_PACK_V1|status=blocked|reason=handoff_blocked_missing_artifacts",
-    "triage_marker_optional": "KV_OPERATOR_BACKLOG_TRIAGE_V1|status=triage_blocked|reason=unresolved_true_blockers_remain"
+    "triage_marker": "KV_OPERATOR_BACKLOG_TRIAGE_V1|status=triage_blocked|reason=unresolved_true_blockers_remain"
   },
   "operator_acknowledgement_rules": [
     "acknowledge governance-only state",
@@ -125,7 +129,7 @@
   },
   "recommended_next_phase_step": {
     "phase": "phase36_4_governance_archive_and_change_control_v1",
-    "goal_ru": "Закрепить архивирование governance-пакетов и change-control без runtime activation.",
+    "goal_ru": "Консолидировать архив governance/signoff артефактов и change-control без runtime activation.",
     "runtime_authorization_change": false
   }
 }
