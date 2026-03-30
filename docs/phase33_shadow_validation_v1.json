@@ -1,15 +1,16 @@
 {
   "version": "phase33_shadow_validation_v1",
-  "generated_at": "2026-03-30T09:23:08Z",
-  "batch_id": "rem_batch_20260330091942",
+  "generated_at": "2026-03-30T12:47:48Z",
+  "batch_id": "rem_batch_20260330124423",
   "status": "pass",
   "reason": "graph_consistent",
   "checks": {
     "run_count": 100,
     "capability_links": 100,
     "finding_links": 100,
-    "orphan_runs": 0
+    "orphan_runs": 0,
+    "global_runs": 700
   },
   "details": [],
-  "marker": "KV_SHADOW_VALIDATION_V1|status=pass|reason=graph_consistent|batch_id=rem_batch_20260330091942"
+  "marker": "KV_SHADOW_VALIDATION_V1|status=pass|reason=graph_consistent|batch_id=rem_batch_20260330124423"
 }

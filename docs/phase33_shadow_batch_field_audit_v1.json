@@ -1,6 +1,6 @@
 {
   "version": "phase33_shadow_batch_field_audit_v1",
-  "generated_at": "2026-03-30T09:23:16Z",
+  "generated_at": "2026-03-30T12:47:57Z",
   "canonical_field": "batch_id",
   "legacy_field": "run_batch_id",
   "status": "pass",
@@ -8,7 +8,7 @@
   "counts": {
     "batch_id_only": 0,
     "run_batch_id_only": 0,
-    "both": 300,
+    "both": 700,
     "neither": 0
   },
   "marker": "KV_SHADOW_BATCH_FIELD_AUDIT_V1|status=pass|reason=canonical_batch_id_clean|runBatchOnly=0|neither=0"

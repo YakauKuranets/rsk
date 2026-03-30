@@ -1,9 +1,9 @@
 # Phase 32 Exit Criteria Report v1
 
-Generated at: 2026-03-30T09:23:06Z
+Generated at: 2026-03-30T12:47:46Z
 
 Marker:
-`KV_EXIT_CRITERIA_V1|status=pass_with_notes|blocked=0|ts=2026-03-30T09:23:06Z`
+`KV_EXIT_CRITERIA_V1|status=pass_with_notes|blocked=0|ts=2026-03-30T12:47:46Z`
 
 ## Overall status
 - **pass_with_notes**

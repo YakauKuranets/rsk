@@ -1,13 +1,13 @@
 {
   "version": "phase32_remediation_integrated_load_v1",
-  "generated_at": "2026-03-30T09:19:42Z",
+  "generated_at": "2026-03-30T12:44:23Z",
   "status": "pass_with_notes",
   "reason": "writes_completed",
-  "batch_id": "rem_batch_20260330091942",
+  "batch_id": "rem_batch_20260330124423",
   "total_events": 100,
   "queued": 100,
   "written": 100,
   "skipped": 0,
   "errored": 0,
-  "marker": "KV_EXIT_REMEDIATION_V1|stage=integrated_load|status=pass_with_notes|reason=writes_completed|batchId=rem_batch_20260330091942|events=100|written=100|errored=0"
+  "marker": "KV_EXIT_REMEDIATION_V1|stage=integrated_load|status=pass_with_notes|reason=writes_completed|batchId=rem_batch_20260330124423|events=100|written=100|errored=0"
 }

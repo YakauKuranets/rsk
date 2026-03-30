@@ -1,6 +1,6 @@
 {
   "version": "phase32_graph_env_readiness_v1",
-  "generated_at": "2026-03-30T09:19:40Z",
+  "generated_at": "2026-03-30T12:44:21Z",
   "status": "pass",
   "reason": "ready",
   "neo4j_reachable": true,
@@ -9,5 +9,5 @@
   "env_complete": true,
   "missing_env_keys": [],
   "shadow_write_enabled": true,
-  "marker": "KV_GRAPH_ENV_READY_V1|status=pass|reason=ready|neo4j_reachable=true|cypher_shell_present=true|env_complete=true|shadow_write_enabled=true|ts=2026-03-30T09:19:40Z"
+  "marker": "KV_GRAPH_ENV_READY_V1|status=pass|reason=ready|neo4j_reachable=true|cypher_shell_present=true|env_complete=true|shadow_write_enabled=true|ts=2026-03-30T12:44:21Z"
 }

@@ -1,6 +1,6 @@
 # Phase 33 Legacy Drift Governance v1
 
-Generated at: 2026-03-30T09:23:29Z
+Generated at: 2026-03-30T12:48:11Z
 
 Marker: `KV_SHADOW_LEGACY_GOVERNANCE_V1|status=pass|reason=legacy_drift_within_threshold`
 
@@ -16,9 +16,9 @@ Marker: `KV_SHADOW_LEGACY_GOVERNANCE_V1|status=pass|reason=legacy_drift_within_t
 ## Observed counts
 - batch_id_only: 0
 - run_batch_id_only: 0
-- both: 300
+- both: 700
 - neither: 0
-- total_runs: 300
+- total_runs: 700
 - canonical_coverage: 1.0
 
 ## Backfill artifact

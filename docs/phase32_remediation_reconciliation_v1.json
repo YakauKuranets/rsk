@@ -1,7 +1,7 @@
 {
   "version": "phase32_remediation_reconciliation_v1",
-  "generated_at": "2026-03-30T09:22:54Z",
-  "batch_id": "rem_batch_20260330091942",
+  "generated_at": "2026-03-30T12:47:34Z",
+  "batch_id": "rem_batch_20260330124423",
   "status": "pass",
   "reason": "batch_counts_match",
   "marker": "KV_EXIT_REMEDIATION_V1|stage=reconciliation|status=pass|reason=batch_counts_match",

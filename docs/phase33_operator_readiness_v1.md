@@ -1,6 +1,6 @@
 # Phase 33 Operator Readiness v1
 
-Generated at: 2026-03-30T09:23:29Z
+Generated at: 2026-03-30T12:48:11Z
 
 Marker: `KV_SHADOW_OPERATOR_READINESS_V1|status=pass_with_notes|reason=operator_ready_with_notes`
 

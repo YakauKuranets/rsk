@@ -1,6 +1,6 @@
 {
   "version": "phase33_handoff_pack_v1",
-  "generated_at": "2026-03-30T09:23:30Z",
+  "generated_at": "2026-03-30T12:48:11Z",
   "status": "pass",
   "reason": "handoff_ready",
   "marker": "KV_SHADOW_HANDOFF_PACK_V1|status=pass|reason=handoff_ready",

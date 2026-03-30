@@ -1,8 +1,8 @@
 {
   "report_version": "phase32_exit_criteria_report_v1",
-  "generated_at": "2026-03-30T09:23:06Z",
+  "generated_at": "2026-03-30T12:47:46Z",
   "overall_status": "pass_with_notes",
-  "marker": "KV_EXIT_CRITERIA_V1|status=pass_with_notes|blocked=0|ts=2026-03-30T09:23:06Z",
+  "marker": "KV_EXIT_CRITERIA_V1|status=pass_with_notes|blocked=0|ts=2026-03-30T12:47:46Z",
   "criteria": {
     "graph_env_ready": {
       "status": "pass",
