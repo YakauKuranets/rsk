@@ -15,6 +15,11 @@ if [[ ! -f "${SCHEMA_FILE}" ]]; then
   fi
 fi
 
+if [[ ! -r "${SCHEMA_FILE}" ]]; then
+  echo "KV_SHADOW_SCHEMA_APPLY_V1|status=blocked|reason=schema_file_not_readable|path=${SCHEMA_FILE}"
+  exit 1
+fi
+
 if [[ ! -f "${ENV_FILE}" ]]; then
   echo "KV_SHADOW_SCHEMA_APPLY_V1|status=blocked|reason=missing_env_file|path=${ENV_FILE}"
   exit 1
@@ -36,7 +41,13 @@ if ! command -v cypher-shell >/dev/null 2>&1; then
   exit 1
 fi
 
-if ! cypher-shell -a "${BOLT_URL}" -u "${NEO4J_USER}" -p "${NEO4J_PASSWORD}" -f "${SCHEMA_FILE}"; then
+SCHEMA_QUERY="$(cat "${SCHEMA_FILE}")"
+if [[ -z "${SCHEMA_QUERY}" ]]; then
+  echo "KV_SHADOW_SCHEMA_APPLY_V1|status=blocked|reason=empty_schema_file|path=${SCHEMA_FILE}"
+  exit 1
+fi
+
+if ! printf '%s\n' "${SCHEMA_QUERY}" | cypher-shell -a "${BOLT_URL}" -u "${NEO4J_USER}" -p "${NEO4J_PASSWORD}"; then
   echo "KV_SHADOW_SCHEMA_APPLY_V1|status=blocked|reason=schema_apply_failed|schema=${SCHEMA_FILE}"
   exit 1
 fi
