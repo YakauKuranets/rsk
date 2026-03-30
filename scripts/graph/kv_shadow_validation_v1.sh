@@ -3,6 +3,7 @@ set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 LEDGER_JSON="${ROOT_DIR}/docs/phase32_remediation_primary_ledger_v1.json"
+INTEGRATED_LOAD_JSON="${ROOT_DIR}/docs/phase32_remediation_integrated_load_v1.json"
 OUT_JSON="${ROOT_DIR}/docs/phase33_shadow_validation_v1.json"
 NOW_UTC="$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
 
@@ -91,10 +92,89 @@ JSON
   exit 0
 fi
 
+load_status=""
+load_reason=""
+load_batch_id=""
+load_written="-1"
+if [[ -f "${INTEGRATED_LOAD_JSON}" ]]; then
+  read -r load_status load_reason load_batch_id load_written <<EOFINLOAD
+$(python - <<PY
+import json
+with open('${INTEGRATED_LOAD_JSON}') as f:
+    d=json.load(f)
+print(d.get('status',''), d.get('reason',''), d.get('batch_id',''), d.get('written',-1))
+PY
+)
+EOFINLOAD
+fi
+
+if [[ -n "${load_batch_id}" && "${load_batch_id}" != "${batch_id}" ]]; then
+  status="blocked"
+  reason="batch_id_mismatch_between_ledger_and_integrated_load"
+  marker="KV_SHADOW_VALIDATION_V1|status=${status}|reason=${reason}|batch_id=${batch_id}"
+  cat > "${OUT_JSON}" <<JSON
+{
+  "version": "phase33_shadow_validation_v1",
+  "generated_at": "${NOW_UTC}",
+  "batch_id": "${batch_id}",
+  "status": "${status}",
+  "reason": "${reason}",
+  "checks": {
+    "run_count": 0,
+    "capability_links": 0,
+    "finding_links": 0,
+    "orphan_runs": 0
+  },
+  "details": ["ledger_and_integrated_load_batch_id_do_not_match"],
+  "integrated_load": {
+    "status": "${load_status}",
+    "reason": "${load_reason}",
+    "batch_id": "${load_batch_id}",
+    "written": ${load_written}
+  },
+  "marker": "${marker}"
+}
+JSON
+  echo "${marker}"
+  exit 0
+fi
+
+if [[ "${load_written}" == "0" ]]; then
+  status="blocked"
+  reason="no_shadow_writes_recorded_for_batch"
+  marker="KV_SHADOW_VALIDATION_V1|status=${status}|reason=${reason}|batch_id=${batch_id}"
+  cat > "${OUT_JSON}" <<JSON
+{
+  "version": "phase33_shadow_validation_v1",
+  "generated_at": "${NOW_UTC}",
+  "batch_id": "${batch_id}",
+  "status": "${status}",
+  "reason": "${reason}",
+  "checks": {
+    "run_count": 0,
+    "capability_links": 0,
+    "finding_links": 0,
+    "orphan_runs": 0
+  },
+  "details": ["integrated_load_reported_zero_written_records"],
+  "integrated_load": {
+    "status": "${load_status}",
+    "reason": "${load_reason}",
+    "batch_id": "${load_batch_id}",
+    "written": ${load_written}
+  },
+  "marker": "${marker}"
+}
+JSON
+  echo "${marker}"
+  exit 0
+fi
+
 run_count_q="MATCH (r:Run {batch_id:'${batch_id}'}) RETURN count(r)"
 cap_links_q="MATCH (r:Run {batch_id:'${batch_id}'})-[:USED_CAPABILITY]->(c:Capability) RETURN count(r)"
 finding_links_q="MATCH (r:Run {batch_id:'${batch_id}'})-[:PRODUCED_FINDING]->(f:Finding) RETURN count(f)"
 orphan_runs_q="MATCH (r:Run {batch_id:'${batch_id}'}) WHERE NOT (r)-[:PRODUCED_FINDING]->() RETURN count(r)"
+global_runs_q="MATCH (r:Run) RETURN count(r)"
 
 read_count() {
   local q="$1"
@@ -111,6 +191,7 @@ run_count="$(read_count "${run_count_q}")"
 capability_links="$(read_count "${cap_links_q}")"
 finding_links="$(read_count "${finding_links_q}")"
 orphan_runs="$(read_count "${orphan_runs_q}")"
+global_runs="$(read_count "${global_runs_q}")"
 
 status="pass"
 reason="graph_consistent"
@@ -120,6 +201,9 @@ if (( run_count <= 0 || capability_links <= 0 || finding_links <= 0 || orphan_ru
   status="blocked"
   reason="graph_integrity_failure"
   (( run_count <= 0 )) && details+=("no_runs_for_batch_id")
+  if (( run_count <= 0 && global_runs > 0 )); then
+    details+=("global_runs_exist_but_not_for_requested_batch_id")
+  fi
   (( capability_links <= 0 )) && details+=("missing_capability_links")
   (( finding_links <= 0 )) && details+=("missing_finding_links")
   (( orphan_runs > 0 )) && details+=("orphan_runs_detected")
@@ -152,7 +236,8 @@ cat > "${OUT_JSON}" <<JSON
     "run_count": ${run_count},
     "capability_links": ${capability_links},
     "finding_links": ${finding_links},
-    "orphan_runs": ${orphan_runs}
+    "orphan_runs": ${orphan_runs},
+    "global_runs": ${global_runs}
   },
   "details": ${details_json},
   "marker": "${marker}"

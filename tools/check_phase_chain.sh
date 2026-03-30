@@ -57,5 +57,14 @@ check_artifact "phase33_legacy_drift_governance" "${ROOT_DIR}/docs/phase33_legac
 check_artifact "phase33_operator_readiness" "${ROOT_DIR}/docs/phase33_operator_readiness_v1.json" "status" "reason"
 check_artifact "phase33_operator_policy" "${ROOT_DIR}/docs/phase33_operator_policy_v1.json" "status" "reason"
 check_artifact "phase33_handoff_pack" "${ROOT_DIR}/docs/phase33_handoff_pack_v1.json" "status" "reason"
-check_artifact "phase33_baseline_freeze" "${ROOT_DIR}/docs/phase33_baseline_freeze_v1.json" "baseline_status" "reason"
+if [[ -f "${ROOT_DIR}/docs/phase33_baseline_freeze_v1.json" ]]; then
+  baseline_status="$(read_json_field "${ROOT_DIR}/docs/phase33_baseline_freeze_v1.json" "status")"
+  if [[ -z "${baseline_status}" ]]; then
+    baseline_status="$(read_json_field "${ROOT_DIR}/docs/phase33_baseline_freeze_v1.json" "baseline_status")"
+  fi
+  baseline_reason="$(read_json_field "${ROOT_DIR}/docs/phase33_baseline_freeze_v1.json" "reason")"
+  echo "phase33_baseline_freeze: status=${baseline_status:-unknown} reason=${baseline_reason:-none}"
+else
+  echo "phase33_baseline_freeze: MISSING"
+fi
 check_artifact "phase34_operator_backlog_triage" "${ROOT_DIR}/docs/phase34_operator_backlog_triage_v1.json" "status" "reason"
