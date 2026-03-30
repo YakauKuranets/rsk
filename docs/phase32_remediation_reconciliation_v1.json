@@ -1,14 +1,15 @@
 {
   "version": "phase32_remediation_reconciliation_v1",
-  "generated_at": "2026-03-28T05:44:16Z",
-  "status": "blocked",
-  "reason": "missing_cypher_shell",
-  "marker": "KV_EXIT_REMEDIATION_V1|stage=reconciliation|status=blocked|reason=missing_cypher_shell",
+  "generated_at": "2026-03-30T12:47:34Z",
+  "batch_id": "rem_batch_20260330124423",
+  "status": "pass",
+  "reason": "batch_counts_match",
+  "marker": "KV_EXIT_REMEDIATION_V1|stage=reconciliation|status=pass|reason=batch_counts_match",
   "counts": {
-    "capability_runs": {"primary": 20, "graph": 0, "diff": 0},
-    "stream_findings": {"primary": 20, "graph": 0, "diff": 0},
-    "session_cookie_findings": {"primary": 20, "graph": 0, "diff": 0},
-    "archive_search_findings": {"primary": 20, "graph": 0, "diff": 0},
-    "device_service_metadata": {"primary": 20, "graph": 0, "diff": 0}
+    "capability_runs": {"primary": 20, "graph": 20, "diff": 0},
+    "stream_findings": {"primary": 20, "graph": 20, "diff": 0},
+    "session_cookie_findings": {"primary": 20, "graph": 20, "diff": 0},
+    "archive_search_findings": {"primary": 20, "graph": 20, "diff": 0},
+    "device_service_metadata": {"primary": 20, "graph": 20, "diff": 0}
   }
 }

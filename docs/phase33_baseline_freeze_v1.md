@@ -1,36 +1,36 @@
 # Phase 33 Baseline Freeze v1
 
-Generated at: 2026-03-28T14:38:55Z
+Generated at: 2026-03-30T12:48:11Z
 
-Marker: `KV_SHADOW_BASELINE_FREEZE_V1|status=baseline_freeze_blocked|reason=baseline_artifact_missing`
+Marker: `KV_SHADOW_BASELINE_FREEZE_V1|status=baseline_frozen_with_notes|reason=baseline_ready_with_notes`
 
-- baseline_status: **baseline_freeze_blocked**
-- reason: **baseline_artifact_missing**
+- baseline_status: **baseline_frozen_with_notes**
+- reason: **baseline_ready_with_notes**
 
 ## baseline_status
-- official_baseline_frozen: false
-- status: baseline_freeze_blocked
-- reason: baseline_artifact_missing
+- official_baseline_frozen: true
+- status: baseline_frozen_with_notes
+- reason: baseline_ready_with_notes
 
 ## source_artifacts
 - phase32_exit_remediation: true
-- phase33_shadow_validation: false
-- phase33_shadow_batch_field_audit: false
+- phase33_shadow_validation: true
+- phase33_shadow_batch_field_audit: true
 - phase33_legacy_drift_governance: true
 - phase33_operator_readiness: true
 - phase33_operator_policy: true
 - phase33_handoff_pack: true
 
 ## frozen_verdicts
-- phase32_status: blocked
-- shadow_validation_status: 
-- shadow_batch_field_audit_status: 
-- legacy_governance_status: blocked
-- operator_readiness_status: blocked
-- operator_policy_status: blocked
-- operator_policy_reason: validation_artifact_missing
-- handoff_status: blocked
-- handoff_reason: handoff_blocked_missing_artifacts
+- phase32_status: pass_with_notes
+- shadow_validation_status: pass
+- shadow_batch_field_audit_status: pass
+- legacy_governance_status: pass
+- operator_readiness_status: pass_with_notes
+- operator_policy_status: pass_with_notes
+- operator_policy_reason: operator_ready_with_notes
+- handoff_status: pass
+- handoff_reason: handoff_ready
 
 ## notes_to_carry_forward
 - Source verdicts are frozen snapshot values and must be re-frozen only after explicit operational update.

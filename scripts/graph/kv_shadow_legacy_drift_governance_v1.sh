@@ -75,6 +75,16 @@ PY
 )
 EOFCOUNTS
 
+read -r audit_status audit_reason <<EOFAUDIT
+$(python - <<PY
+import json
+with open('${AUDIT_JSON}') as f:
+    d=json.load(f)
+print(d.get('status',''), d.get('reason',''))
+PY
+)
+EOFAUDIT
+
 total_runs=$((batch_only + run_batch_only + both + neither))
 canonical_present=$((batch_only + both))
 
@@ -89,7 +99,13 @@ fi
 status="pass"
 reason="legacy_drift_within_threshold"
 
-if (( neither >= THRESHOLD_NEITHER_BLOCK )); then
+if [[ "${audit_status}" == "blocked" ]]; then
+  status="blocked"
+  reason="upstream_audit_blocked_${audit_reason:-unknown}"
+elif (( total_runs == 0 )); then
+  status="blocked"
+  reason="no_shadow_runs_available_for_drift_assessment"
+elif (( neither >= THRESHOLD_NEITHER_BLOCK )); then
   status="blocked"
   reason="orphan_batch_fields_detected"
 elif (( run_batch_only >= THRESHOLD_RUN_BATCH_ONLY_BLOCK )); then

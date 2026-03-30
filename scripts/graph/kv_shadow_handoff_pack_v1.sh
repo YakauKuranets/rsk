@@ -64,7 +64,7 @@ if [[ "${phase32_present}" != "true" || "${op_readiness_present}" != "true" || "
   reason="handoff_blocked_missing_artifacts"
 elif [[ "${op_readiness_status}" == "blocked" || "${op_policy_status}" == "blocked" ]]; then
   status="blocked"
-  reason="handoff_blocked_missing_artifacts"
+  reason="handoff_blocked_upstream_gate"
 elif [[ "${shadow_validation_present}" != "true" || "${batch_audit_present}" != "true" || "${legacy_gov_present}" != "true" ]]; then
   status="pass_with_notes"
   reason="handoff_ready_with_notes"

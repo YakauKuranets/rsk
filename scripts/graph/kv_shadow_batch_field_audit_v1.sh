@@ -8,6 +8,32 @@ NOW_UTC="$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
 # shellcheck source=scripts/graph/_kv_cypher.sh
 source "${ROOT_DIR}/scripts/graph/_kv_cypher.sh"
 kv_load_env
+base_reason="$(kv_env_reason)"
+
+if [[ "${base_reason}" != "ready" ]]; then
+  status="blocked"
+  reason="${base_reason}"
+  marker="KV_SHADOW_BATCH_FIELD_AUDIT_V1|status=${status}|reason=${reason}|runBatchOnly=0|neither=0"
+  cat > "${OUT_JSON}" <<JSON
+{
+  "version": "phase33_shadow_batch_field_audit_v1",
+  "generated_at": "${NOW_UTC}",
+  "canonical_field": "batch_id",
+  "legacy_field": "run_batch_id",
+  "status": "${status}",
+  "reason": "${reason}",
+  "counts": {
+    "batch_id_only": 0,
+    "run_batch_id_only": 0,
+    "both": 0,
+    "neither": 0
+  },
+  "marker": "${marker}"
+}
+JSON
+  echo "${marker}"
+  exit 0
+fi
 
 read_count() {
   local q="$1"

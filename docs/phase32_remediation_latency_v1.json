@@ -1,10 +1,10 @@
 {
   "version": "phase32_remediation_latency_v1",
-  "generated_at": "2026-03-28T05:44:23Z",
-  "status": "blocked",
-  "reason": "missing_cypher_shell",
-  "baseline_ms": 1352.05,
-  "shadow_ms": -1,
-  "overhead_ms": -1,
-  "marker": "KV_EXIT_REMEDIATION_V1|stage=latency|status=blocked|reason=missing_cypher_shell|baselineMs=1352.05|shadowMs=-1"
+  "generated_at": "2026-03-30T12:47:43Z",
+  "status": "acceptable",
+  "reason": "overhead_within_threshold",
+  "baseline_ms": 18.41,
+  "shadow_ms": 1882.48,
+  "overhead_ms": 1864.07,
+  "marker": "KV_EXIT_REMEDIATION_V1|stage=latency|status=acceptable|reason=overhead_within_threshold|baselineMs=18.41|shadowMs=1882.48"
 }

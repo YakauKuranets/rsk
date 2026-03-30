@@ -1,36 +1,37 @@
 {
   "version": "phase33_operator_readiness_v1",
-  "generated_at": "2026-03-28T13:25:42Z",
-  "status": "blocked",
-  "reason": "validation_artifact_missing",
+  "generated_at": "2026-03-30T12:48:11Z",
+  "status": "pass_with_notes",
+  "reason": "operator_ready_with_notes",
   "source_artifacts": {
     "phase32_exit_remediation": {"path": "docs/phase32_exit_remediation_report_v1.json", "present": true},
-    "phase33_shadow_validation": {"path": "docs/phase33_shadow_validation_v1.json", "present": false},
-    "phase33_shadow_batch_field_audit": {"path": "docs/phase33_shadow_batch_field_audit_v1.json", "present": false},
+    "phase32_graph_env_readiness": {"path": "docs/phase32_graph_env_readiness_v1.json", "present": true},
+    "phase33_shadow_validation": {"path": "docs/phase33_shadow_validation_v1.json", "present": true},
+    "phase33_shadow_batch_field_audit": {"path": "docs/phase33_shadow_batch_field_audit_v1.json", "present": true},
     "phase33_legacy_drift_governance": {"path": "docs/phase33_legacy_drift_governance_v1.json", "present": true},
-    "phase33_shadow_batch_field_backfill": {"path": "docs/phase33_shadow_batch_field_backfill_v1.json", "present": false}
+    "phase33_shadow_batch_field_backfill": {"path": "docs/phase33_shadow_batch_field_backfill_v1.json", "present": true}
   },
   "sections": {
     "graph_runtime_health": {
-      "status": "blocked",
-      "reason": "missing_cypher_shell"
+      "status": "pass",
+      "reason": "ready"
     },
     "remediation_health": {
-      "status": "blocked",
-      "reason": "stay_in_phase32"
+      "status": "pass_with_notes",
+      "reason": "go_to_phase33"
     },
     "shadow_validation_health": {
-      "status": "",
-      "reason": ""
+      "status": "pass",
+      "reason": "graph_consistent"
     },
     "legacy_drift_health": {
-      "status": "blocked",
-      "reason": "missing_audit_artifact"
+      "status": "pass",
+      "reason": "legacy_drift_within_threshold"
     },
     "operator_readiness": {
-      "status": "blocked",
-      "reason": "validation_artifact_missing"
+      "status": "pass_with_notes",
+      "reason": "operator_ready_with_notes"
     }
   },
-  "marker": "KV_SHADOW_OPERATOR_READINESS_V1|status=blocked|reason=validation_artifact_missing"
+  "marker": "KV_SHADOW_OPERATOR_READINESS_V1|status=pass_with_notes|reason=operator_ready_with_notes"
 }

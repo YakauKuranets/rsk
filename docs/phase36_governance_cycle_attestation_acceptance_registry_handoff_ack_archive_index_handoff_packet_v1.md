@@ -1,6 +1,6 @@
 # Фаза 36.31 — Пакет передачи индекса архивированного подтверждения registry handoff acceptance governance cycle attestation (v1)
 
-Сформировано: 2026-03-29T16:31:30Z
+Сформировано: 2026-03-29T17:35:17Z
 
 Маркер: `KV_PHASE36_GOVERNANCE_CYCLE_ATTESTATION_ACCEPTANCE_REGISTRY_HANDOFF_ACK_ARCHIVE_INDEX_HANDOFF_PACKET_V1|status=cycle_attestation_acceptance_registry_handoff_ack_archive_index_handoff_ready_with_notes|reason=safe_registry_handoff_ack_archive_index_handoff_reference_ready_with_notes`
 
@@ -18,13 +18,13 @@
 - `operator_message_ru`: Сформирован governance cycle attestation acceptance registry handoff acknowledgement archive index handoff packet в режиме только чтения.
 
 ## Область передачи индекса архивированного подтверждения (`cycle_attestation_acceptance_registry_handoff_ack_archive_index_handoff_scope`)
-- `scope_target`: handoff_of_indexed_archive_of_acknowledgement_for_handoff_registered_accepted_handed_over_archived_attested_steady_state_governance_cycle
+- `scope_target`: handoff_of_indexed_archive_acknowledgement_for_registry_handoff_acceptance_governance_cycle
 - `governance_reference_only`: True
 - `is_runtime_authorization`: False
 - `is_execution_permit`: False
 - `opens_implicit_runtime_transition`: False
 - `replaces_future_runtime_phase`: False
-- `scope_ru`: Передача индексированного архивного подтверждения получения handoff зарегистрированного accepted handed-over archived attest-нутого steady-state governance cycle.
+- `scope_ru`: Передача индексированного archive acknowledgement для registry handoff acceptance governance cycle.
 - `governance_reference_only_ru`: Артефакт относится только к governance/reference-only режиму.
 - `not_runtime_authorization_ru`: Артефакт не является runtime authorization.
 - `not_execution_permit_ru`: Артефакт не является execution permit.
@@ -86,7 +86,7 @@
 
 ## Рекомендуемый следующий шаг (`recommended_next_phase_step`)
 - `phase`: phase36_32_governance_cycle_attestation_acceptance_registry_handoff_ack_archive_index_handoff_ack_packet_v1
-- `goal_ru`: Подготовить подтверждение передачи index-пакета в рамках governance/reference-only режима без открытия runtime.
+- `goal_ru`: Подготовить подтверждение получения handoff index-пакета без открытия runtime.
 - `runtime_authorization_change`: False
 
 ## Подтверждение non-execution (`non_execution_confirmation`)
@@ -98,26 +98,28 @@
 ## Сводка передачи индекса архивированного подтверждения (`cycle_attestation_acceptance_registry_handoff_ack_archive_index_handoff_summary`)
 - `cycle review completed`
 - `cycle closure attestation archived, handed over, accepted, registered, handed over, acknowledged, archived, indexed and handed over`
-- `handoff preserves registry handoff acknowledgement archive index guardrails`
-- `handoff preserves registry handoff acknowledgement archive index interpretation`
-- `operator-visible handoff index summary required`
-- `no handoff index summary may imply runtime readiness`
+- `handoff preserves archive-index guardrails`
+- `handoff preserves archive-index interpretation`
+- `operator-visible handoff summary required`
+- `no handoff summary may imply runtime readiness`
 
 ## Ограничители передачи индекса архивированного подтверждения (`cycle_attestation_acceptance_registry_handoff_ack_archive_index_handoff_guardrails`)
 - `no runtime activation`
 - `no runtime execution`
 - `no graph mutation`
 - `no remediation`
-- `no reinterpretation of registry handoff acknowledgement archive index handoff as operational approval`
+- `no reinterpretation of archive-index handoff as operational approval`
 - `no hidden side effects`
 - `no policy bypass`
 - `no baseline bypass`
 - `no approval bypass`
 - `no audit bypass`
-- `no handoff-index-to-runtime shortcut`
+- `no archive-index-handoff-to-runtime shortcut`
 
 ## Правила трассируемости передачи индекса архивированного подтверждения (`cycle_attestation_acceptance_registry_handoff_ack_archive_index_handoff_traceability_rules`)
 - `handoff linked to cycle attestation acceptance registry handoff ack archive index packet`
+- `handoff linked to cycle attestation acceptance registry handoff ack archive packet`
+- `handoff linked to cycle attestation acceptance registry handoff ack packet`
 - `handoff linked to cycle attestation acceptance registry handoff packet`
 - `handoff linked to cycle attestation acceptance registry packet`
 - `handoff linked to cycle attestation acceptance packet`
@@ -129,10 +131,10 @@
 - `handoff linked to watch/handoff/ack chain`
 - `marker transitions traceable`
 - `retained lineage traceable`
-- `operator-visible handoff index summaries required`
-- `no silent handoff index replacement`
-- `no hidden governance fork via handoff index`
-- `no implicit runtime meaning through handoff index outputs`
+- `operator-visible handoff summaries required`
+- `no silent handoff replacement`
+- `no hidden governance fork via archive-index handoff`
+- `no implicit runtime meaning through handoff outputs`
 
 ## Инварианты передачи индекса архивированного подтверждения (`cycle_attestation_acceptance_registry_handoff_ack_archive_index_handoff_invariants`)
 - `cycle-attestation-acceptance-registry-handoff-ack-archive-index-handoff-only governance flow`
@@ -146,7 +148,7 @@
 - `no baseline bypass`
 - `no approval bypass`
 - `no audit bypass`
-- `no handoff-index-to-runtime shortcut`
+- `no archive-index-handoff-to-runtime shortcut`
 - `no silent execution fallback`
 
 ## Правила валидации (`validation_rules`)

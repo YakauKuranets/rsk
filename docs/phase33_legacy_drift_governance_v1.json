@@ -1,8 +1,8 @@
 {
   "version": "phase33_legacy_drift_governance_v1",
-  "generated_at": "2026-03-28T12:51:25Z",
-  "status": "blocked",
-  "reason": "missing_audit_artifact",
+  "generated_at": "2026-03-30T12:48:11Z",
+  "status": "pass",
+  "reason": "legacy_drift_within_threshold",
   "thresholds": {
     "run_batch_id_only_warn": 5,
     "run_batch_id_only_block": 20,
@@ -12,16 +12,16 @@
   "observed": {
     "batch_id_only": 0,
     "run_batch_id_only": 0,
-    "both": 0,
+    "both": 700,
     "neither": 0,
-    "total_runs": 0,
-    "canonical_coverage": 0
+    "total_runs": 700,
+    "canonical_coverage": 1.0
   },
   "backfill": {
-    "present": false,
-    "legacy_only_before": null,
-    "updated": null,
-    "legacy_only_after": null
+    "present": true,
+    "legacy_only_before": 0,
+    "updated": 0,
+    "legacy_only_after": 0
   },
-  "marker": "KV_SHADOW_LEGACY_GOVERNANCE_V1|status=blocked|reason=missing_audit_artifact"
+  "marker": "KV_SHADOW_LEGACY_GOVERNANCE_V1|status=pass|reason=legacy_drift_within_threshold"
 }

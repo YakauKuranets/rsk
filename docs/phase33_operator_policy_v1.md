@@ -1,31 +1,31 @@
 # Phase 33 Operator Policy v1
 
-Generated at: 2026-03-28T13:36:16Z
+Generated at: 2026-03-30T12:48:11Z
 
-Marker: `KV_SHADOW_OPERATOR_POLICY_V1|status=blocked|reason=validation_artifact_missing`
+Marker: `KV_SHADOW_OPERATOR_POLICY_V1|status=pass_with_notes|reason=operator_ready_with_notes`
 
-- status: **blocked**
-- reason: **validation_artifact_missing**
-- readiness_policy: **stop**
+- status: **pass_with_notes**
+- reason: **operator_ready_with_notes**
+- readiness_policy: **proceed_with_notes**
 
 ## Artifact requirements
 - phase33_operator_readiness_v1: true
 - phase32_exit_remediation_report_v1: true
-- phase33_shadow_validation_v1: false
+- phase33_shadow_validation_v1: true
 - phase33_legacy_drift_governance_v1: true
 
 ## Operator actions
-- primary: Do not proceed. Re-run missing upstream validation artifacts.
-- notes: 
+- primary: Proceed with workflow, but track follow-up items from readiness notes.
+- notes: Follow-up actions are mandatory before next phase gate.
 
 ## Remediation triggers
-- trigger: validation_artifact_missing
-- actions: Run audit/validation/governance scripts and regenerate readiness summary.
+- trigger: operator_ready_with_notes
+- actions: Resolve noted drift/issues in the next maintenance window.
 
 ## Escalation rules
-- Escalate if artifacts cannot be generated due environment/runtime issues.
+- Escalate if noted items increase or become blocking.
 
 ## Handoff summary
-- decision: stop
+- decision: proceed_with_notes
 - next_owner: operator
-- requires_blocker_clearance: true
+- requires_blocker_clearance: false
