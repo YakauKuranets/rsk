@@ -114,16 +114,28 @@ orphan_runs="$(read_count "${orphan_runs_q}")"
 
 status="pass"
 reason="graph_consistent"
+details=()
 
 if (( run_count <= 0 || capability_links <= 0 || finding_links <= 0 || orphan_runs > 0 )); then
   status="blocked"
   reason="graph_integrity_failure"
+  (( run_count <= 0 )) && details+=("no_runs_for_batch_id")
+  (( capability_links <= 0 )) && details+=("missing_capability_links")
+  (( finding_links <= 0 )) && details+=("missing_finding_links")
+  (( orphan_runs > 0 )) && details+=("orphan_runs_detected")
 elif (( capability_links != run_count || finding_links < run_count )); then
   status="pass_with_notes"
   reason="minor_graph_inconsistency"
+  (( capability_links != run_count )) && details+=("capability_links_not_equal_run_count")
+  (( finding_links < run_count )) && details+=("finding_links_less_than_run_count")
 fi
 
 marker="KV_SHADOW_VALIDATION_V1|status=${status}|reason=${reason}|batch_id=${batch_id}"
+if [[ ${#details[@]} -gt 0 ]]; then
+  details_json="$(printf '%s\n' "${details[@]}" | python -c 'import json,sys; print(json.dumps([x.strip() for x in sys.stdin if x.strip()]))')"
+else
+  details_json="[]"
+fi
 
 cat > "${OUT_JSON}" <<JSON
 {
@@ -138,6 +150,7 @@ cat > "${OUT_JSON}" <<JSON
     "finding_links": ${finding_links},
     "orphan_runs": ${orphan_runs}
   },
+  "details": ${details_json},
   "marker": "${marker}"
 }
 JSON

@@ -3,6 +3,7 @@ set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 PHASE32_EXIT_JSON="${ROOT_DIR}/docs/phase32_exit_remediation_report_v1.json"
+PHASE32_GRAPH_JSON="${ROOT_DIR}/docs/phase32_graph_env_readiness_v1.json"
 SHADOW_VALIDATION_JSON="${ROOT_DIR}/docs/phase33_shadow_validation_v1.json"
 BATCH_AUDIT_JSON="${ROOT_DIR}/docs/phase33_shadow_batch_field_audit_v1.json"
 LEGACY_GOV_JSON="${ROOT_DIR}/docs/phase33_legacy_drift_governance_v1.json"
@@ -43,6 +44,7 @@ artifact_present() {
 }
 
 phase32_present="$(artifact_present "${PHASE32_EXIT_JSON}")"
+phase32_graph_present="$(artifact_present "${PHASE32_GRAPH_JSON}")"
 shadow_validation_present="$(artifact_present "${SHADOW_VALIDATION_JSON}")"
 batch_audit_present="$(artifact_present "${BATCH_AUDIT_JSON}")"
 legacy_gov_present="$(artifact_present "${LEGACY_GOV_JSON}")"
@@ -52,6 +54,8 @@ phase32_overall="$(read_json_field "${PHASE32_EXIT_JSON}" "overall_status")"
 phase32_graph_status="$(read_json_field "${PHASE32_EXIT_JSON}" "graph_env_readiness.status")"
 phase32_graph_reason="$(read_json_field "${PHASE32_EXIT_JSON}" "graph_env_readiness.reason")"
 phase32_reco="$(read_json_field "${PHASE32_EXIT_JSON}" "recommendation")"
+phase32_graph_live_status="$(read_json_field "${PHASE32_GRAPH_JSON}" "status")"
+phase32_graph_live_reason="$(read_json_field "${PHASE32_GRAPH_JSON}" "reason")"
 
 shadow_validation_status="$(read_json_field "${SHADOW_VALIDATION_JSON}" "status")"
 shadow_validation_reason="$(read_json_field "${SHADOW_VALIDATION_JSON}" "reason")"
@@ -70,8 +74,14 @@ if [[ "${phase32_present}" != "true" || "${shadow_validation_present}" != "true"
   reason="validation_artifact_missing"
 elif [[ "${phase32_overall}" == "blocked" ]]; then
   status="blocked"
-  if [[ "${phase32_graph_reason}" == "missing_env_file" || "${phase32_graph_reason}" == "missing_env_keys" || "${phase32_graph_reason}" == "missing_cypher_shell" || "${phase32_graph_reason}" == "neo4j_unreachable" ]]; then
-    reason="graph_env_blocked_${phase32_graph_reason}"
+  graph_reason_for_decision="${phase32_graph_reason}"
+  if [[ "${phase32_graph_present}" == "true" ]]; then
+    graph_reason_for_decision="${phase32_graph_live_reason}"
+    phase32_graph_status="${phase32_graph_live_status}"
+    phase32_graph_reason="${phase32_graph_live_reason}"
+  fi
+  if [[ "${graph_reason_for_decision}" == "missing_env_file" || "${graph_reason_for_decision}" == "missing_env_keys" || "${graph_reason_for_decision}" == "missing_cypher_shell" || "${graph_reason_for_decision}" == "neo4j_unreachable" ]]; then
+    reason="graph_env_blocked_${graph_reason_for_decision}"
   else
     reason="remediation_not_healthy"
   fi
@@ -96,6 +106,7 @@ cat > "${OUT_JSON}" <<JSON
   "reason": "${reason}",
   "source_artifacts": {
     "phase32_exit_remediation": {"path": "docs/phase32_exit_remediation_report_v1.json", "present": ${phase32_present}},
+    "phase32_graph_env_readiness": {"path": "docs/phase32_graph_env_readiness_v1.json", "present": ${phase32_graph_present}},
     "phase33_shadow_validation": {"path": "docs/phase33_shadow_validation_v1.json", "present": ${shadow_validation_present}},
     "phase33_shadow_batch_field_audit": {"path": "docs/phase33_shadow_batch_field_audit_v1.json", "present": ${batch_audit_present}},
     "phase33_legacy_drift_governance": {"path": "docs/phase33_legacy_drift_governance_v1.json", "present": ${legacy_gov_present}},

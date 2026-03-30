@@ -97,6 +97,12 @@ case "${reason}" in
     remediation_triggers="Repair consistency issues, rerun shadow validation and readiness summary."
     escalation_rules="Escalate if graph integrity failures recur after fix."
     ;;
+  graph_env_blocked_*)
+    readiness_policy="stop"
+    operator_actions="Do not proceed. Graph environment is blocked despite upstream run."
+    remediation_triggers="Re-run kv_graph_env_readiness_v1.sh and kv_exit_remediation_v1.sh, then regenerate readiness/policy artifacts."
+    escalation_rules="Escalate to platform owner if graph env remains blocked after infra verification."
+    ;;
   *)
     readiness_policy="stop"
     operator_actions="Do not proceed until readiness reason is explicitly resolved."

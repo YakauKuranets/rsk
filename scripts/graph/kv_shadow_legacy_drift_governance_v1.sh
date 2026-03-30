@@ -102,6 +102,9 @@ reason="legacy_drift_within_threshold"
 if [[ "${audit_status}" == "blocked" ]]; then
   status="blocked"
   reason="upstream_audit_blocked_${audit_reason:-unknown}"
+elif (( total_runs == 0 )); then
+  status="blocked"
+  reason="no_shadow_runs_available_for_drift_assessment"
 elif (( neither >= THRESHOLD_NEITHER_BLOCK )); then
   status="blocked"
   reason="orphan_batch_fields_detected"
