@@ -117,6 +117,7 @@ cat > "${OUT_JSON}" <<JSON
 {
   "version": "phase33_baseline_freeze_v1",
   "generated_at": "${NOW_UTC}",
+  "status": "${baseline_status}",
   "baseline_status": "${baseline_status}",
   "reason": "${reason}",
   "marker": "${marker}",

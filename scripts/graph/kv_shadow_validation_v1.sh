@@ -130,6 +130,10 @@ elif (( capability_links != run_count || finding_links < run_count )); then
   (( finding_links < run_count )) && details+=("finding_links_less_than_run_count")
 fi
 
+if [[ "${status}" == "blocked" && ${#details[@]} -gt 0 ]]; then
+  reason="${details[0]}"
+fi
+
 marker="KV_SHADOW_VALIDATION_V1|status=${status}|reason=${reason}|batch_id=${batch_id}"
 if [[ ${#details[@]} -gt 0 ]]; then
   details_json="$(printf '%s\n' "${details[@]}" | python -c 'import json,sys; print(json.dumps([x.strip() for x in sys.stdin if x.strip()]))')"
