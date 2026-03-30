@@ -1,36 +1,37 @@
 {
   "version": "phase33_operator_readiness_v1",
-  "generated_at": "2026-03-29T19:23:39Z",
-  "status": "blocked",
-  "reason": "graph_env_blocked_missing_env_file",
+  "generated_at": "2026-03-30T09:23:29Z",
+  "status": "pass_with_notes",
+  "reason": "operator_ready_with_notes",
   "source_artifacts": {
     "phase32_exit_remediation": {"path": "docs/phase32_exit_remediation_report_v1.json", "present": true},
+    "phase32_graph_env_readiness": {"path": "docs/phase32_graph_env_readiness_v1.json", "present": true},
     "phase33_shadow_validation": {"path": "docs/phase33_shadow_validation_v1.json", "present": true},
     "phase33_shadow_batch_field_audit": {"path": "docs/phase33_shadow_batch_field_audit_v1.json", "present": true},
     "phase33_legacy_drift_governance": {"path": "docs/phase33_legacy_drift_governance_v1.json", "present": true},
-    "phase33_shadow_batch_field_backfill": {"path": "docs/phase33_shadow_batch_field_backfill_v1.json", "present": false}
+    "phase33_shadow_batch_field_backfill": {"path": "docs/phase33_shadow_batch_field_backfill_v1.json", "present": true}
   },
   "sections": {
     "graph_runtime_health": {
-      "status": "blocked",
-      "reason": "missing_env_file"
+      "status": "pass",
+      "reason": "ready"
     },
     "remediation_health": {
-      "status": "blocked",
-      "reason": "stay_in_phase32"
+      "status": "pass_with_notes",
+      "reason": "go_to_phase33"
     },
     "shadow_validation_health": {
-      "status": "blocked",
-      "reason": "missing_env_file"
+      "status": "pass",
+      "reason": "graph_consistent"
     },
     "legacy_drift_health": {
-      "status": "blocked",
-      "reason": "upstream_audit_blocked_missing_env_file"
+      "status": "pass",
+      "reason": "legacy_drift_within_threshold"
     },
     "operator_readiness": {
-      "status": "blocked",
-      "reason": "graph_env_blocked_missing_env_file"
+      "status": "pass_with_notes",
+      "reason": "operator_ready_with_notes"
     }
   },
-  "marker": "KV_SHADOW_OPERATOR_READINESS_V1|status=blocked|reason=graph_env_blocked_missing_env_file"
+  "marker": "KV_SHADOW_OPERATOR_READINESS_V1|status=pass_with_notes|reason=operator_ready_with_notes"
 }

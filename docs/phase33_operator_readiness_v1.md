@@ -1,22 +1,22 @@
 # Phase 33 Operator Readiness v1
 
-Generated at: 2026-03-29T19:23:39Z
+Generated at: 2026-03-30T09:23:29Z
 
-Marker: `KV_SHADOW_OPERATOR_READINESS_V1|status=blocked|reason=graph_env_blocked_missing_env_file`
+Marker: `KV_SHADOW_OPERATOR_READINESS_V1|status=pass_with_notes|reason=operator_ready_with_notes`
 
-- status: **blocked**
-- reason: **graph_env_blocked_missing_env_file**
+- status: **pass_with_notes**
+- reason: **operator_ready_with_notes**
 
 ## Source artifacts
 - phase32_exit_remediation: true
 - phase33_shadow_validation: true
 - phase33_shadow_batch_field_audit: true
 - phase33_legacy_drift_governance: true
-- phase33_shadow_batch_field_backfill (optional): false
+- phase33_shadow_batch_field_backfill (optional): true
 
 ## Sections
-- graph_runtime_health: blocked (missing_env_file)
-- remediation_health: blocked (stay_in_phase32)
-- shadow_validation_health: blocked (missing_env_file)
-- legacy_drift_health: blocked (upstream_audit_blocked_missing_env_file)
-- operator_readiness: blocked (graph_env_blocked_missing_env_file)
+- graph_runtime_health: pass (ready)
+- remediation_health: pass_with_notes (go_to_phase33)
+- shadow_validation_health: pass (graph_consistent)
+- legacy_drift_health: pass (legacy_drift_within_threshold)
+- operator_readiness: pass_with_notes (operator_ready_with_notes)

@@ -1,36 +1,40 @@
 {
   "report_version": "phase32_exit_criteria_report_v1",
-  "generated_at": "2026-03-26T06:35:16Z",
-  "overall_status": "blocked",
-  "marker": "KV_EXIT_CRITERIA_V1|status=blocked|blocked=2|ts=2026-03-26T06:35:16Z",
+  "generated_at": "2026-03-30T09:23:06Z",
+  "overall_status": "pass_with_notes",
+  "marker": "KV_EXIT_CRITERIA_V1|status=pass_with_notes|blocked=0|ts=2026-03-30T09:23:06Z",
   "criteria": {
+    "graph_env_ready": {
+      "status": "pass",
+      "notes": ["graph_env_reason:ready"]
+    },
     "dual_write_stability": {
-      "status": "blocked",
-      "notes": ["100-event integrated runtime load test not executed in this environment"]
+      "status": "pass_with_notes",
+      "notes": ["integrated_load_reason:writes_completed"]
     },
     "no_raw_secrets": {
       "status": "pass_with_notes",
       "notes": ["Code-level sanitization and hashed evidence refs are present"]
     },
     "ingest_no_data_loss": {
-      "status": "blocked",
-      "notes": ["Primary-vs-shadow count reconciliation window not executed"]
+      "status": "pass",
+      "notes": ["reconciliation_reason:batch_counts_match"]
     },
     "readonly_analytics_useful": {
       "status": "pass_with_notes",
-      "notes": ["Read-only analytics commands exist; live timing/usefulness needs staged run"]
+      "notes": ["Read-only analytics commands exist; usefulness remains advisory-only"]
     },
     "no_runtime_influence": {
       "status": "pass",
-      "notes": ["No direct graph-read decision coupling detected in capability runtime path"]
+      "notes": ["No direct graph-read decision coupling should exist in capability runtime path"]
     },
     "latency_acceptable": {
-      "status": "pass_with_notes",
-      "notes": ["Async non-fatal design present; p50/p95 latency benchmark pending"]
+      "status": "acceptable",
+      "notes": ["latency_reason:overhead_within_threshold"]
     }
   },
-  "blockers": ["dual_write_stability_not_executed_under_100_event_integrated_load", "ingest_no_data_loss_not_verified_against_primary_storage_window"],
-  "remediation_items": ["Run controlled integrated 100-event load through real runtime path with primary+shadow counters", "Add deterministic counter reconciliation job for last-24h mature contours", "Capture latency p50/p95 for dual-write-enabled capability path in staging"],
-  "live_check_notes": ["neo4j_live_checks_skipped"],
-  "recommendation": "no_go_to_phase33_until_blockers_resolved"
+  "blockers": [],
+  "remediation_items": ["No blocking remediation items remain; Phase32 exit criteria are satisfied with notes"],
+  "live_check_notes": ["exit_remediation_present", "exit_remediation_status:pass_with_notes", "neo4j_live_connection_ok"],
+  "recommendation": "go_to_phase33_with_notes"
 }

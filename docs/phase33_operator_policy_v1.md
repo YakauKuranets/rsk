@@ -1,12 +1,12 @@
 # Phase 33 Operator Policy v1
 
-Generated at: 2026-03-29T19:23:47Z
+Generated at: 2026-03-30T09:23:30Z
 
-Marker: `KV_SHADOW_OPERATOR_POLICY_V1|status=blocked|reason=graph_env_blocked_missing_env_file`
+Marker: `KV_SHADOW_OPERATOR_POLICY_V1|status=pass_with_notes|reason=operator_ready_with_notes`
 
-- status: **blocked**
-- reason: **graph_env_blocked_missing_env_file**
-- readiness_policy: **stop**
+- status: **pass_with_notes**
+- reason: **operator_ready_with_notes**
+- readiness_policy: **proceed_with_notes**
 
 ## Artifact requirements
 - phase33_operator_readiness_v1: true
@@ -15,17 +15,17 @@ Marker: `KV_SHADOW_OPERATOR_POLICY_V1|status=blocked|reason=graph_env_blocked_mi
 - phase33_legacy_drift_governance_v1: true
 
 ## Operator actions
-- primary: Do not proceed until readiness reason is explicitly resolved.
-- notes: 
+- primary: Proceed with workflow, but track follow-up items from readiness notes.
+- notes: Follow-up actions are mandatory before next phase gate.
 
 ## Remediation triggers
-- trigger: graph_env_blocked_missing_env_file
-- actions: Re-run readiness pipeline and inspect upstream artifacts.
+- trigger: operator_ready_with_notes
+- actions: Resolve noted drift/issues in the next maintenance window.
 
 ## Escalation rules
-- Escalate unknown reason to platform owner.
+- Escalate if noted items increase or become blocking.
 
 ## Handoff summary
-- decision: stop
+- decision: proceed_with_notes
 - next_owner: operator
-- requires_blocker_clearance: true
+- requires_blocker_clearance: false

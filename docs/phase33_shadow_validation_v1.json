@@ -1,14 +1,15 @@
 {
   "version": "phase33_shadow_validation_v1",
-  "generated_at": "2026-03-29T19:22:34Z",
-  "batch_id": "rem_batch_20260329192218",
-  "status": "blocked",
-  "reason": "missing_env_file",
+  "generated_at": "2026-03-30T09:23:08Z",
+  "batch_id": "rem_batch_20260330091942",
+  "status": "pass",
+  "reason": "graph_consistent",
   "checks": {
-    "run_count": 0,
-    "capability_links": 0,
-    "finding_links": 0,
+    "run_count": 100,
+    "capability_links": 100,
+    "finding_links": 100,
     "orphan_runs": 0
   },
-  "marker": "KV_SHADOW_VALIDATION_V1|status=blocked|reason=missing_env_file|batch_id=rem_batch_20260329192218"
+  "details": [],
+  "marker": "KV_SHADOW_VALIDATION_V1|status=pass|reason=graph_consistent|batch_id=rem_batch_20260330091942"
 }
